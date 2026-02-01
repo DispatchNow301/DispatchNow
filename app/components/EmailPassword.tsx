@@ -11,7 +11,7 @@ type EmailPasswordProps = {
 	user: User | null;
 };
 
-type Mode = "signup";
+type Mode = "signup" | "signin";
 
 export default function EmailPassword({ user }: EmailPasswordProps) {
 	const [mode, setMode] = useState("signup");
@@ -20,6 +20,12 @@ export default function EmailPassword({ user }: EmailPasswordProps) {
 	const [status, setStatus] = useState("");
 	const supabase = getSupabaseBrowserClient();
 	const [currentUser, setCurrentUser] = useState<User | null>(user);
+
+	async function handleSignOut() {
+		await supabase.auth.signOut();
+		setCurrentUser(null);
+		setStatus("Signed out successfully");
+	}
 
 	useEffect(() => {
 		const { data: listener } = supabase.auth.onAuthStateChange(
@@ -50,6 +56,16 @@ export default function EmailPassword({ user }: EmailPasswordProps) {
 				// leave this for when we add email confirm with custom SMTP to override rate limits
 				setStatus("Check your inbox to confirm the new account.");
 			}
+		} else {
+			const { error } = await supabase.auth.signInWithPassword({
+				email,
+				password,
+			});
+			if (error) {
+				setStatus(error.message);
+			} else {
+				setStatus("Signed in successfully");
+			}
 		}
 	}
 
@@ -79,25 +95,31 @@ export default function EmailPassword({ user }: EmailPasswordProps) {
 									Credentials
 								</p>
 								<h3 className="text-xl font-semibold text-white">
-									{"Create an account"}
+									{mode === "signup"
+										? "Create an account"
+										: "Welcome back"}
 								</h3>
 							</div>
 							<div className="flex rounded-full border border-white/10 bg-white/[0.07] p-1 text-xs font-semibold text-slate-300">
-								{(["signup"] as Mode[]).map((option) => (
-									<button
-										key={option}
-										type="button"
-										aria-pressed={mode === option}
-										onClick={() => setMode(option)}
-										className={`rounded-full px-4 py-1 transition ${
-											mode === option
-												? "bg-emerald-500/30 text-white shadow shadow-emerald-500/20"
-												: "text-slate-400"
-										}`}
-									>
-										{"Sign up"}
-									</button>
-								))}
+								{(["signup", "signin"] as Mode[]).map(
+									(option) => (
+										<button
+											key={option}
+											type="button"
+											aria-pressed={mode === option}
+											onClick={() => setMode(option)}
+											className={`rounded-full px-4 py-1 transition ${
+												mode === option
+													? "bg-emerald-500/30 text-white shadow shadow-emerald-500/20"
+													: "text-slate-400"
+											}`}
+										>
+											{option === "signup"
+												? "Sign up"
+												: "Sign in"}
+										</button>
+									),
+								)}
 							</div>
 						</div>
 						<div className="mt-6 space-y-4">
@@ -133,7 +155,7 @@ export default function EmailPassword({ user }: EmailPasswordProps) {
 							type="submit"
 							className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-900/30 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-emerald-600/40"
 						>
-							{"Create account"}
+							{mode === "signup" ? "Create account" : "Sign in"}
 						</button>
 						{status && (
 							<p
@@ -193,6 +215,12 @@ export default function EmailPassword({ user }: EmailPasswordProps) {
 								</dd>
 							</div>
 						</dl>
+						<button
+							className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-white/10 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/20"
+							onClick={handleSignOut}
+						>
+							Sign out
+						</button>
 					</>
 				) : (
 					<div className="mt-6 rounded-2xl border border-dashed border-white/10 bg-slate-900/50 p-5 text-sm text-slate-400">
