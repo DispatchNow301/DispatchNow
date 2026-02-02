@@ -3,11 +3,11 @@
 import Image from "next/image";
 import { useEffect, useState } from "react";
 
-// ✅ 用你项目里已经写好的组件（路径按你 repo 结构：app/components/...）
+// 
 import AuthPanel from "./components/AuthPanel";
 import EndorseButton from "./components/EndorseButton";
 
-// ✅ 用你统一的 supabase client（你之前创建的是 lib/supabase/client.ts）
+// 
 import { supabase } from "../lib/supabase/client";
 
 type ReportRow = {
@@ -141,7 +141,7 @@ function ReportsView({ onBack }: { onBack: () => void }) {
         </div>
       </div>
 
-      {/* ✅ 登录/登出面板：方便你测试 Tier / 认证 / 权限 */}
+      {/* sign in /out for testing*/}
       <div className="mb-6">
         <AuthPanel />
       </div>
@@ -175,7 +175,7 @@ function ReportsView({ onBack }: { onBack: () => void }) {
                 </div>
               ) : null}
 
-              {/* ✅ 关键：在 Reports 页面里也要渲染 EndorseButton */}
+              {/* EndorseButton */}
               <div className="mt-3">
                 <EndorseButton reportId={r.id} />
               </div>
