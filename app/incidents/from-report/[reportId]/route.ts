@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server-client";
 import { requireTier3 } from "@/lib/auth/requireTier3";
 
-const MIN_ENDORSEMENTS = 3;
+const VERIFIED_STATUS = "VERIFIED";
 
 export async function POST(
   _req: Request,
@@ -10,11 +10,13 @@ export async function POST(
 ) {
   const supabase = await createSupabaseServerClient();
 
+  // Must be logged in
   const { data: userRes, error: userErr } = await supabase.auth.getUser();
   if (userErr || !userRes?.user) {
     return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
   }
 
+  // Must be Tier 3
   const gate = await requireTier3(supabase, userRes.user.id);
   if (!gate.ok) {
     return NextResponse.json({ error: gate.error }, { status: gate.status });
@@ -22,40 +24,62 @@ export async function POST(
 
   const reportId = params.reportId;
 
+  // Pull the report and verify it's VERIFIED
   const { data: report, error: repErr } = await supabase
     .from("reports")
-    .select("id, title, endorsements")
+    .select("id, title, type, location, status, endorsements, created_at")
     .eq("id", reportId)
     .single();
 
   if (repErr || !report) {
-    return NextResponse.json({ error: "NOT_FOUND", message: "Report not found" }, { status: 404 });
+    return NextResponse.json(
+      { error: "NOT_FOUND", message: "Report not found" },
+      { status: 404 }
+    );
   }
 
-  const endorsements = typeof report.endorsements === "number" ? report.endorsements : 0;
-  if (endorsements < MIN_ENDORSEMENTS) {
+  if (report.status !== VERIFIED_STATUS) {
     return NextResponse.json(
       {
         error: "REPORT_NOT_VERIFIED",
-        message: `Report needs at least ${MIN_ENDORSEMENTS} endorsements`,
-        endorsements,
+        message: `Report status must be ${VERIFIED_STATUS}`,
+        status: report.status,
       },
       { status: 409 }
     );
   }
 
+  // Create incident (minimal incidents schema: status, closed_at)
   const { data: incident, error: insErr } = await supabase
     .from("incidents")
-    .insert({ status: "ACTIVE", closed_at: null })
+    .insert({
+      status: "ACTIVE",
+      closed_at: null,
+    })
     .select("*")
     .single();
 
   if (insErr) {
-    return NextResponse.json({ error: "DB_ERROR", message: insErr.message }, { status: 500 });
+    return NextResponse.json(
+      { error: "DB_ERROR", message: insErr.message },
+      { status: 500 }
+    );
   }
 
   return NextResponse.json(
-    { incident, createdFrom: { reportId: report.id, title: report.title } },
+    {
+      incident,
+      createdFrom: {
+        reportId: report.id,
+        title: report.title ?? null,
+        type: report.type ?? null,
+        location: report.location ?? null,
+        endorsements: typeof report.endorsements === "number" ? report.endorsements : null,
+        reportCreatedAt: report.created_at ?? null,
+      },
+      note:
+        "Incidents table currently does not store report_id; add a report_id column so we can enforce uniqueness.",
+    },
     { status: 201 }
   );
 }
