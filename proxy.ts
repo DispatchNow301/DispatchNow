@@ -1,34 +1,50 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createSupabaseServerClient } from "./lib/supabase/server-client";
-/**
- * Next.js proxy (formerly middleware) entry point responsible for basic auth gating.
- *
- * Runtime assumptions due to conflicting docs (Next.js 16):
- * - Proxy runs in the Node.js runtime by default (not Edge)
- * - Node runtime grants access to the shared cookie store used by Supabase
- *
- * What happens per request:
- * - Instantiate the Supabase server client (shares cookies via `NextResponse`)
- * - Call `supabase.auth.getUser()` which refreshes tokens if necessary
- * - Redirect anonymous users away from `/protected` routes to `/login`
- *
- * Add extra path checks or redirects here when you need more complex routing rules.
- */
+import {
+	isAuthorized,
+	RoutePermissions,
+	Tier,
+} from "./utils/route-permissions";
+
 export async function proxy(request: NextRequest) {
 	const response = NextResponse.next({
 		request: {
 			headers: request.headers,
 		},
 	});
+
 	const supabase = await createSupabaseServerClient();
 	const {
 		data: { user },
 	} = await supabase.auth.getUser();
 	console.log({ user });
 
-	// Redirect non-authenticated users away from protected routes
-	if (!user && request.nextUrl.pathname.startsWith("/protected")) {
+	const path = request.nextUrl.pathname;
+
+	// Redirect non-authenticated users away from pages that require auth
+	// We now check only the paths listed in RoutePermissions
+	if (!user && Object.keys(RoutePermissions).includes(path)) {
 		return NextResponse.redirect(new URL("/login", request.url));
 	}
+
+	if (user) {
+		const { data: profile, error } = await supabase
+			.from("profiles")
+			.select("tier")
+			.eq("id", user.id)
+			.single();
+
+		if (error || !profile) {
+			return NextResponse.redirect(new URL("/404", request.url));
+		}
+
+		const tier = profile.tier as Tier;
+
+		// Check if the user tier is allowed on this path
+		if (!isAuthorized(path, tier)) {
+			return NextResponse.redirect(new URL("/404", request.url));
+		}
+	}
+
 	return response;
 }
