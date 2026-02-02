@@ -7,6 +7,8 @@ export async function POST(request: Request) {
     const body = await request.json();
     // extracts the title and description
     const title = body.title;
+    const type = body.type;
+    const location = body.location;
     const description = body.description;
 
     // checks to see the title is provided, as a string and non-empty
@@ -16,14 +18,32 @@ export async function POST(request: Request) {
             { status: 400 }
         );
     }
+    // checks to see the type is provided, as a string and non-empty
+    if (!type || typeof type !== "string" || type.trim() === "") {
+        return NextResponse.json(
+            { error: "Type is required" },
+            { status: 400 }
+        );
+    }
+    // checks to see the location is provided, as a string and non-empty
+    if (!location || typeof location !== "string" || location.trim() === "") {
+        return NextResponse.json(
+            { error: "Location is required" },
+            { status: 400 }
+        );
+    }
+
     // connects to the Supabase server
     const supabase = await createSupabaseServerClient();
-    // Inputs title and description in the Supabase "reports" table
+    // Inputs title, type, location, and description in the Supabase "reports" table
     const { data, error } = await supabase
         .from("reports")
         .insert({
             title,
+            type,
+            location,
             description,
+            status: "UNVERIFIED",
         })
         // returns to either data or error
         .select()
