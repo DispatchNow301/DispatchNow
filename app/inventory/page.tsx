@@ -98,12 +98,14 @@ export default function InventoryPage() {
 				<div className="overflow-hidden rounded-2xl border border-white/10 bg-white/5 shadow-[0_25px_70px_rgba(2,6,23,0.65)] backdrop-blur">
 					<div className="border-b border-white/10 px-6 py-4">
 						<p className="text-sm text-slate-300">
-							Catalog shows resource name, available quantity, and reserved quantity.
+							Catalog shows shelter name, resource name, available quantity, and reserved quantity.
 						</p>
 					</div>
 
 					{loading ? (
-						<div className="px-6 py-10 text-sm text-slate-300">Loading…</div>
+						<div className="px-6 py-10 text-sm text-slate-300">
+							Loading…
+						</div>
 					) : error ? (
 						<div className="px-6 py-10 text-sm text-slate-300">
 							<p>{error}</p>
@@ -125,14 +127,29 @@ export default function InventoryPage() {
 							<table className="w-full text-left text-sm">
 								<thead className="bg-white/[0.04] text-slate-200">
 									<tr>
-										<th className="px-6 py-3 font-semibold">Resource</th>
-										<th className="px-6 py-3 font-semibold">Available</th>
-										<th className="px-6 py-3 font-semibold">Reserved</th>
+										<th className="px-6 py-3 font-semibold">
+											Shelter
+										</th>
+										<th className="px-6 py-3 font-semibold">
+											Resource
+										</th>
+										<th className="px-6 py-3 font-semibold">
+											Available
+										</th>
+										<th className="px-6 py-3 font-semibold">
+											Reserved
+										</th>
 									</tr>
 								</thead>
 								<tbody className="divide-y divide-white/10">
 									{rows.map((r, idx) => (
-										<tr key={idx} className="hover:bg-white/[0.03]">
+										<tr
+											key={idx}
+											className="hover:bg-white/[0.03]"
+										>
+											<td className="px-6 py-3 text-slate-200">
+												{r.shelter_name ?? "—"}
+											</td>
 											<td className="px-6 py-3 font-medium text-white">
 												{r.resource_name ?? "—"}
 											</td>
