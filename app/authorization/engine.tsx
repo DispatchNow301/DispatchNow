@@ -15,6 +15,8 @@ export enum RequestStatus {
 export interface ApprovalResponse {
     approved: boolean;
     message: string;
+    request?: Request;
+    error?: string;
 }
 
 export interface AuthorizationCheck {
@@ -53,7 +55,7 @@ export class AuthorizationEngine {
         }
         const { data, error } = await this.supabase
             .from('requests')
-            .select('requester_id, status')
+            .select('status')
             .eq('id', requestId)
             .single();
 
@@ -63,6 +65,115 @@ export class AuthorizationEngine {
                 reason: `Failed to fetch request: ${error.message}`
             };
         }
+
+        if (data.status !== RequestStatus.PENDING) {
+            return {
+                isAuthorized: false,
+                reason: 'Request is not in a pending state'
+            };
+        }
+        return { isAuthorized: true };
+    }
+
+    async approveRequest(reviewerId: string, requestId: string): Promise<ApprovalResponse> {
+        const authCheck = await this.checkReviewAuthorization(reviewerId, requestId);
+
+        if (!authCheck.isAuthorized) {
+            return {
+                approved: false,
+                message: authCheck.reason || 'Not authorized to approve request',
+                error: 'AUTHORIZATION_FAILED'
+            };
+        }
+
+        const {data, error} = await this.supabase
+        .from('requests')
+        .update({
+            status: RequestStatus.APPROVED,
+            reviewed_at: new Date().toISOString(),
+            reviewed_by: reviewerId,
+            updated_at: new Date().toISOString()
+        })
+        .eq('id', requestId)
+        .select()
+        .single();
+
+        if (error) {
+            return {
+                approved: false,
+                message: 'Failed to approve request',
+                error: error.message
+            };
+        }
+        
+        return {
+            approved: true,
+            message: 'Request approved successfully',
+            request: data
+        };
+    }
+
+    async denyRequest(reviewerId: string, requestId: string, reason: string): Promise<ApprovalResponse> {
+        if (!reason || reason.trim().length === 0) {
+            return {
+                approved: false,
+                message: 'Denial reason must be provided',
+                error: 'MISSING_REASON'
+            };
+        }
+
+        const authCheck = await this.checkReviewAuthorization(reviewerId, requestId);
+
+        if (!authCheck.isAuthorized) {
+            return {
+                approved: false,
+                message: authCheck.reason || 'Not authorized to deny request',
+                error: 'AUTHORIZATION_FAILED'
+            };
+        }
+
+        const {data, error} = await this.supabase
+        .from('requests')
+        .update({
+            status: RequestStatus.DENIED,
+            reviewed_at: new Date().toISOString(),
+            reviewed_by: reviewerId,
+            denial_reason: reason,
+            updated_at: new Date().toISOString()
+        })
+        .eq('id', requestId)
+        .select()
+        .single();
+
+        if (error) {
+            return {
+                approved: false,
+                message: 'Failed to deny request',
+                error: error.message
+            };
+        }
+
+        return {
+            approved: true,
+            message: 'Request denied successfully',
+            request: data
+        };
+    }
+
+    async getRequest(requestId: string): Promise<Request | null> {
+        const { data, error } = await this.supabase
+        .from('requests')
+        .select('*')
+        .eq('id', requestId)
+        .single();
+
+        if (error) {
+            if (error.code === 'PGRST116') {
+                return null;
+            }
+            throw new Error(`Failed to fetch request: ${error.message}`);
+        }
+        return data;
     }
 
 }
