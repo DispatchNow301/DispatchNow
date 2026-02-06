@@ -4,7 +4,7 @@
 
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server-client";
-import { getTier } from "@/lib/auth/getTier";
+import { getCurrentUserTier } from "@/lib/auth/getTier";
 
 type Body = {
 	shelter_name?: string;
@@ -37,8 +37,12 @@ export async function POST(req: Request) {
 	}
 
 	// 2) Tier check (Trusted Volunteer = Tier 2+, Authority = Tier 3)
-	const tier = await getTier(supabase, user.id);
-	if (tier < 2) {
+	const tier = await getCurrentUserTier();
+	const tierValue =
+		typeof tier === "object" && tier !== null && "value" in tier
+			? (tier as any).value
+			: tier;
+	if (tierValue == null || tierValue < 2) {
 		return NextResponse.json(
 			{ ok: false, error: "Tier 2+ required." },
 			{ status: 403 },
@@ -58,7 +62,9 @@ export async function POST(req: Request) {
 
 	const shelterName = normalizeName(body.shelter_name ?? "");
 	const itemName = normalizeName(body.item_name ?? "");
-	const requestedQty = Number.isFinite(body.qty) ? Math.floor(body.qty as number) : NaN;
+	const requestedQty = Number.isFinite(body.qty)
+		? Math.floor(body.qty as number)
+		: NaN;
 	const notes = (body.additional_notes ?? "").trim();
 
 	if (!shelterName) {
@@ -89,7 +95,10 @@ export async function POST(req: Request) {
 
 	if (shelterErr) {
 		return NextResponse.json(
-			{ ok: false, error: `Failed to lookup shelter: ${shelterErr.message}` },
+			{
+				ok: false,
+				error: `Failed to lookup shelter: ${shelterErr.message}`,
+			},
 			{ status: 500 },
 		);
 	}
@@ -115,7 +124,10 @@ export async function POST(req: Request) {
 
 	if (resFindErr) {
 		return NextResponse.json(
-			{ ok: false, error: `Failed to lookup resource: ${resFindErr.message}` },
+			{
+				ok: false,
+				error: `Failed to lookup resource: ${resFindErr.message}`,
+			},
 			{ status: 500 },
 		);
 	}
@@ -136,7 +148,10 @@ export async function POST(req: Request) {
 
 		if (resInsErr) {
 			return NextResponse.json(
-				{ ok: false, error: `Failed to create placeholder resource: ${resInsErr.message}` },
+				{
+					ok: false,
+					error: `Failed to create placeholder resource: ${resInsErr.message}`,
+				},
 				{ status: 500 },
 			);
 		}
@@ -162,7 +177,10 @@ export async function POST(req: Request) {
 
 	if (resvErr) {
 		return NextResponse.json(
-			{ ok: false, error: `Failed to compute availability: ${resvErr.message}` },
+			{
+				ok: false,
+				error: `Failed to compute availability: ${resvErr.message}`,
+			},
 			{ status: 500 },
 		);
 	}
@@ -188,28 +206,15 @@ export async function POST(req: Request) {
 
 	let message = "Request created.";
 	if (outcome === "out_of_stock") {
-		message = "Out of stock. Your request was recorded, but nothing could be allocated right now.";
+		message =
+			"Out of stock. Your request was recorded, but nothing could be allocated right now.";
 	} else if (outcome === "partial") {
 		message = `Partial allocation: requested ${requestedQty}, allocated ${allocatedQty}.`;
 	} else {
 		message = `Allocated ${allocatedQty}.`;
 	}
 
-	// 8) Create an incident (requests.incident_id is NOT NULL)
-	const { data: incident, error: incErr } = await supabase
-		.from("incidents")
-		.insert({ status: "OPEN" })
-		.select("id")
-		.single<{ id: string }>();
-
-	if (incErr) {
-		return NextResponse.json(
-			{ ok: false, error: `Failed to create incident: ${incErr.message}` },
-			{ status: 500 },
-		);
-	}
-
-	// 9) Create request row
+	// 9) Create request row (status must match check constraint, e.g., 'pending')
 	const { data: request, error: reqErr } = await supabase
 		.from("requests")
 		.insert({
@@ -218,7 +223,7 @@ export async function POST(req: Request) {
 			quantity: requestedQty,
 			location: shelterName,
 			additional_notes: notes || null,
-			incident_id: incident.id,
+			status: "PENDING", // <-- fix the check constraint error
 		})
 		.select("id")
 		.single<{ id: string }>();
@@ -243,23 +248,31 @@ export async function POST(req: Request) {
 
 	if (itemErr) {
 		return NextResponse.json(
-			{ ok: false, error: `Failed to create request item: ${itemErr.message}` },
+			{
+				ok: false,
+				error: `Failed to create request item: ${itemErr.message}`,
+			},
 			{ status: 500 },
 		);
 	}
 
 	// 11) Reserve allocated qty (only if > 0)
 	if (allocatedQty > 0) {
-		const { error: reserveErr } = await supabase.from("resource_reservations").insert({
-			resource_id: resourceId,
-			user_id: user.id,
-			qty: allocatedQty,
-			status: "reserved",
-		});
+		const { error: reserveErr } = await supabase
+			.from("resource_reservations")
+			.insert({
+				resource_id: resourceId,
+				user_id: user.id,
+				qty: allocatedQty,
+				status: "reserved",
+			});
 
 		if (reserveErr) {
 			return NextResponse.json(
-				{ ok: false, error: `Request created, but reservation failed: ${reserveErr.message}` },
+				{
+					ok: false,
+					error: `Request created, but reservation failed: ${reserveErr.message}`,
+				},
 				{ status: 500 },
 			);
 		}

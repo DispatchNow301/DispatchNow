@@ -1,4 +1,4 @@
-import EmailPassword from "../../components/EmailPassword";
+import LoginForm from "../../components/LoginForm";
 import { createSupabaseServerClient } from "@/lib/supabase/server-client";
 
 export default async function EmailPasswordPage() {
@@ -7,6 +7,5 @@ export default async function EmailPasswordPage() {
 		data: { user },
 	} = await supabase.auth.getUser();
 
-	console.log({ user });
-	return <EmailPassword user={user} />;
+	return <LoginForm user={user} />;
 }

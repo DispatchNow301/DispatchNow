@@ -5,7 +5,7 @@ export enum Tier {
 }
 
 export const RoutePermissions: Record<string, Tier[]> = {
-	"/test": [Tier.Authority], // only authorities
+	"/test": [Tier.Authority],
 	"/assign": [Tier.Authority],
 };
 
@@ -15,5 +15,5 @@ export function isAuthorized(path: string, tier: Tier) {
 			return RoutePermissions[route].includes(tier);
 		}
 	}
-	return true; // default public if not listed
+	return true;
 }

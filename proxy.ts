@@ -1,50 +1,47 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createSupabaseServerClient } from "./lib/supabase/server-client";
 import {
-	isAuthorized,
-	RoutePermissions,
 	Tier,
+	RoutePermissions,
+	isAuthorized,
 } from "./utils/route-permissions";
+import { getRow } from "./lib/supabase/utils";
 
 export async function proxy(request: NextRequest) {
-	const response = NextResponse.next({
-		request: {
-			headers: request.headers,
-		},
-	});
+	const path = request.nextUrl.pathname;
 
 	const supabase = await createSupabaseServerClient();
+
 	const {
 		data: { user },
 	} = await supabase.auth.getUser();
-	console.log({ user });
 
-	const path = request.nextUrl.pathname;
-
-	// Redirect non-authenticated users away from pages that require auth
-	// We now check only the paths listed in RoutePermissions
+	// Case 1: user not logged in & path requires auth
 	if (!user && Object.keys(RoutePermissions).includes(path)) {
 		return NextResponse.redirect(new URL("/login", request.url));
 	}
 
+	// Case 2: user is logged in
 	if (user) {
-		const { data: profile, error } = await supabase
-			.from("profiles")
-			.select("tier")
-			.eq("id", user.id)
-			.single();
+		const profile = await getRow<{ tier: Tier }>("profiles", {
+			id: user.id,
+		});
 
-		if (error || !profile) {
+		if (!profile) {
 			return NextResponse.redirect(new URL("/404", request.url));
 		}
 
-		const tier = profile.tier as Tier;
+		const tier = profile.tier;
 
-		// Check if the user tier is allowed on this path
+		// Check if user tier is allowed
 		if (!isAuthorized(path, tier)) {
 			return NextResponse.redirect(new URL("/404", request.url));
 		}
 	}
 
-	return response;
+	return NextResponse.next({
+		request: {
+			headers: request.headers,
+		},
+	});
 }
