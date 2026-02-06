@@ -4,7 +4,6 @@ import Image from "next/image";
 import { useEffect, useState } from "react";
 
 // app/components/...
-import AuthPanel from "../components/AuthPanel";
 import EndorseButton from "../components/EndorseButton";
 
 // use lib/supabase/client.ts
