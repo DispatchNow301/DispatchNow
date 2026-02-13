@@ -1,0 +1,95 @@
+// usage: POST /api/incident/[id]/close
+// body: { description?: string }
+// only tier 3 (Authority) can close incidents
+
+import { NextRequest, NextResponse } from "next/server";
+import { updateById, getById } from "@/lib/supabase/utils";
+import { createSupabaseServerClient } from "@/lib/supabase/server-client";
+import { ApiErrors } from "@/lib/api-errors";
+import { IncidentStatus, Tier } from "@/lib/types";
+
+interface Incident {
+	id: string;
+	title: string;
+	description?: string;
+	status: IncidentStatus;
+	priority: string;
+	report_id?: string | null;
+	created_by: string;
+	created_at: string;
+	updated_at: string;
+	closed_at?: string | null;
+}
+
+interface Profile {
+	id: string;
+	tier: Tier;
+}
+
+async function checkAuthority(userId: string): Promise<boolean> {
+	const profile = await getById<Profile>("profiles", userId);
+	return profile?.tier === Tier.Authority;
+}
+
+export async function POST(
+	req: NextRequest,
+	{ params }: { params: Promise<{ id: string }> },
+) {
+	try {
+		const { id } = await params;
+		const body = await req.json();
+		const { description } = body;
+
+		const supabase = await createSupabaseServerClient();
+		const {
+			data: { user },
+		} = await supabase.auth.getUser();
+
+		if (!user) {
+			return NextResponse.json(ApiErrors.UNAUTHORIZED, {
+				status: ApiErrors.UNAUTHORIZED.code,
+			});
+		}
+
+		// Check if user is Authority (tier 3)
+		const isAuthority = await checkAuthority(user.id);
+		if (!isAuthority) {
+			return NextResponse.json(ApiErrors.UNAUTHORIZED, {
+				status: ApiErrors.UNAUTHORIZED.code,
+			});
+		}
+
+		// Verify incident exists
+		const existing = await getById<Incident>("incidents", id);
+
+		if (!existing) {
+			return NextResponse.json(ApiErrors.USER_NOT_FOUND, {
+				status: ApiErrors.USER_NOT_FOUND.code,
+			});
+		}
+
+		// Build update object
+		const updates: Partial<Incident> = {
+			status: IncidentStatus.Closed,
+		};
+
+		if (description !== undefined) {
+			updates.description = description;
+		}
+
+		const data = await updateById<Incident>("incidents", id, updates);
+
+		if (!data) {
+			return NextResponse.json(ApiErrors.SERVER_ERROR, {
+				status: ApiErrors.SERVER_ERROR.code,
+			});
+		}
+
+		return NextResponse.json({ data });
+	} catch (err) {
+		console.error(err);
+		return NextResponse.json(ApiErrors.SERVER_ERROR, {
+			status: ApiErrors.SERVER_ERROR.code,
+		});
+	}
+}

@@ -1,50 +1,46 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createSupabaseServerClient } from "./lib/supabase/server-client";
-import {
-	isAuthorized,
-	RoutePermissions,
-	Tier,
-} from "./utils/route-permissions";
+import { isAuthorized, RoutePermissions } from "./lib/route-permissions";
+import { Tier } from "./lib/types";
+import { getRow } from "./lib/supabase/utils";
 
 export async function proxy(request: NextRequest) {
-	const response = NextResponse.next({
-		request: {
-			headers: request.headers,
-		},
-	});
+	const path = request.nextUrl.pathname;
+
+	// Check if this path requires authorization
+	const requiresAuth = Object.keys(RoutePermissions).includes(path);
+
+	if (!requiresAuth) {
+		return NextResponse.next();
+	}
 
 	const supabase = await createSupabaseServerClient();
 	const {
 		data: { user },
 	} = await supabase.auth.getUser();
-	console.log({ user });
 
-	const path = request.nextUrl.pathname;
-
-	// Redirect non-authenticated users away from pages that require auth
-	// We now check only the paths listed in RoutePermissions
-	if (!user && Object.keys(RoutePermissions).includes(path)) {
+	// User not logged in
+	if (!user) {
 		return NextResponse.redirect(new URL("/login", request.url));
 	}
 
-	if (user) {
-		const { data: profile, error } = await supabase
-			.from("profiles")
-			.select("tier")
-			.eq("id", user.id)
-			.single();
+	// User logged in - check tier permissions
+	const profile = await getRow<{ tier: Tier }>("profiles", {
+		id: user.id,
+	});
 
-		if (error || !profile) {
-			return NextResponse.redirect(new URL("/404", request.url));
-		}
-
-		const tier = profile.tier as Tier;
-
-		// Check if the user tier is allowed on this path
-		if (!isAuthorized(path, tier)) {
-			return NextResponse.redirect(new URL("/404", request.url));
-		}
+	if (!profile) {
+		return NextResponse.redirect(new URL("/404", request.url));
 	}
 
-	return response;
+	// Check if user tier is allowed for this route
+	if (!isAuthorized(path, profile.tier)) {
+		return NextResponse.redirect(new URL("/404", request.url));
+	}
+
+	return NextResponse.next();
 }
+
+export const config = {
+	matcher: ["/((?!_next/static|_next/image|favicon.ico|public).*)"],
+};
