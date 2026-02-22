@@ -6,7 +6,7 @@ fi
 
 # check if the python virtual environment module is installed
 if ! python3 -m venv --help &> /dev/null; then
-    echo "Python venv module not found. please run: sudo apt install python3-venv"
+    echo "Python venv module not found. Please run: sudo apt install python3-venv"
     exit 1
 fi
 

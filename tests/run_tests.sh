@@ -7,9 +7,11 @@ source venv/bin/activate
 
 # run a single test
 if [ -f "$1" ]; then
-    pytest $1
+    pytest -W 'ignore::DeprecationWarning' -k "user" $1
 
 # run all tests
 else
-    pytest tests
+    pytest -W 'ignore::DeprecationWarning' -k "user"
 fi
+
+# use the -s flag to keep stdout
