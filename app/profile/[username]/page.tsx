@@ -1,12 +1,15 @@
 // app/profile/[username]/page.tsx
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
+import { createSupabaseServerClient } from "@/lib/supabase/server-client";
 
-export function generateMetadata({
+export async function generateMetadata({
   params,
 }: {
-  params: { username: string };
-}): Metadata {
-  return { title: `@${params.username} • DispatchNow` };
+  params: Promise<{ username: string }>;
+}): Promise<Metadata> {
+  const { username } = await params;
+  return { title: `@${username} • DispatchNow` };
 }
 
 function Stat({ label, value }: { label: string; value: number | string }) {
@@ -53,17 +56,15 @@ function ItemCard({
 
 function TierBadge({ tier }: { tier: 1 | 2 | 3 }) {
   const tierText = tier === 1 ? "Citizen" : tier === 2 ? "Volunteer" : "Authority";
-
   const citizenText = "#34D399";
   const volunteerText = "#FF9F1A";
-
   const isAuthority = tier === 3;
 
   return (
     <span
       className="rounded-full border border-white/10 px-3 py-1 text-xs"
       style={{
-        color: tier === 1 ? citizenText : tier === 2 ? volunteerText : "#D9D9D9",
+        color: tier === 1 ? citizenText : tier === 2 ? volunteerText : "#FFFFFF",
         background: isAuthority ? "#8B000D" : "rgba(255,255,255,0.06)",
       }}
     >
@@ -72,31 +73,113 @@ function TierBadge({ tier }: { tier: 1 | 2 | 3 }) {
   );
 }
 
-export default function ProfilePage({ params }: { params: { username: string } }) {
-  // editable
-  const tier: 1 | 2 | 3 = 3;
+type ProfileRow = {
+  id: string;
+  email: string | null;
+  tier: number | null;
+  username: string | null;
+};
 
-  const username = (params?.username ?? "user").toString();
-  const displayName = "User";
+type ReportRow = {
+  id: string;
+  type: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  status: string | null;
+  created_at: string | null;
+};
 
-  const VOLUNTEER_BLOB = "#FF7A18"; 
+type IncidentRow = {
+  id: string;
+  title: string | null;
+  status: string | null;
+  created_at: string | null;
+  report_id: string | null;
+  latitude: number | null;
+  longitude: number | null;
+};
+
+function formatTime(ts: string | null) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
+}
+
+function formatLocation(lat: number | null, lng: number | null) {
+  if (lat == null || lng == null) return "Location";
+  return `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+}
+
+export default async function ProfilePage({
+  params,
+}: {
+  params: Promise<{ username: string }>;
+}) {
+  const { username: rawUsername } = await params;
+  const username = (rawUsername ?? "").toString().trim();
+
+  if (!username) notFound();
+
+  const supabase = await createSupabaseServerClient();
+
+  const { data: profile, error: profileErr } = await supabase
+    .from("profiles")
+    .select("id,email,tier,username")
+    .ilike("username", username)
+    .maybeSingle<ProfileRow>();
+
+  if (profileErr) throw new Error(profileErr.message);
+  if (!profile) notFound();
+
+  const tier = ((profile.tier ?? 1) as 1 | 2 | 3);
+
+  const VOLUNTEER_BLOB = "#FF7A18";
   const AUTH_BLOB = "#8B000D";
   const CITIZEN_BLOB = "#34D399";
-
   const blobColor = tier === 1 ? CITIZEN_BLOB : tier === 2 ? VOLUNTEER_BLOB : AUTH_BLOB;
 
-  const reports = [
-    { id: "r1", type: "Report Type", location: "Location", time: "DD/MM/YYYY ~ 00:00" },
-    { id: "r2", type: "Report Type", location: "Location", time: "DD/MM/YYYY ~ 00:00" },
-  ];
+  const displayName =
+    profile.username && profile.username.length
+      ? profile.username[0].toUpperCase() + profile.username.slice(1)
+      : "User";
 
-  const incidents = [
-    { id: "i1", type: "Incident Type", location: "Location", time: "DD/MM/YYYY ~ 00:00", status: "active" },
-  ];
+  const { data: reportsRaw, error: reportsErr } = await supabase
+    .from("reports")
+    .select("id,type,latitude,longitude,status,created_at")
+    .eq("user_id", profile.id)
+    .order("created_at", { ascending: false })
+    .limit(3);
+
+  if (reportsErr) throw new Error(reportsErr.message);
+
+  const reports = (reportsRaw as ReportRow[] | null) ?? [];
+  const reportIds = reports.map((r) => r.id).filter(Boolean);
+
+  let incidentsQuery = supabase
+    .from("incidents")
+    .select("id,title,status,created_at,report_id,latitude,longitude")
+    .order("created_at", { ascending: false })
+    .limit(3);
+
+  if (reportIds.length > 0) {
+    const inList = reportIds.join(",");
+    incidentsQuery = incidentsQuery.or(`created_by.eq.${profile.id},report_id.in.(${inList})`);
+  } else {
+    incidentsQuery = incidentsQuery.eq("created_by", profile.id);
+  }
+
+  const { data: incidentsRaw, error: incidentsErr } = await incidentsQuery;
+  if (incidentsErr) throw new Error(incidentsErr.message);
+
+  const incidents = (incidentsRaw as IncidentRow[] | null) ?? [];
 
   return (
     <main className="relative h-screen overflow-hidden bg-[#0b0b0c] text-[#D9D9D9]">
-      {/* ONLY bottom glow (no other gradients) */}
       <div
         className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-[-220px] h-[560px] w-[560px] rounded-full blur-[90px] opacity-[0.55]"
         style={{ background: blobColor }}
@@ -115,7 +198,7 @@ export default function ProfilePage({ params }: { params: { username: string } }
               <div>
                 <div className="flex items-baseline gap-3">
                   <div className="text-2xl font-bold text-[#D9D9D9]">@{username}</div>
-                  <div className="text-lg text-[#D9D9D9]/65">{displayName}</div>
+                  <div className="text-lg text-white/80">{displayName}</div>
                 </div>
 
                 <div className="mt-1 flex items-center gap-2">
@@ -144,17 +227,17 @@ export default function ProfilePage({ params }: { params: { username: string } }
               <div className="my-4 h-px bg-white/10" />
 
               <div className="space-y-3">
-                {reports.slice(0, 3).map((r) => (
+                {reports.map((r) => (
                   <ItemCard
                     key={r.id}
-                    title={r.type}
-                    location={r.location}
-                    time={r.time}
+                    title={r.type ?? "Report"}
+                    location={formatLocation(r.latitude, r.longitude)}
+                    time={formatTime(r.created_at)}
                     bottomLeft={<span className="text-[#D9D9D9]/60">@{username}</span>}
                     right={
                       <a
                         href={`/report/${r.id}`}
-                        className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs text-white/85 hover:bg-white/10 transition"
+                        className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs text-white hover:bg-white/10 transition"
                       >
                         View
                       </a>
@@ -175,22 +258,22 @@ export default function ProfilePage({ params }: { params: { username: string } }
               <div className="my-4 h-px bg-white/10" />
 
               <div className="space-y-3">
-                {incidents.slice(0, 3).map((i) => (
+                {incidents.map((i) => (
                   <ItemCard
                     key={i.id}
-                    title={i.type}
-                    location={i.location}
-                    time={i.time}
+                    title={i.title ?? "Incident"}
+                    location={formatLocation(i.latitude, i.longitude)}
+                    time={formatTime(i.created_at)}
                     bottomLeft={
                       <div className="flex items-center gap-2">
                         <span className="text-[#D9D9D9]/55">status</span>
-                        <span className="font-semibold text-[#34D399]">{i.status}</span>
+                        <span className="font-semibold text-[#34D399]">{i.status ?? "active"}</span>
                       </div>
                     }
                     right={
                       <a
                         href={`/incident/${i.id}`}
-                        className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs text-white/85 hover:bg-white/10 transition"
+                        className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs text-white hover:bg-white/10 transition"
                       >
                         View
                       </a>
@@ -201,8 +284,8 @@ export default function ProfilePage({ params }: { params: { username: string } }
             </section>
           </div>
 
-          <div className="mt-4 flex justify-center">              {/*tweak: what we do for this?*/}
-            <span className="text-xs text-[#D9D9D9]/45">DispatchNow • Contact Us </span>
+          <div className="mt-4 flex justify-center">
+            <span className="text-xs text-[#D9D9D9]/45">DispatchNow • profile overview</span>
           </div>
         </div>
       </div>
