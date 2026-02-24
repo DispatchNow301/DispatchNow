@@ -28,6 +28,21 @@ type CreateIncidentPayload = {
 
 const TORONTO_CENTER = { lat: 43.6532, lng: -79.3832 };
 
+const INCIDENT_TYPE_OPTIONS = [
+    { value: "fire", label: "Fire" },
+    { value: "flood", label: "Flood" },
+    { value: "hazmat", label: "Hazmat" },
+    { value: "others", label: "Others" },
+] as const;
+
+const REPORT_TYPE_OPTIONS = INCIDENT_TYPE_OPTIONS;
+
+const INCIDENT_PRIORITY_OPTIONS = [
+    { value: "low", label: "Low" },
+    { value: "medium", label: "Medium" },
+    { value: "high", label: "High" },
+] as const;
+
 // Safe text helper for UI
 function safeText(v: unknown, fallback = "-") {
     const s = String(v ?? "");
@@ -138,7 +153,7 @@ export default function DesktopMapPage({
         setErrorIncidents(null);
 
         try {
-            const res = await fetch("/api/incidents", { method: "GET" });
+            const res = await fetch("/api/incident", { method: "GET" });
             if (res.status === 401) throw new Error("UNAUTHORIZED (please sign in)");
 
             const json = await res.json().catch(() => ({}));
@@ -341,7 +356,7 @@ export default function DesktopMapPage({
                     longitude: lngNum != null && Number.isFinite(lngNum) ? lngNum : null,
                 };
 
-                const res = await fetch("/api/incidents", {
+                const res = await fetch("/api/incident", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(payload),
@@ -481,23 +496,35 @@ export default function DesktopMapPage({
 
                             <div>
                                 <label className="block text-xs text-zinc-300 mb-1">Type *</label>
-                                <input
+                                <select
                                     className="w-full rounded bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm outline-none focus:border-red-600"
                                     value={form.type}
                                     onChange={(e) => setForm((p) => ({ ...p, type: e.target.value }))}
-                                    placeholder="e.g., fire, flood, hazmat..."
-                                />
+                                >
+                                    <option value="">Select a type</option>
+                                    {(isTier3 ? INCIDENT_TYPE_OPTIONS : REPORT_TYPE_OPTIONS).map((opt) => (
+                                        <option key={opt.value} value={opt.value}>
+                                            {opt.label}
+                                        </option>
+                                    ))}
+                                </select>
                             </div>
 
                             {isTier3 && (
                                 <div>
-                                    <label className="block text-xs text-zinc-300 mb-1">Priority (optional)</label>
-                                    <input
+                                    <label className="block text-xs text-zinc-300 mb-1">Priority</label>
+                                    <select
                                         className="w-full rounded bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm outline-none focus:border-red-600"
                                         value={form.priority}
                                         onChange={(e) => setForm((p) => ({ ...p, priority: e.target.value }))}
-                                        placeholder="e.g., low / medium / high"
-                                    />
+                                    >
+                                        <option value="">Use default (medium)</option>
+                                        {INCIDENT_PRIORITY_OPTIONS.map((opt) => (
+                                            <option key={opt.value} value={opt.value}>
+                                                {opt.label}
+                                            </option>
+                                        ))}
+                                    </select>
                                 </div>
                             )}
 
