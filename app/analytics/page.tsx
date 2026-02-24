@@ -1,4 +1,3 @@
-// app/analytics/page.tsx
 import React from "react";
 import { createClient } from "@supabase/supabase-js";
 
@@ -6,7 +5,7 @@ const REPORTS_TABLE = "reports";
 const REQUESTS_TABLE = "requests";
 const RESOURCES_TABLE = "resources";
 
-const CHART_DAYS = 30; // able to change to 7/14 for shorter range if needed
+const CHART_DAYS = 30; // ✅ change to 7/14/30 as you like
 
 type ReportRow = {
   id: string;
@@ -96,6 +95,7 @@ function stableColorForType(type: string) {
 export default async function AnalyticsPage() {
   const now = new Date();
 
+  // windows for KPIs
   const weekStart = startOfWeekMonday(now);
   const last24hStart = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
@@ -104,7 +104,7 @@ export default async function AnalyticsPage() {
   const prev7dStart = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
   const prev7dEnd = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-  // chart range: last N days (local days)
+  // chart range: last N local days
   const chartEndDay = startOfDayLocal(now);
   const chartStartDay = addDays(chartEndDay, -(CHART_DAYS - 1)); // include today
   const chartStartISO = chartStartDay.toISOString();
@@ -112,30 +112,30 @@ export default async function AnalyticsPage() {
 
   let errorMsg: string | null = null;
 
-  // Reports analytics
+  // Reports KPIs
   let reportsThisWeek: ReportRow[] = [];
   let reportsLast24hCount = 0;
   let reportsThis7dCount = 0;
   let reportsPrev7dCount = 0;
   let reportsTotalCount = 0;
 
-  // Requests analytics
+  // Requests KPIs
   let requestsThisWeek: RequestRow[] = [];
   let requestsLast24hCount = 0;
   let requestsTotalCount = 0;
 
-  // Resources
+  // Resources table
   let resourcesAll: ResourceRow[] = [];
 
   // Charts raw data
   let reportChartRows: { created_at: string }[] = [];
-  let requestChartRows: { created_at: string; resource_type: string | null }[] = [];
+  let requestChartRows: { created_at: string; resource_type: string | null; quantity: number | null }[] = [];
 
   try {
     const supabase = getSupabase();
 
     // -------------------------
-    // REPORTS
+    // REPORTS KPIs
     // -------------------------
     {
       const { data, error } = await supabase
@@ -189,7 +189,7 @@ export default async function AnalyticsPage() {
     }
 
     // -------------------------
-    // REQUESTS
+    // REQUESTS KPIs
     // -------------------------
     {
       const { data, error } = await supabase
@@ -252,7 +252,7 @@ export default async function AnalyticsPage() {
     {
       const { data, error } = await supabase
         .from(REQUESTS_TABLE)
-        .select("created_at, resource_type")
+        .select("created_at, resource_type, quantity")
         .gte("created_at", chartStartISO)
         .lt("created_at", chartEndISO);
 
@@ -298,14 +298,14 @@ export default async function AnalyticsPage() {
   const topRequestTypeTotalQty = requestTypeQtySums.get(topRequestType) ?? 0;
 
   // -------------------------
-  // Charts: build day buckets (local days)
+  // Charts: day buckets (local days)
   // -------------------------
   const dayKeys: string[] = [];
   for (let i = 0; i < CHART_DAYS; i++) {
     dayKeys.push(toDateKeyLocal(addDays(chartStartDay, i)));
   }
 
-  // Reports per day
+  // Reports per day (COUNT)
   const reportsPerDay = new Map<string, number>();
   for (const k of dayKeys) reportsPerDay.set(k, 0);
   for (const row of reportChartRows) {
@@ -316,37 +316,40 @@ export default async function AnalyticsPage() {
   const reportSeries = dayKeys.map((k) => ({ day: k, count: reportsPerDay.get(k) ?? 0 }));
   const maxReport = Math.max(1, ...reportSeries.map((x) => x.count));
 
-  // Requests per day by type (count of requests)
+  // Requests per day by type (SUM OF QUANTITY)
   const requestTypesSet = new Set<string>();
-  const reqCountsByDayType = new Map<string, Map<string, number>>(); // day -> (type -> count)
-  for (const k of dayKeys) reqCountsByDayType.set(k, new Map());
+  const reqQtyByDayType = new Map<string, Map<string, number>>(); // day -> (type -> qty sum)
+  for (const k of dayKeys) reqQtyByDayType.set(k, new Map());
 
   for (const row of requestChartRows) {
     const created = row.created_at;
     if (!created) continue;
+
     const day = toDateKeyLocal(new Date(created));
-    if (!reqCountsByDayType.has(day)) continue;
+    if (!reqQtyByDayType.has(day)) continue;
 
     const t = (row.resource_type ?? "unknown").toString();
     requestTypesSet.add(t);
 
-    const inner = reqCountsByDayType.get(day)!;
-    inner.set(t, (inner.get(t) ?? 0) + 1);
+    const qty = typeof row.quantity === "number" ? row.quantity : 0;
+
+    const inner = reqQtyByDayType.get(day)!;
+    inner.set(t, (inner.get(t) ?? 0) + qty);
   }
 
   const requestTypes = Array.from(requestTypesSet).sort();
-  // totals per day
-  const requestTotalPerDay = dayKeys.map((day) => {
-    const inner = reqCountsByDayType.get(day)!;
+
+  // totals per day (total quantity across all types)
+  const requestTotalQtyPerDay = dayKeys.map((day) => {
+    const inner = reqQtyByDayType.get(day)!;
     let sum = 0;
     for (const v of inner.values()) sum += v;
     return sum;
   });
-  const maxRequest = Math.max(1, ...requestTotalPerDay);
 
-  // -------------------------
-  // UI helper for bar charts
-  // -------------------------
+  const maxRequest = Math.max(1, ...requestTotalQtyPerDay);
+
+  // UI styles
   const chartCardStyle: React.CSSProperties = {
     marginTop: 16,
     border: "1px solid #eee",
@@ -439,7 +442,7 @@ export default async function AnalyticsPage() {
         </div>
       </div>
 
-      {/* ✅ Bar chart: reports per day */}
+      {/* Bar chart: reports per day */}
       <div style={chartCardStyle}>
         <h3 style={{ fontSize: 16, fontWeight: 700 }}>Daily reports (last {CHART_DAYS} days)</h3>
         <div style={chartAreaStyle}>
@@ -454,7 +457,7 @@ export default async function AnalyticsPage() {
                     height: h,
                     borderRadius: 8,
                     border: "1px solid #333",
-                    background: "#999", // single color
+                    background: "#999",
                   }}
                   title={`${p.day}: ${p.count}`}
                 />
@@ -504,11 +507,10 @@ export default async function AnalyticsPage() {
           </div>
         </div>
 
-        {/*blank*/}
         <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 16, color: "#777" }}>
           <div style={{ color: "#666" }}>Note</div>
           <div style={{ marginTop: 10, fontSize: 13 }}>
-            Daily request chart below is stacked by resource type.
+            Daily request chart below is stacked by resource type (quantity sums).
           </div>
         </div>
 
@@ -532,7 +534,9 @@ export default async function AnalyticsPage() {
                 <tr style={{ textAlign: "left" }}>
                   <th style={{ padding: "10px 8px", borderBottom: "1px solid #eee" }}>Type</th>
                   <th style={{ padding: "10px 8px", borderBottom: "1px solid #eee", width: 120 }}>Count</th>
-                  <th style={{ padding: "10px 8px", borderBottom: "1px solid #eee", width: 160 }}>Quantity sum</th>
+                  <th style={{ padding: "10px 8px", borderBottom: "1px solid #eee", width: 160 }}>
+                    Quantity sum
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -553,10 +557,10 @@ export default async function AnalyticsPage() {
         </div>
       </div>
 
-      {/*Bar chart: requests per day stacked by resource_type */}
+      {/* Bar chart: requests per day stacked by resource_type (SUM QUANTITY) */}
       <div style={chartCardStyle}>
         <h3 style={{ fontSize: 16, fontWeight: 700 }}>
-          Daily requests (last {CHART_DAYS} days) — stacked by resource type
+          Daily requested quantity (last {CHART_DAYS} days) — stacked by resource type
         </h3>
 
         {/* legend */}
@@ -575,32 +579,31 @@ export default async function AnalyticsPage() {
 
         <div style={chartAreaStyle}>
           {dayKeys.map((day) => {
-            const inner = reqCountsByDayType.get(day)!;
-            let total = 0;
-            for (const v of inner.values()) total += v;
+            const inner = reqQtyByDayType.get(day)!;
 
-            const barHeight = Math.round((total / maxRequest) * 170);
+            let totalQty = 0;
+            for (const v of inner.values()) totalQty += v;
 
-            // build stacked segments proportional to total (within same bar)
-            // Each segment height = barHeight * (count / total)
+            const barHeight = Math.round((totalQty / maxRequest) * 170);
+
             const segments =
-              total === 0
+              totalQty === 0
                 ? []
                 : requestTypes
-                    .map((t) => ({ t, c: inner.get(t) ?? 0 }))
-                    .filter((x) => x.c > 0)
+                    .map((t) => ({ t, q: inner.get(t) ?? 0 }))
+                    .filter((x) => x.q > 0)
                     .map((x) => ({
                       ...x,
-                      h: Math.max(2, Math.round((barHeight * x.c) / total)), // ensure visible
+                      h: Math.max(2, Math.round((barHeight * x.q) / totalQty)),
                       color: stableColorForType(x.t),
                     }));
 
             return (
               <div key={day} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
-                <div style={{ fontSize: 12, color: "#aaa", marginBottom: 6 }}>{total}</div>
+                <div style={{ fontSize: 12, color: "#aaa", marginBottom: 6 }}>{totalQty}</div>
 
                 <div
-                  title={`${day}: ${total}`}
+                  title={`${day}: ${totalQty}`}
                   style={{
                     width: "100%",
                     height: Math.max(0, barHeight),
@@ -608,14 +611,14 @@ export default async function AnalyticsPage() {
                     border: "1px solid #333",
                     overflow: "hidden",
                     display: "flex",
-                    flexDirection: "column-reverse", // stack upward
-                    background: total === 0 ? "transparent" : undefined,
+                    flexDirection: "column-reverse",
+                    background: totalQty === 0 ? "transparent" : undefined,
                   }}
                 >
                   {segments.map((s) => (
                     <div
                       key={s.t}
-                      title={`${s.t}: ${s.c}`}
+                      title={`${s.t}: ${s.q}`}
                       style={{
                         height: s.h,
                         background: s.color,
@@ -637,7 +640,7 @@ export default async function AnalyticsPage() {
         </div>
 
         <div style={{ marginTop: 10, color: "#777", fontSize: 12 }}>
-          Note: “Daily requests” counts number of request rows per day; stacked segments represent each{" "}
+          Note: “Daily requested quantity” sums <code>quantity</code> per day; stacked segments represent each{" "}
           <code>resource_type</code>.
         </div>
       </div>
