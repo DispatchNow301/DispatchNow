@@ -1,9 +1,16 @@
 @import "tailwindcss";
 
 :root {
+<<<<<<< SCRUM-47-profile-page
+  --background: #ffffff;
+  --foreground: #171717;
+  --dn-white: #d9d9d9;
+  --dn-red: #8b000d;
+=======
 	--background: #ffffff;
 	--foreground: #090909;
 	--color-accent: #fd4d4d;
+>>>>>>> master
 }
 
 @theme inline {
