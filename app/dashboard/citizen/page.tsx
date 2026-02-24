@@ -117,16 +117,11 @@ export default function CitizenDashboardPage() {
         {/* ── Header ── */}
         <header className="flex shrink-0 items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.04] px-7 py-5 shadow-[0_8px_24px_rgba(0,0,0,0.4)]">
           <div>
-            <p className="text-[10px] font-medium uppercase tracking-widest text-[#D9D9D9]/40">
-              Citizen dashboard
-            </p>
-            <div className="mt-0.5 flex items-baseline gap-2.5">
-              <h1 className="text-3xl font-extrabold text-[#D9D9D9]">My Activity</h1>
-              <span className="text-base text-[#D9D9D9]/45">@{username}</span>
-            </div>
-            <div className="mt-2.5">
+            <div className="mb-2">
               <TierBadge tier={tier} />
             </div>
+            <h1 className="text-3xl font-extrabold text-[#D9D9D9]">My Activity</h1>
+            <p className="mt-1 text-sm text-[#D9D9D9]/45">@{username}</p>
           </div>
           <div className="flex items-center gap-3">
             <PillButton href={`/profile/${username}`}>View Profile</PillButton>
