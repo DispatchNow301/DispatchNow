@@ -16,6 +16,7 @@ export async function POST(req: Request) {
 	});
 
 	if (error) {
+		console.log(error);
 		return NextResponse.json(ApiErrors.INVALID_CREDENTIALS, {
 			status: ApiErrors.INVALID_CREDENTIALS.code,
 		});
