@@ -22,18 +22,25 @@ export async function POST(request: Request, {params}: {params: {id: string}}) {
             { status: 404 }
         );
     }
-    // cannot close a closed incident, error
+    // cannot pause a closed incident, error
     if (incident.status === "CLOSED") {
         return NextResponse.json(
-            { error: "Incident is already closed" },
+            { error: "Cannot pause a closed incident" },
             { status: 400 }
         );
     }
-    // if row with matching incident id successfully found, update status to CLOSED
+    // cannot pause a paused incident, error
+    if (incident.status === "PAUSED") {
+        return NextResponse.json(
+            { error: "Incident is already paused" },
+            { status: 400 }
+        );
+    }
+    // if row with matching incident id successfully found, update status to PAUSED
     // returns value to updatedIncident if done successfully
     const {data: updatedIncident, error: updateError} = await supabase
         .from("incidents")
-        .update({status: "CLOSED", closed_at: new Date().toISOString(),})
+        .update({ status: "PAUSED" })
         .eq("id", incidentId)
         .select()
         .single();
