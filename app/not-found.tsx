@@ -28,16 +28,16 @@ export default function NotFound() {
 
             <div className="flex flex-col gap-3 sm:flex-row">
               <Link
-                href="/"
+                href="/dashboard"
                 className="inline-flex items-center justify-center rounded-xl bg-red-700 px-5 py-3 font-medium text-white shadow-lg shadow-red-700/20 hover:bg-red-600"
               >
                 Go Home
               </Link>
               <Link
-                href="/activity"
+                href="/"
                 className="inline-flex items-center justify-center rounded-xl border border-white/15 bg-white/5 px-5 py-3 font-medium text-white/90 hover:bg-white/10"
               >
-                View Activity
+                Restart
               </Link>
             </div>
           </div>

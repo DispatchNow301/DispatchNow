@@ -3,6 +3,7 @@ import { Tier } from "@/lib/types";
 export const RoutePermissions: Record<string, Tier[]> = {
 	"/test": [Tier.Citizen],
 	"/assign": [Tier.Authority],
+	"/dashboard/authority": [Tier.Authority],
 };
 
 export function isAuthorized(path: string, tier: Tier) {
