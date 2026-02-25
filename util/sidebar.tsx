@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { getSupabaseBrowserClient } from "@/lib/supabase/browser-client";
 
 type NavItem = {
 	href: string;
@@ -159,13 +160,7 @@ function IconProfile(props: { className?: string }) {
 function IconSettings(props: { className?: string }) {
 	return (
 		<svg viewBox="0 0 24 24" className={props.className} fill="none">
-			<circle
-				cx="12"
-				cy="12"
-				r="2.8"
-				stroke="currentColor"
-				strokeWidth="1.8"
-			/>
+			<circle cx="12" cy="12" r="2.8" stroke="currentColor" strokeWidth="1.8" />
 			<path
 				d="M17.64 9.95 L19.88 10.61 L19.88 13.39 L17.64 14.05
            L16.60 15.86 L17.14 18.13 L14.74 19.52 L13.04 17.91
@@ -185,50 +180,54 @@ export default function Sidebar({ activeHref }: { activeHref?: string }) {
 	const DISPATCH_ICON_HREF = "/";
 	const HOME_HREF = "/dashboard";
 
+	const [profileHref, setProfileHref] = useState("/profile/test");
+
+	useEffect(() => {
+		let cancelled = false;
+
+		(async () => {
+			try {
+				const supabase = getSupabaseBrowserClient();
+				const { data: userRes } = await supabase.auth.getUser();
+				const user = userRes?.user;
+
+				if (!user?.id) return;
+
+				const { data: profile, error } = await supabase
+					.from("profiles")
+					.select("username")
+					.eq("id", user.id)
+					.maybeSingle<{ username: string | null }>();
+
+				if (cancelled) return;
+
+				if (!error && profile?.username && profile.username.trim().length > 0) {
+					setProfileHref(`/profile/${profile.username.trim()}`);
+				}
+			} catch {
+				// keep fallback
+			}
+		})();
+
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
 	const itemsTop: NavItem[] = useMemo(
 		() => [
-			{
-				href: HOME_HREF,
-				label: "Dashboard",
-				icon: <IconHome className="h-6 w-6" />,
-			},
-			{
-				href: "/reports-catalog",
-				label: "Reports",
-				icon: <IconReports className="h-6 w-6" />,
-			},
-			{
-				href: "/incidents-catalog",
-				label: "Incidents",
-				icon: <IconIncidents className="h-6 w-6" />,
-			},
-			{
-				href: "/resource-catalog",
-				label: "Resources",
-				icon: <IconResources className="h-6 w-6" />,
-			},
-			{
-				href: "/requests-catalog",
-				label: "Requests",
-				icon: <IconRequests className="h-6 w-6" />,
-			},
-			{
-				href: "/profile/test",
-				label: "Profile",
-				icon: <IconProfile className="h-6 w-6" />,
-			},
+			{ href: HOME_HREF, label: "Dashboard", icon: <IconHome className="h-6 w-6" /> },
+			{ href: "/reports-catalog", label: "Reports", icon: <IconReports className="h-6 w-6" /> },
+			{ href: "/incidents-catalog", label: "Incidents", icon: <IconIncidents className="h-6 w-6" /> },
+			{ href: "/resource-catalog", label: "Resources", icon: <IconResources className="h-6 w-6" /> },
+			{ href: "/requests-catalog", label: "Requests", icon: <IconRequests className="h-6 w-6" /> },
+			{ href: profileHref, label: "Profile", icon: <IconProfile className="h-6 w-6" /> },
 		],
-		[],
+		[profileHref],
 	);
 
 	const itemsBottom: NavItem[] = useMemo(
-		() => [
-			{
-				href: "/settings",
-				label: "Settings",
-				icon: <IconSettings className="h-6 w-6" />,
-			},
-		],
+		() => [{ href: "/settings", label: "Settings", icon: <IconSettings className="h-6 w-6" /> }],
 		[],
 	);
 
@@ -293,13 +292,9 @@ export default function Sidebar({ activeHref }: { activeHref?: string }) {
 				</Link>
 
 				<nav className="flex min-h-0 flex-1 flex-col gap-3">
-					<div className="flex flex-col gap-3 overflow-y-auto">
-						{itemsTop.map(Item)}
-					</div>
+					<div className="flex flex-col gap-3 overflow-y-auto">{itemsTop.map(Item)}</div>
 					<div className="flex-1" />
-					<div className="shrink-0 flex flex-col gap-3 pt-3">
-						{itemsBottom.map(Item)}
-					</div>
+					<div className="shrink-0 flex flex-col gap-3 pt-3">{itemsBottom.map(Item)}</div>
 				</nav>
 			</div>
 		</aside>
