@@ -4,14 +4,41 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+    AlertTriangle,
+    Car,
+    ChevronLeft,
+    ChevronRight,
+    CloudLightning,
+    Droplets,
+    Flame,
+    HelpCircle,
+    LocateFixed,
+    MapPin,
+    RefreshCw,
+    Route,
+    Search,
+    Target,
+    Trash2,
+    TriangleAlert,
+    XCircle,
+} from "lucide-react";
 import DispatchNowMap, {
     type DispatchNowMapHandle,
     type IncidentForMap,
     type ReportForMap,
 } from "@/app/components/maps/DispatchNowMap";
 
+export enum ReportType {
+    Pothole = "pothole",
+    Flooding = "flooding",
+    Debris = "debris",
+    Accident = "accident",
+    Other = "other",
+}
+
 type CreateReportPayload = {
-    type: string;
+    type: ReportType;
     description?: string | null;
     latitude?: number | null;
     longitude?: number | null;
@@ -29,21 +56,30 @@ type CreateIncidentPayload = {
 const TORONTO_CENTER = { lat: 43.6532, lng: -79.3832 };
 
 const INCIDENT_TYPE_OPTIONS = [
-    { value: "fire", label: "Fire" },
-    { value: "flood", label: "Flood" },
-    { value: "severe_weather", label: "Severe Weather" },
-    { value: "road_closure", label: "Road Closure" },
-    { value: "hazmat", label: "Hazmat" },
-    { value: "others", label: "Others" },
+    { value: "fire", label: "Fire", icon: Flame },
+    { value: "flood", label: "Flood", icon: Droplets },
+    { value: "severe_weather", label: "Severe Weather", icon: CloudLightning },
+    { value: "road_closure", label: "Road Closure", icon: Route },
+    { value: "hazmat", label: "Hazmat", icon: TriangleAlert },
+    { value: "others", label: "Others", icon: HelpCircle },
 ] as const;
 
-const REPORT_TYPE_OPTIONS = INCIDENT_TYPE_OPTIONS;
+const REPORT_TYPE_OPTIONS = [
+    { value: ReportType.Pothole, label: "Pothole", icon: AlertTriangle },
+    { value: ReportType.Flooding, label: "Flooding", icon: Droplets },
+    { value: ReportType.Debris, label: "Debris", icon: Trash2 },
+    { value: ReportType.Accident, label: "Accident", icon: Car },
+    { value: ReportType.Other, label: "Other", icon: HelpCircle },
+] as const;
 
 const INCIDENT_PRIORITY_OPTIONS = [
     { value: "low", label: "Low" },
     { value: "medium", label: "Medium" },
     { value: "high", label: "High" },
 ] as const;
+
+// Incident list pagination settings (show 2 items per page)
+const INCIDENTS_PER_PAGE = 2;
 
 // Safe text helper for UI
 function safeText(v: unknown, fallback = "-") {
@@ -101,6 +137,9 @@ export default function DesktopMapPage({
     const [isPicking, setIsPicking] = useState(false);
     const [pickHint, setPickHint] = useState<string | null>(null);
 
+    // Incident list pagination state
+    const [incidentPage, setIncidentPage] = useState(1);
+
     // Unified form (Tier3: incident, otherwise: report)
     const [form, setForm] = useState({
         title: "",
@@ -136,6 +175,25 @@ export default function DesktopMapPage({
                 : null,
         [myReports, selectedId, selectedKind]
     );
+
+    const incidentTotalPages = useMemo(() => {
+        const n = incidents.length;
+        return Math.max(1, Math.ceil(n / INCIDENTS_PER_PAGE));
+    }, [incidents.length]);
+
+    const pagedIncidents = useMemo(() => {
+        const start = (incidentPage - 1) * INCIDENTS_PER_PAGE;
+        const end = start + INCIDENTS_PER_PAGE;
+        return incidents.slice(start, end);
+    }, [incidents, incidentPage]);
+
+    // Keep incidentPage within valid range when incident list changes
+    useEffect(() => {
+        setIncidentPage((p) => {
+            const clamped = Math.min(Math.max(1, p), incidentTotalPages);
+            return clamped;
+        });
+    }, [incidentTotalPages]);
 
     function normalizeLatLng(obj: any): { lat: number | null; lng: number | null } {
         const latVal = obj?.lat ?? obj?.latitude;
@@ -180,6 +238,7 @@ export default function DesktopMapPage({
                 });
 
             setIncidents(normalized);
+            setIncidentPage(1);
         } catch (e) {
             setErrorIncidents((e as Error).message || "Failed to load incidents");
         } finally {
@@ -259,6 +318,18 @@ export default function DesktopMapPage({
         mapHandleRef.current?.focusReport(report.id);
     }
 
+    function getIncidentIcon(type: unknown) {
+        const t = String(type ?? "").trim().toLowerCase();
+        const found = INCIDENT_TYPE_OPTIONS.find((x) => x.value === t);
+        return found?.icon ?? HelpCircle;
+    }
+
+    function getReportIcon(type: unknown) {
+        const t = String(type ?? "").trim().toLowerCase() as ReportType;
+        const found = REPORT_TYPE_OPTIONS.find((x) => x.value === t);
+        return found?.icon ?? HelpCircle;
+    }
+
     async function searchAddress() {
         setSearchError(null);
 
@@ -295,15 +366,24 @@ export default function DesktopMapPage({
                 const lat = loc.lat();
                 const lng = loc.lng();
 
+                const icon: google.maps.Symbol = {
+                    path: google.maps.SymbolPath.CIRCLE,
+                    scale: 8,
+                    strokeWeight: 2,
+                    fillOpacity: 1,
+                };
+
                 if (!searchMarkerRef.current) {
                     searchMarkerRef.current = new google.maps.Marker({
                         position: { lat, lng },
                         map,
                         title: "Search result",
+                        icon,
                     });
                 } else {
                     searchMarkerRef.current.setPosition({ lat, lng });
                     searchMarkerRef.current.setMap(map);
+                    searchMarkerRef.current.setIcon(icon);
                 }
 
                 map.panTo({ lat, lng });
@@ -342,8 +422,8 @@ export default function DesktopMapPage({
         setCreating(true);
 
         try {
-            const type = form.type.trim();
-            if (!type) throw new Error("Type is required");
+            const typeRaw = form.type.trim();
+            if (!typeRaw) throw new Error("Type is required");
 
             const latNum = form.lat.trim().length > 0 ? Number(form.lat.trim()) : null;
             const lngNum = form.lng.trim().length > 0 ? Number(form.lng.trim()) : null;
@@ -351,7 +431,7 @@ export default function DesktopMapPage({
             if (isTier3) {
                 const payload: CreateIncidentPayload = {
                     title: form.title.trim().length > 0 ? form.title.trim() : undefined,
-                    type,
+                    type: typeRaw,
                     description: form.description.trim().length > 0 ? form.description : null,
                     priority: form.priority.trim().length > 0 ? form.priority.trim() : undefined,
                     latitude: latNum != null && Number.isFinite(latNum) ? latNum : null,
@@ -374,8 +454,13 @@ export default function DesktopMapPage({
                 clearCoords();
                 await loadIncidents();
             } else {
+                const allowed = new Set(Object.values(ReportType));
+                const reportType = (allowed.has(typeRaw as ReportType)
+                    ? (typeRaw as ReportType)
+                    : ReportType.Other) as ReportType;
+
                 const payload: CreateReportPayload = {
-                    type,
+                    type: reportType,
                     description: form.description.trim().length > 0 ? form.description : null,
                     latitude: latNum != null && Number.isFinite(latNum) ? latNum : null,
                     longitude: lngNum != null && Number.isFinite(lngNum) ? lngNum : null,
@@ -420,25 +505,28 @@ export default function DesktopMapPage({
 
                     <div className="flex gap-2">
                         <button
-                            className="px-3 py-2 text-xs rounded border border-zinc-700 hover:border-zinc-500"
+                            className="px-3 py-2 text-xs rounded border border-zinc-700 hover:border-zinc-500 flex items-center gap-2"
                             onClick={refreshAll}
                             disabled={loadingIncidents || loadingMyReports}
                             title="Refresh"
                         >
+                            <RefreshCw className="h-4 w-4" />
                             Refresh
                         </button>
                         <button
-                            className="px-3 py-2 text-xs rounded border border-zinc-700 hover:border-zinc-500"
+                            className="px-3 py-2 text-xs rounded border border-zinc-700 hover:border-zinc-500 flex items-center gap-2"
                             onClick={zoomToToronto}
                             title="Zoom to Toronto"
                         >
+                            <LocateFixed className="h-4 w-4" />
                             Toronto
                         </button>
                         <button
-                            className="px-3 py-2 text-xs rounded border border-zinc-700 hover:border-zinc-500"
+                            className="px-3 py-2 text-xs rounded border border-zinc-700 hover:border-zinc-500 flex items-center gap-2"
                             onClick={fitMarkers}
                             title="Fit all markers"
                         >
+                            <Target className="h-4 w-4" />
                             Fit
                         </button>
                     </div>
@@ -446,7 +534,10 @@ export default function DesktopMapPage({
 
                 {/* Address search */}
                 <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
-                    <div className="text-xs text-zinc-300 mb-2">Address search</div>
+                    <div className="text-xs text-zinc-300 mb-2 flex items-center gap-2">
+                        <Search className="h-4 w-4" />
+                        Address search
+                    </div>
                     <div className="flex gap-2">
                         <input
                             className="flex-1 rounded bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm outline-none focus:border-red-600"
@@ -458,9 +549,10 @@ export default function DesktopMapPage({
                             }}
                         />
                         <button
-                            className="px-3 py-2 text-sm rounded bg-red-700 hover:bg-red-600"
+                            className="px-3 py-2 text-sm rounded bg-red-700 hover:bg-red-600 flex items-center gap-2"
                             onClick={searchAddress}
                         >
+                            <Search className="h-4 w-4" />
                             Search
                         </button>
                     </div>
@@ -474,7 +566,8 @@ export default function DesktopMapPage({
                         onClick={() => setCreateOpen((v) => !v)}
                         title="Toggle create form"
                     >
-                        <div className="text-sm font-semibold">
+                        <div className="text-sm font-semibold flex items-center gap-2">
+                            <MapPin className="h-4 w-4" />
                             {isTier3 ? "Create Incident" : "Submit Report"}
                         </div>
                         <div className="text-xs text-zinc-400">{createOpen ? "Hide" : "Show"}</div>
@@ -567,18 +660,20 @@ export default function DesktopMapPage({
                             <div className="flex items-center justify-between gap-2">
                                 <div className="flex gap-2">
                                     <button
-                                        className="px-3 py-2 text-xs rounded bg-zinc-800 hover:bg-zinc-700"
+                                        className="px-3 py-2 text-xs rounded bg-zinc-800 hover:bg-zinc-700 flex items-center gap-2"
                                         onClick={startPickOnMap}
                                         disabled={!mapsReady}
                                         title="Pick a point on the map"
                                     >
+                                        <MapPin className="h-4 w-4" />
                                         Pick on map
                                     </button>
                                     <button
-                                        className="px-3 py-2 text-xs rounded border border-zinc-700 hover:border-zinc-500"
+                                        className="px-3 py-2 text-xs rounded border border-zinc-700 hover:border-zinc-500 flex items-center gap-2"
                                         onClick={clearCoords}
                                         title="Clear coordinates"
                                     >
+                                        <XCircle className="h-4 w-4" />
                                         Clear
                                     </button>
                                 </div>
@@ -615,8 +710,37 @@ export default function DesktopMapPage({
                             {loadingIncidents && <div className="text-sm text-zinc-300">Loading incidents...</div>}
                             {errorIncidents && <div className="text-sm text-red-400 mt-2">Error: {errorIncidents}</div>}
 
+                            {/* Pagination controls (2 incidents per page) */}
+                            {incidents.length > INCIDENTS_PER_PAGE && (
+                                <div className="mt-2 flex items-center justify-between">
+                                    <button
+                                        className="px-2 py-1 text-xs rounded border border-zinc-700 hover:border-zinc-500 flex items-center gap-1 disabled:opacity-50"
+                                        onClick={() => setIncidentPage((p) => Math.max(1, p - 1))}
+                                        disabled={incidentPage <= 1}
+                                        title="Previous page"
+                                    >
+                                        <ChevronLeft className="h-4 w-4" />
+                                        Prev
+                                    </button>
+
+                                    <div className="text-xs text-zinc-400">
+                                        Page {incidentPage} / {incidentTotalPages}
+                                    </div>
+
+                                    <button
+                                        className="px-2 py-1 text-xs rounded border border-zinc-700 hover:border-zinc-500 flex items-center gap-1 disabled:opacity-50"
+                                        onClick={() => setIncidentPage((p) => Math.min(incidentTotalPages, p + 1))}
+                                        disabled={incidentPage >= incidentTotalPages}
+                                        title="Next page"
+                                    >
+                                        Next
+                                        <ChevronRight className="h-4 w-4" />
+                                    </button>
+                                </div>
+                            )}
+
                             <div className="mt-3 space-y-2">
-                                {incidents.map((i) => {
+                                {pagedIncidents.map((i) => {
                                     const hasCoords = i.lat != null && i.lng != null;
                                     const active = selectedIncident?.id === i.id;
 
@@ -624,6 +748,8 @@ export default function DesktopMapPage({
                                     const descShort = desc
                                         ? desc.slice(0, 90) + (desc.length > 90 ? "..." : "")
                                         : "No details";
+
+                                    const Icon = getIncidentIcon(i.type);
 
                                     return (
                                         <button
@@ -638,7 +764,10 @@ export default function DesktopMapPage({
                                             title={!mapsReady ? "Map not ready" : !hasCoords ? "No location" : "Focus on map"}
                                         >
                                             <div className="flex items-center justify-between gap-2">
-                                                <div className="font-medium">{i.title ?? "Untitled Incident"}</div>
+                                                <div className="font-medium flex items-center gap-2">
+                                                    <Icon className="h-4 w-4" />
+                                                    {i.title ?? "Untitled Incident"}
+                                                </div>
                                                 <span className="text-[10px] px-2 py-1 rounded bg-zinc-800 text-zinc-200">
                                                     {safeText(i.priority)}
                                                 </span>
@@ -646,7 +775,8 @@ export default function DesktopMapPage({
 
                                             <div className="text-xs text-zinc-300 mt-2 space-y-1">
                                                 <div>
-                                                    Type: {safeText(i.type)} | Status: {safeText(i.status)} | Priority: {safeText(i.priority)}
+                                                    Type: {safeText(i.type)} | Status: {safeText(i.status)} | Priority:{" "}
+                                                    {safeText(i.priority)}
                                                 </div>
                                                 <div className="text-zinc-400">ID: {i.id}</div>
                                                 <div className="text-zinc-400">Updated: {safeISO(i.updatedAt)}</div>
@@ -674,11 +804,12 @@ export default function DesktopMapPage({
                     <div className="flex items-center justify-between">
                         <div className="text-sm font-semibold">My Reports</div>
                         <button
-                            className="px-2 py-1 text-xs rounded border border-zinc-700 hover:border-zinc-500"
+                            className="px-2 py-1 text-xs rounded border border-zinc-700 hover:border-zinc-500 flex items-center gap-2"
                             onClick={loadMyReports}
                             disabled={loadingMyReports}
                             title="Reload my reports"
                         >
+                            <RefreshCw className="h-4 w-4" />
                             Reload
                         </button>
                     </div>
@@ -699,6 +830,8 @@ export default function DesktopMapPage({
                                 ? desc.slice(0, 80) + (desc.length > 80 ? "..." : "")
                                 : "No details";
 
+                            const Icon = getReportIcon(r.type);
+
                             return (
                                 <button
                                     key={r.id}
@@ -712,7 +845,10 @@ export default function DesktopMapPage({
                                     title={!hasCoords ? "No location" : "Focus on map"}
                                 >
                                     <div className="flex items-center justify-between gap-2">
-                                        <div className="font-medium">{r.type ?? "Report"}</div>
+                                        <div className="font-medium flex items-center gap-2">
+                                            <Icon className="h-4 w-4" />
+                                            {r.type ?? "Report"}
+                                        </div>
                                         <span className="text-[10px] px-2 py-1 rounded bg-sky-900/40 text-sky-200">
                                             {safeText(r.status)}
                                         </span>
@@ -755,15 +891,30 @@ export default function DesktopMapPage({
                     onPick={(lat, lng) => {
                         const map = mapHandleRef.current?.getMap();
                         if (map) {
+                            // Pick marker: bright red dot with white outline (high contrast on dark maps)
+                            const icon: google.maps.Symbol = {
+                                path: google.maps.SymbolPath.CIRCLE,
+                                scale: 14,
+                                fillColor: "#ef4444",
+                                fillOpacity: 1,
+                                strokeColor: "#ffffff",
+                                strokeOpacity: 1,
+                                strokeWeight: 3,
+                            };
+
                             if (!pickMarkerRef.current) {
                                 pickMarkerRef.current = new google.maps.Marker({
                                     position: { lat, lng },
                                     map,
                                     title: "Selected location",
+                                    icon,
+                                    zIndex: 1000,
                                 });
                             } else {
                                 pickMarkerRef.current.setPosition({ lat, lng });
                                 pickMarkerRef.current.setMap(map);
+                                pickMarkerRef.current.setIcon(icon);
+                                pickMarkerRef.current.setZIndex(1000);
                             }
                         }
 
@@ -782,9 +933,10 @@ export default function DesktopMapPage({
                                     {pickHint ?? "Click on the map to set coordinates."}
                                 </div>
                                 <button
-                                    className="px-3 py-2 text-xs rounded bg-zinc-800 hover:bg-zinc-700"
+                                    className="px-3 py-2 text-xs rounded bg-zinc-800 hover:bg-zinc-700 flex items-center gap-2"
                                     onClick={cancelPick}
                                 >
+                                    <XCircle className="h-4 w-4" />
                                     Cancel
                                 </button>
                             </div>
