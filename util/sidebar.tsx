@@ -170,6 +170,20 @@ function IconSettings(props: { className?: string }) {
 	);
 }
 
+function IconAnalytics(props: { className?: string }) {
+	return (
+		<svg viewBox="0 0 24 24" className={props.className} fill="none">
+			<path
+				d="M18 20V10M12 20V4M6 20v-6"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			/>
+		</svg>
+	);
+}
+
 export default function Sidebar({ activeHref }: { activeHref?: string }) {
 	const DISPATCH_ICON_HREF = "/";
 	const HOME_HREF = "/dashboard";
@@ -219,6 +233,12 @@ export default function Sidebar({ activeHref }: { activeHref?: string }) {
 				href: "/incidents-catalog",
 				label: "Incidents",
 				icon: <IconIncidents className="h-5 w-5" />,
+			},
+			// --- Added Analytics here ---
+			{
+				href: "/analytics",
+				label: "Analytics",
+				icon: <IconAnalytics className="h-5 w-5" />,
 			},
 			{
 				href: "/resource-catalog",
