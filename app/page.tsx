@@ -9,8 +9,6 @@ import StatsSection from "@/components/StatsSection";
 import AppFeedDemo from "@/components/AppFeedDemo";
 import { useRouter } from "next/navigation";
 
-const RADAR_DURATION = 14;
-
 export default function Home() {
 	const router = useRouter();
 
@@ -29,7 +27,11 @@ export default function Home() {
 
 			<Navbar />
 			<div className="bg-gradient-to-br from-[#090909] via-[#1a1a1a] to-[#090909] text-white overflow-x-hidden">
-				<div className="relative min-h-screen w-full flex items-center justify-center overflow-hidden">
+				{/* HOME */}
+				<section
+					id="home"
+					className="relative min-h-screen w-full flex items-center justify-center overflow-hidden"
+				>
 					{/* Grid Pattern Background */}
 					<div
 						className="absolute pointer-events-none"
@@ -64,7 +66,7 @@ export default function Home() {
 						}}
 					/>
 
-					{/* Hero Content — two-column layout */}
+					{/* Hero Content */}
 					<div
 						className="relative w-full max-w-[72vw] mx-auto px-6 flex flex-col lg:flex-row items-center justify-between gap-12"
 						style={{ zIndex: 10 }}
@@ -126,17 +128,22 @@ export default function Home() {
 							/>
 						</div>
 					</div>
-				</div>
+				</section>
 
-				<div className="py-32">
+				{/* ABOUT */}
+				<section id="about" className="py-32">
 					<RoleCards />
-				</div>
-				<div className="py-32">
-					<StatsSection />
-				</div>
-				<div className="py-32">
+				</section>
+
+				{/* DEMO */}
+				<section id="demo" className="py-32">
 					<AppFeedDemo />
-				</div>
+				</section>
+
+				{/* IMPACT */}
+				<section id="impact" className="py-32">
+					<StatsSection />
+				</section>
 			</div>
 			<Footer />
 		</>

@@ -1,690 +1,444 @@
 import React from "react";
+import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
+import Sidebar from "@/util/sidebar";
 
+// --- Configuration & Constants ---
 const REPORTS_TABLE = "reports";
 const REQUESTS_TABLE = "requests";
 const RESOURCES_TABLE = "resources";
+const CHART_DAYS = 30;
+const SIDEBAR_W = 84;
 
-const CHART_DAYS = 30; // change to 7/14/30 as you like
-
-type ReportRow = {
-  id: string;
-  created_at: string;
-  type: string | null;
-};
-
+// --- Types ---
+type ReportRow = { id: string; created_at: string; type: string | null };
 type RequestRow = {
-  id: string;
-  created_at: string;
-  resource_type: string | null;
-  quantity: number | null;
+	id: string;
+	created_at: string;
+	resource_type: string | null;
+	quantity: number | null;
 };
-
 type ResourceRow = {
-  id: string;
-  name: string | null;
-  type: string | null;
-  quantity: number | null;
-  description: string | null;
-  updated_at: string | null;
+	id: string;
+	name: string | null;
+	type: string | null;
+	quantity: number | null;
+	updated_at: string | null;
 };
 
+// --- Helper Functions ---
 function getSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!url || !anon) {
-    throw new Error(
-      "Missing Supabase env vars. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local"
-    );
-  }
-
-  return createClient(url, anon, {
-    auth: { persistSession: false },
-  });
-}
-
-function startOfWeekMonday(d: Date) {
-  const date = new Date(d);
-  const day = date.getDay(); // 0 Sun - 6 Sat
-  const diffToMonday = (day === 0 ? -6 : 1) - day;
-  date.setDate(date.getDate() + diffToMonday);
-  date.setHours(0, 0, 0, 0);
-  return date;
-}
-
-function formatDeltaPct(current: number, previous: number) {
-  if (previous === 0 && current === 0) return "0%";
-  if (previous === 0) return "∞";
-  const pct = ((current - previous) / previous) * 100;
-  const sign = pct > 0 ? "+" : "";
-  return `${sign}${pct.toFixed(1)}%`;
-}
-
-function pad2(n: number) {
-  return n < 10 ? `0${n}` : `${n}`;
+	const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+	const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+	if (!url || !anon) throw new Error("Missing Supabase env vars.");
+	return createClient(url, anon, { auth: { persistSession: false } });
 }
 
 function toDateKeyLocal(d: Date) {
-  // local date key: YYYY-MM-DD
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+	return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, "0")}-${d.getDate().toString().padStart(2, "0")}`;
 }
 
 function addDays(date: Date, days: number) {
-  const d = new Date(date);
-  d.setDate(d.getDate() + days);
-  return d;
+	const d = new Date(date);
+	d.setDate(d.getDate() + days);
+	return d;
 }
 
-function startOfDayLocal(date: Date) {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  return d;
+// --- Internal Sub-components (Themed) ---
+function StatBox({
+	label,
+	value,
+	subtext,
+}: {
+	label: string;
+	value: number | string;
+	subtext?: string;
+}) {
+	return (
+		<div
+			className="flex flex-1 flex-col items-center justify-center rounded-2xl py-6 text-center transition-all duration-200"
+			style={{
+				border: "1px solid rgba(253,77,77,0.14)",
+				background: "rgba(253,77,77,0.05)",
+			}}
+		>
+			<span
+				className="text-4xl font-black tracking-tighter"
+				style={{
+					color: "#fd4d4d",
+					textShadow: "0 0 20px rgba(253,77,77,0.4)",
+				}}
+			>
+				{value}
+			</span>
+			<span className="mt-1 text-[10px] font-bold uppercase tracking-widest text-[#D9D9D9]/40">
+				{label}
+			</span>
+			{subtext && (
+				<span className="mt-1 text-[9px] text-[#D9D9D9]/20">
+					{subtext}
+				</span>
+			)}
+		</div>
+	);
 }
 
-function stableColorForType(type: string) {
-  // deterministic HSL color from string (no external libs)
-  let hash = 0;
-  for (let i = 0; i < type.length; i++) {
-    hash = (hash * 31 + type.charCodeAt(i)) >>> 0;
-  }
-  const hue = hash % 360;
-  return `hsl(${hue} 70% 50%)`;
+function GlassCard({
+	title,
+	subtitle,
+	children,
+	right,
+}: {
+	title: string;
+	subtitle?: string;
+	children: React.ReactNode;
+	right?: React.ReactNode;
+}) {
+	return (
+		<div
+			className="flex flex-col overflow-hidden rounded-2xl"
+			style={{
+				background: "rgba(20,20,20,0.85)",
+				border: "1px solid rgba(255,255,255,0.07)",
+				boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+			}}
+		>
+			<div className="flex items-center justify-between border-b border-white/[0.06] px-6 py-4">
+				<div>
+					<p className="text-sm font-semibold text-[#D9D9D9]">
+						{title}
+					</p>
+					{subtitle && (
+						<p className="text-[10px] text-[#D9D9D9]/30 uppercase tracking-wider mt-0.5">
+							{subtitle}
+						</p>
+					)}
+				</div>
+				{right}
+			</div>
+			<div className="flex-1 p-6">{children}</div>
+		</div>
+	);
 }
 
+// --- Main Component ---
 export default async function AnalyticsPage() {
-  const now = new Date();
-
-  // windows for KPIs
-  const weekStart = startOfWeekMonday(now);
-  const last24hStart = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-
-  // last 7 days vs prev 7 days
-  const this7dStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const prev7dStart = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
-  const prev7dEnd = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-  // chart range: last N local days
-  const chartEndDay = startOfDayLocal(now);
-  const chartStartDay = addDays(chartEndDay, -(CHART_DAYS - 1)); // include today
-  const chartStartISO = chartStartDay.toISOString();
-  const chartEndISO = addDays(chartEndDay, 1).toISOString(); // exclusive end tomorrow 00:00
-
-  let errorMsg: string | null = null;
-
-  // Reports KPIs
-  let reportsThisWeek: ReportRow[] = [];
-  let reportsLast24hCount = 0;
-  let reportsThis7dCount = 0;
-  let reportsPrev7dCount = 0;
-  let reportsTotalCount = 0;
-
-  // Requests KPIs
-  let requestsThisWeek: RequestRow[] = [];
-  let requestsLast24hCount = 0;
-  let requestsTotalCount = 0;
-
-  // Resources table
-  let resourcesAll: ResourceRow[] = [];
-
-  // Charts raw data
-  let reportChartRows: { created_at: string }[] = [];
-  let requestChartRows: { created_at: string; resource_type: string | null; quantity: number | null }[] = [];
-
-  try {
-    const supabase = getSupabase();
-
-    // -------------------------
-    // REPORTS KPIs
-    // -------------------------
-    {
-      const { data, error } = await supabase
-        .from(REPORTS_TABLE)
-        .select("id, created_at, type")
-        .gte("created_at", weekStart.toISOString())
-        .lte("created_at", now.toISOString());
-
-      if (error) throw new Error(`reports(this week) - ${error.message}`);
-      reportsThisWeek = (data ?? []) as ReportRow[];
-    }
-
-    {
-      const { count, error } = await supabase
-        .from(REPORTS_TABLE)
-        .select("id", { count: "exact", head: true })
-        .gte("created_at", last24hStart.toISOString())
-        .lte("created_at", now.toISOString());
-
-      if (error) throw new Error(`reports(last 24h) - ${error.message}`);
-      reportsLast24hCount = typeof count === "number" ? count : 0;
-    }
-
-    {
-      const { count: c1, error: e1 } = await supabase
-        .from(REPORTS_TABLE)
-        .select("id", { count: "exact", head: true })
-        .gte("created_at", this7dStart.toISOString())
-        .lte("created_at", now.toISOString());
-
-      if (e1) throw new Error(`reports(this 7d) - ${e1.message}`);
-      reportsThis7dCount = typeof c1 === "number" ? c1 : 0;
-
-      const { count: c2, error: e2 } = await supabase
-        .from(REPORTS_TABLE)
-        .select("id", { count: "exact", head: true })
-        .gte("created_at", prev7dStart.toISOString())
-        .lt("created_at", prev7dEnd.toISOString());
-
-      if (e2) throw new Error(`reports(prev 7d) - ${e2.message}`);
-      reportsPrev7dCount = typeof c2 === "number" ? c2 : 0;
-    }
-
-    {
-      const { count, error } = await supabase
-        .from(REPORTS_TABLE)
-        .select("id", { count: "exact", head: true });
-
-      if (error) throw new Error(`reports(total) - ${error.message}`);
-      reportsTotalCount = typeof count === "number" ? count : 0;
-    }
-
-    // -------------------------
-    // REQUESTS KPIs
-    // -------------------------
-    {
-      const { data, error } = await supabase
-        .from(REQUESTS_TABLE)
-        .select("id, created_at, resource_type, quantity")
-        .gte("created_at", weekStart.toISOString())
-        .lte("created_at", now.toISOString());
-
-      if (error) throw new Error(`requests(this week) - ${error.message}`);
-      requestsThisWeek = (data ?? []) as RequestRow[];
-    }
-
-    {
-      const { count, error } = await supabase
-        .from(REQUESTS_TABLE)
-        .select("id", { count: "exact", head: true });
-
-      if (error) throw new Error(`requests(total) - ${error.message}`);
-      requestsTotalCount = typeof count === "number" ? count : 0;
-    }
-
-    {
-      const { count, error } = await supabase
-        .from(REQUESTS_TABLE)
-        .select("id", { count: "exact", head: true })
-        .gte("created_at", last24hStart.toISOString())
-        .lte("created_at", now.toISOString());
-
-      if (error) throw new Error(`requests(last 24h) - ${error.message}`);
-      requestsLast24hCount = typeof count === "number" ? count : 0;
-    }
-
-    // -------------------------
-    // RESOURCES
-    // -------------------------
-    {
-      const { data, error } = await supabase
-        .from(RESOURCES_TABLE)
-        .select("id, name, type, quantity, description, updated_at")
-        .order("updated_at", { ascending: false });
-
-      if (error) throw new Error(`resources(all) - ${error.message}`);
-      resourcesAll = (data ?? []) as ResourceRow[];
-    }
-
-    // -------------------------
-    // CHART DATA (last N days)
-    // -------------------------
-    {
-      const { data, error } = await supabase
-        .from(REPORTS_TABLE)
-        .select("created_at")
-        .gte("created_at", chartStartISO)
-        .lt("created_at", chartEndISO);
-
-      if (error) throw new Error(`reports(chart) - ${error.message}`);
-      reportChartRows = (data ?? []) as any[];
-    }
-
-    {
-      const { data, error } = await supabase
-        .from(REQUESTS_TABLE)
-        .select("created_at, resource_type, quantity")
-        .gte("created_at", chartStartISO)
-        .lt("created_at", chartEndISO);
-
-      if (error) throw new Error(`requests(chart) - ${error.message}`);
-      requestChartRows = (data ?? []) as any[];
-    }
-  } catch (e: any) {
-    errorMsg = e?.message ?? "Unknown error";
-  }
-
-  // -------------------------
-  // Derived: Reports top type this week
-  // -------------------------
-  const reportTypeCounts = new Map<string, number>();
-  for (const r of reportsThisWeek) {
-    const t = (r.type ?? "unknown").toString();
-    reportTypeCounts.set(t, (reportTypeCounts.get(t) ?? 0) + 1);
-  }
-  const topReportTypeEntry = Array.from(reportTypeCounts.entries()).sort((a, b) => b[1] - a[1])[0];
-  const topReportType = topReportTypeEntry?.[0] ?? "N/A";
-  const topReportTypeCount = topReportTypeEntry?.[1] ?? 0;
-
-  const reportsDelta = reportsThis7dCount - reportsPrev7dCount;
-  const reportsDeltaPct = formatDeltaPct(reportsThis7dCount, reportsPrev7dCount);
-
-  // -------------------------
-  // Derived: Requests top type + qty sum (this week) + breakdown maps
-  // -------------------------
-  const requestTypeCounts = new Map<string, number>();
-  const requestTypeQtySums = new Map<string, number>();
-
-  for (const r of requestsThisWeek) {
-    const t = (r.resource_type ?? "unknown").toString();
-    requestTypeCounts.set(t, (requestTypeCounts.get(t) ?? 0) + 1);
-
-    const qty = typeof r.quantity === "number" ? r.quantity : 0;
-    requestTypeQtySums.set(t, (requestTypeQtySums.get(t) ?? 0) + qty);
-  }
-
-  const topRequestTypeEntry = Array.from(requestTypeCounts.entries()).sort((a, b) => b[1] - a[1])[0];
-  const topRequestType = topRequestTypeEntry?.[0] ?? "N/A";
-  const topRequestTypeCount = topRequestTypeEntry?.[1] ?? 0;
-  const topRequestTypeTotalQty = requestTypeQtySums.get(topRequestType) ?? 0;
-
-  // -------------------------
-  // Charts: day buckets (local days)
-  // -------------------------
-  const dayKeys: string[] = [];
-  for (let i = 0; i < CHART_DAYS; i++) {
-    dayKeys.push(toDateKeyLocal(addDays(chartStartDay, i)));
-  }
-
-  // Reports per day (COUNT)
-  const reportsPerDay = new Map<string, number>();
-  for (const k of dayKeys) reportsPerDay.set(k, 0);
-  for (const row of reportChartRows) {
-    if (!row.created_at) continue;
-    const k = toDateKeyLocal(new Date(row.created_at));
-    if (reportsPerDay.has(k)) reportsPerDay.set(k, (reportsPerDay.get(k) ?? 0) + 1);
-  }
-  const reportSeries = dayKeys.map((k) => ({ day: k, count: reportsPerDay.get(k) ?? 0 }));
-  const maxReport = Math.max(1, ...reportSeries.map((x) => x.count));
-
-  // Requests per day by type (SUM OF QUANTITY)
-  const requestTypesSet = new Set<string>();
-  const reqQtyByDayType = new Map<string, Map<string, number>>(); // day -> (type -> qty sum)
-  for (const k of dayKeys) reqQtyByDayType.set(k, new Map());
-
-  for (const row of requestChartRows) {
-    const created = row.created_at;
-    if (!created) continue;
-
-    const day = toDateKeyLocal(new Date(created));
-    if (!reqQtyByDayType.has(day)) continue;
-
-    const t = (row.resource_type ?? "unknown").toString();
-    requestTypesSet.add(t);
-
-    const qty = typeof row.quantity === "number" ? row.quantity : 0;
-
-    const inner = reqQtyByDayType.get(day)!;
-    inner.set(t, (inner.get(t) ?? 0) + qty);
-  }
-
-  const requestTypes = Array.from(requestTypesSet).sort();
-
-  // totals per day (total quantity across all types)
-  const requestTotalQtyPerDay = dayKeys.map((day) => {
-    const inner = reqQtyByDayType.get(day)!;
-    let sum = 0;
-    for (const v of inner.values()) sum += v;
-    return sum;
-  });
-
-  const maxRequest = Math.max(1, ...requestTotalQtyPerDay);
-
-  // UI styles
-  const chartCardStyle: React.CSSProperties = {
-    marginTop: 16,
-    border: "1px solid #eee",
-    borderRadius: 12,
-    padding: 16,
-  };
-
-  const chartAreaStyle: React.CSSProperties = {
-    marginTop: 12,
-    display: "flex",
-    alignItems: "flex-end",
-    gap: 10,
-    height: 180,
-    width: "100%",
-  };
-
-  const xLabelStyle: React.CSSProperties = {
-    marginTop: 8,
-    display: "flex",
-    gap: 10,
-    fontSize: 12,
-    color: "#888",
-  };
-
-  return (
-    <div style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
-      <h1 style={{ fontSize: 28, fontWeight: 700 }}>Analytics</h1>
-
-      <div style={{ marginTop: 8, color: "#777" }}>
-        <div>Week starts (Mon): {weekStart.toLocaleString()}</div>
-        <div>Now: {now.toLocaleString()}</div>
-      </div>
-
-      {errorMsg ? (
-        <div
-          style={{
-            marginTop: 16,
-            padding: 12,
-            border: "1px solid #f99",
-            background: "#fff5f5",
-            borderRadius: 10,
-          }}
-        >
-          <b>Failed to load analytics from Supabase.</b>
-          <div style={{ marginTop: 6 }}>{errorMsg}</div>
-        </div>
-      ) : null}
-
-      {/* -------------------- REPORTS -------------------- */}
-      <h2 style={{ marginTop: 22, fontSize: 18, fontWeight: 700 }}>Reports</h2>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-          gap: 12,
-          marginTop: 12,
-        }}
-      >
-        <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 16 }}>
-          <div style={{ color: "#666" }}>Top report type (this week)</div>
-          <div style={{ fontSize: 24, fontWeight: 800, marginTop: 6 }}>{topReportType}</div>
-          <div style={{ marginTop: 6, color: "#777" }}>
-            {topReportTypeCount} report{topReportTypeCount === 1 ? "" : "s"} this week
-          </div>
-        </div>
-
-        <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 16 }}>
-          <div style={{ color: "#666" }}>Reports (last 24 hours)</div>
-          <div style={{ fontSize: 34, fontWeight: 800, marginTop: 6 }}>{reportsLast24hCount}</div>
-          <div style={{ marginTop: 6, color: "#777" }}>
-            From {last24hStart.toLocaleString()} → now
-          </div>
-        </div>
-
-        <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 16 }}>
-          <div style={{ color: "#666" }}>Last 7 days vs previous 7 days</div>
-          <div style={{ fontSize: 28, fontWeight: 800, marginTop: 6 }}>
-            {reportsThis7dCount} vs {reportsPrev7dCount}
-          </div>
-          <div style={{ marginTop: 6, color: "#777" }}>
-            Δ {reportsDelta > 0 ? "+" : ""}
-            {reportsDelta} ({reportsDeltaPct})
-          </div>
-        </div>
-
-        <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 16 }}>
-          <div style={{ color: "#666" }}>Total reports</div>
-          <div style={{ fontSize: 34, fontWeight: 800, marginTop: 6 }}>{reportsTotalCount}</div>
-          <div style={{ marginTop: 6, color: "#777" }}>All time</div>
-        </div>
-      </div>
-
-      {/* Bar chart: reports per day */}
-      <div style={chartCardStyle}>
-        <h3 style={{ fontSize: 16, fontWeight: 700 }}>Daily reports (last {CHART_DAYS} days)</h3>
-        <div style={chartAreaStyle}>
-          {reportSeries.map((p) => {
-            const h = Math.round((p.count / maxReport) * 170);
-            return (
-              <div key={p.day} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
-                <div style={{ fontSize: 12, color: "#aaa", marginBottom: 6 }}>{p.count}</div>
-                <div
-                  style={{
-                    width: "100%",
-                    height: h,
-                    borderRadius: 8,
-                    border: "1px solid #333",
-                    background: "#999",
-                  }}
-                  title={`${p.day}: ${p.count}`}
-                />
-              </div>
-            );
-          })}
-        </div>
-        <div style={xLabelStyle}>
-          {dayKeys.map((d) => (
-            <div key={d} style={{ flex: 1, textAlign: "center" }}>
-              {d.slice(5)}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* -------------------- REQUESTS -------------------- */}
-      <h2 style={{ marginTop: 26, fontSize: 18, fontWeight: 700 }}>Requests</h2>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-          gap: 12,
-          marginTop: 12,
-        }}
-      >
-        <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 16 }}>
-          <div style={{ color: "#666" }}>Requests (this week)</div>
-          <div style={{ fontSize: 34, fontWeight: 800, marginTop: 6 }}>{requestsThisWeek.length}</div>
-          <div style={{ marginTop: 6, color: "#777" }}>Total in DB: {requestsTotalCount}</div>
-        </div>
-
-        <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 16 }}>
-          <div style={{ color: "#666" }}>Top request type (this week)</div>
-          <div style={{ fontSize: 24, fontWeight: 800, marginTop: 6 }}>{topRequestType}</div>
-          <div style={{ marginTop: 6, color: "#777" }}>
-            {topRequestTypeCount} request{topRequestTypeCount === 1 ? "" : "s"} this week
-          </div>
-          <div style={{ marginTop: 6, color: "#777" }}>(Last 24 hours: {requestsLast24hCount})</div>
-        </div>
-
-        <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 16 }}>
-          <div style={{ color: "#666" }}>Total quantity for top type</div>
-          <div style={{ fontSize: 34, fontWeight: 800, marginTop: 6 }}>{topRequestTypeTotalQty}</div>
-          <div style={{ marginTop: 6, color: "#777" }}>
-            Sum of <code>quantity</code> for <b>{topRequestType}</b> (this week)
-          </div>
-        </div>
-
-        <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 16, color: "#777" }}>
-          <div style={{ color: "#666" }}>Note</div>
-          <div style={{ marginTop: 10, fontSize: 13 }}>
-            Daily request chart below is stacked by resource type (quantity sums).
-          </div>
-        </div>
-
-        {/* Request type breakdown (this week) - full width */}
-        <div
-          style={{
-            marginTop: 20,
-            border: "1px solid #eee",
-            borderRadius: 12,
-            padding: 16,
-            gridColumn: "1 / -1",
-          }}
-        >
-          <h3 style={{ fontSize: 16, fontWeight: 700 }}>Request type breakdown (this week)</h3>
-
-          {requestTypeCounts.size === 0 ? (
-            <p style={{ marginTop: 10, color: "#666" }}>No requests found for this week.</p>
-          ) : (
-            <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 10 }}>
-              <thead>
-                <tr style={{ textAlign: "left" }}>
-                  <th style={{ padding: "10px 8px", borderBottom: "1px solid #eee" }}>Type</th>
-                  <th style={{ padding: "10px 8px", borderBottom: "1px solid #eee", width: 120 }}>Count</th>
-                  <th style={{ padding: "10px 8px", borderBottom: "1px solid #eee", width: 160 }}>
-                    Quantity sum
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {Array.from(requestTypeCounts.entries())
-                  .sort((a, b) => b[1] - a[1])
-                  .map(([t, cnt]) => (
-                    <tr key={t}>
-                      <td style={{ padding: "10px 8px", borderBottom: "1px solid #f3f3f3" }}>{t}</td>
-                      <td style={{ padding: "10px 8px", borderBottom: "1px solid #f3f3f3" }}>{cnt}</td>
-                      <td style={{ padding: "10px 8px", borderBottom: "1px solid #f3f3f3" }}>
-                        {requestTypeQtySums.get(t) ?? 0}
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
-
-      {/* Bar chart: requests per day stacked by resource_type (SUM QUANTITY) */}
-      <div style={chartCardStyle}>
-        <h3 style={{ fontSize: 16, fontWeight: 700 }}>
-          Daily requested quantity (last {CHART_DAYS} days) — stacked by resource type
-        </h3>
-
-        {/* legend */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10, color: "#aaa", fontSize: 12 }}>
-          {requestTypes.length === 0 ? (
-            <span>No request data in this range.</span>
-          ) : (
-            requestTypes.map((t) => (
-              <span key={t} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                <span style={{ width: 10, height: 10, borderRadius: 2, background: stableColorForType(t) }} />
-                {t}
-              </span>
-            ))
-          )}
-        </div>
-
-        <div style={chartAreaStyle}>
-          {dayKeys.map((day) => {
-            const inner = reqQtyByDayType.get(day)!;
-
-            let totalQty = 0;
-            for (const v of inner.values()) totalQty += v;
-
-            const barHeight = Math.round((totalQty / maxRequest) * 170);
-
-            const segments =
-              totalQty === 0
-                ? []
-                : requestTypes
-                    .map((t) => ({ t, q: inner.get(t) ?? 0 }))
-                    .filter((x) => x.q > 0)
-                    .map((x) => ({
-                      ...x,
-                      h: Math.max(2, Math.round((barHeight * x.q) / totalQty)),
-                      color: stableColorForType(x.t),
-                    }));
-
-            return (
-              <div key={day} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
-                <div style={{ fontSize: 12, color: "#aaa", marginBottom: 6 }}>{totalQty}</div>
-
-                <div
-                  title={`${day}: ${totalQty}`}
-                  style={{
-                    width: "100%",
-                    height: Math.max(0, barHeight),
-                    borderRadius: 8,
-                    border: "1px solid #333",
-                    overflow: "hidden",
-                    display: "flex",
-                    flexDirection: "column-reverse",
-                    background: totalQty === 0 ? "transparent" : undefined,
-                  }}
-                >
-                  {segments.map((s) => (
-                    <div
-                      key={s.t}
-                      title={`${s.t}: ${s.q}`}
-                      style={{
-                        height: s.h,
-                        background: s.color,
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        <div style={xLabelStyle}>
-          {dayKeys.map((d) => (
-            <div key={d} style={{ flex: 1, textAlign: "center" }}>
-              {d.slice(5)}
-            </div>
-          ))}
-        </div>
-
-        <div style={{ marginTop: 10, color: "#777", fontSize: 12 }}>
-          Note: “Daily requested quantity” sums <code>quantity</code> per day; stacked segments represent each{" "}
-          <code>resource_type</code>.
-        </div>
-      </div>
-
-      {/* -------------------- RESOURCES -------------------- */}
-      <h2 style={{ marginTop: 26, fontSize: 18, fontWeight: 700 }}>Resources remaining</h2>
-      <div style={{ marginTop: 12, border: "1px solid #eee", borderRadius: 12, padding: 16 }}>
-        {resourcesAll.length === 0 ? (
-          <p style={{ color: "#666" }}>No resources found.</p>
-        ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ textAlign: "left" }}>
-                <th style={{ padding: "10px 8px", borderBottom: "1px solid #eee" }}>Name</th>
-                <th style={{ padding: "10px 8px", borderBottom: "1px solid #eee", width: 140 }}>Type</th>
-                <th style={{ padding: "10px 8px", borderBottom: "1px solid #eee", width: 120 }}>Quantity</th>
-                <th style={{ padding: "10px 8px", borderBottom: "1px solid #eee" }}>Description</th>
-                <th style={{ padding: "10px 8px", borderBottom: "1px solid #eee", width: 180 }}>Updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {resourcesAll.map((r) => (
-                <tr key={r.id}>
-                  <td style={{ padding: "10px 8px", borderBottom: "1px solid #f3f3f3" }}>
-                    {r.name ?? "(no name)"}
-                  </td>
-                  <td style={{ padding: "10px 8px", borderBottom: "1px solid #f3f3f3" }}>
-                    {r.type ?? "unknown"}
-                  </td>
-                  <td style={{ padding: "10px 8px", borderBottom: "1px solid #f3f3f3" }}>
-                    {r.quantity ?? 0}
-                  </td>
-                  <td style={{ padding: "10px 8px", borderBottom: "1px solid #f3f3f3" }}>
-                    {r.description ?? ""}
-                  </td>
-                  <td style={{ padding: "10px 8px", borderBottom: "1px solid #f3f3f3", color: "#777" }}>
-                    {r.updated_at ? new Date(r.updated_at).toLocaleString() : ""}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-    </div>
-  );
+	const now = new Date();
+	const chartStartDay = addDays(now, -(CHART_DAYS - 1));
+	chartStartDay.setHours(0, 0, 0, 0);
+
+	let reportsTotal = 0,
+		requestsTotal = 0,
+		resourcesAll: ResourceRow[] = [];
+	let reportChartRows: { created_at: string }[] = [];
+	let requestChartRows: RequestRow[] = [];
+
+	try {
+		const supabase = getSupabase();
+		const results = await Promise.all([
+			supabase
+				.from(REPORTS_TABLE)
+				.select("id", { count: "exact", head: true }),
+			supabase
+				.from(REQUESTS_TABLE)
+				.select("id", { count: "exact", head: true }),
+			supabase
+				.from(RESOURCES_TABLE)
+				.select("*")
+				.order("updated_at", { ascending: false }),
+			supabase
+				.from(REPORTS_TABLE)
+				.select("created_at")
+				.gte("created_at", chartStartDay.toISOString()),
+			supabase
+				.from(REQUESTS_TABLE)
+				.select("id, created_at, resource_type, quantity")
+				.gte("created_at", chartStartDay.toISOString()),
+		]);
+
+		reportsTotal = results[0].count || 0;
+		requestsTotal = results[1].count || 0;
+		resourcesAll = results[2].data || [];
+		reportChartRows = results[3].data || [];
+		requestChartRows = (results[4].data as RequestRow[]) || [];
+	} catch (e) {
+		console.error(e);
+	}
+
+	// Derived Calculations
+	const dayKeys: string[] = [];
+	for (let i = 0; i < CHART_DAYS; i++)
+		dayKeys.push(toDateKeyLocal(addDays(chartStartDay, i)));
+
+	const reportsPerDay = new Map(dayKeys.map((k) => [k, 0]));
+	reportChartRows.forEach((row) => {
+		const k = toDateKeyLocal(new Date(row.created_at));
+		if (reportsPerDay.has(k))
+			reportsPerDay.set(k, reportsPerDay.get(k)! + 1);
+	});
+	const maxReport = Math.max(1, ...Array.from(reportsPerDay.values()));
+
+	return (
+		<main
+			className="relative h-screen overflow-hidden text-[#D9D9D9]"
+			style={{ background: "#090909" }}
+		>
+			{/* Background Textures */}
+			<div
+				className="pointer-events-none absolute inset-0"
+				style={{
+					backgroundImage:
+						"linear-gradient(rgba(253, 77, 77, 0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(253, 77, 77, 0.04) 1px, transparent 1px)",
+					backgroundSize: "60px 60px",
+				}}
+			/>
+			<div
+				className="pointer-events-none absolute inset-0"
+				style={{
+					background:
+						"radial-gradient(ellipse at center, transparent 30%, #090909 100%)",
+				}}
+			/>
+
+			<Sidebar activeHref="/analytics" />
+
+			<div
+				className="absolute bottom-0 right-0 top-0 flex flex-col gap-4 p-5 overflow-y-auto"
+				style={{ left: SIDEBAR_W, zIndex: 10 }}
+			>
+				{/* Header */}
+				<header
+					className="flex shrink-0 items-center justify-between gap-4 rounded-2xl px-7 py-5"
+					style={{
+						background: "rgba(20,20,20,0.85)",
+						border: "1px solid rgba(255,255,255,0.07)",
+						boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+					}}
+				>
+					<div>
+						<span
+							className="rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-[#fd4d4d]"
+							style={{
+								background: "rgba(253,77,77,0.1)",
+								border: "1px solid rgba(253,77,77,0.2)",
+							}}
+						>
+							System Telemetry
+						</span>
+						<h1 className="mt-2 text-3xl font-extrabold text-white tracking-tight">
+							Analytics Overview
+						</h1>
+					</div>
+					<div className="text-right">
+						<p className="text-[10px] font-bold uppercase tracking-widest text-[#D9D9D9]/20">
+							Last Sync
+						</p>
+						<p className="text-sm font-mono text-[#fd4d4d]">
+							{now.toLocaleTimeString()}
+						</p>
+					</div>
+				</header>
+
+				{/* Top Stats */}
+				<div className="grid grid-cols-4 gap-4 shrink-0">
+					<StatBox
+						label="Total Reports"
+						value={reportsTotal.toLocaleString()}
+					/>
+					<StatBox
+						label="Active Requests"
+						value={requestsTotal.toLocaleString()}
+					/>
+					<StatBox
+						label="Inventory Items"
+						value={resourcesAll.length}
+					/>
+					<StatBox label="Days Tracked" value={CHART_DAYS} />
+				</div>
+
+				{/* Charts Grid */}
+				<div
+					className="grid flex-1 gap-4"
+					style={{ gridTemplateColumns: "1.5fr 1fr" }}
+				>
+					<GlassCard
+						title="Report Velocity"
+						subtitle="Daily Volume (Last 30 Days)"
+					>
+						<div className="flex h-56 items-end gap-1.5 pt-12">
+							{" "}
+							{/* Increased height & padding for tooltip space */}
+							{dayKeys.map((k) => {
+								const value = reportsPerDay.get(k) || 0;
+								const heightPercent = (value / maxReport) * 100;
+
+								return (
+									<div
+										key={k}
+										className="group relative flex-1 h-full flex flex-col justify-end"
+									>
+										{/* Enhanced HUD Tooltip */}
+										<div className="absolute -top-12 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-all duration-200 pointer-events-none group-hover:-top-14">
+											<div className="flex flex-col items-center">
+												<span className="text-2xl font-black text-white leading-none tracking-tighter">
+													{value}
+												</span>
+												<span className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#fd4d4d]">
+													Reports
+												</span>
+												{/* Pointy indicator */}
+												<div className="w-px h-4 bg-[#fd4d4d] mt-1" />
+											</div>
+										</div>
+
+										{/* The Bar: Solid Matte with High-Contrast Header */}
+										<div
+											className="w-full transition-all duration-200 ease-in-out group-hover:bg-[#fd4d4d]"
+											style={{
+												height: `${heightPercent}%`,
+												background:
+													value > 0
+														? "rgba(253, 77, 77, 0.4)"
+														: "rgba(255,255,255,0.03)",
+												borderTop:
+													value > 0
+														? "2px solid #fd4d4d"
+														: "none",
+												position: "relative",
+											}}
+										>
+											{/* Subtle Hover State Fill */}
+											<div className="absolute inset-0 opacity-0 group-hover:opacity-100 bg-[#fd4d4d] transition-opacity" />
+										</div>
+									</div>
+								);
+							})}
+						</div>
+
+						<div className="mt-6 flex justify-between text-[10px] font-bold uppercase tracking-[0.2em] text-[#D9D9D9]/20 border-t border-white/[0.03] pt-4">
+							<span>{dayKeys[0]}</span>
+							<span className="text-[#D9D9D9]/10">
+								Terminal Metric Stream
+							</span>
+							<span>Today</span>
+						</div>
+					</GlassCard>
+
+					<GlassCard
+						title="Inventory Distribution"
+						subtitle="Stock levels per category"
+					>
+						<div className="space-y-4">
+							{resourcesAll.slice(0, 5).map((r) => (
+								<div key={r.id}>
+									<div className="mb-1 flex justify-between text-[11px] font-semibold">
+										<span className="text-[#D9D9D9]/70">
+											{r.name}
+										</span>
+										<span
+											style={{
+												color:
+													(r.quantity || 0) < 5
+														? "#fd4d4d"
+														: "#D9D9D9",
+											}}
+										>
+											{r.quantity}
+										</span>
+									</div>
+									<div className="h-1 w-full rounded-full bg-white/[0.03]">
+										<div
+											className="h-full rounded-full"
+											style={{
+												width: `${Math.min(100, (r.quantity || 0) * 2)}%`,
+												background:
+													(r.quantity || 0) < 5
+														? "#fd4d4d"
+														: "rgba(253,77,77,0.4)",
+											}}
+										/>
+									</div>
+								</div>
+							))}
+							<Link
+								href="/resource-catalog"
+								className="mt-4 block text-center text-[10px] font-bold uppercase tracking-widest text-[#fd4d4d] hover:underline"
+							>
+								View full catalog
+							</Link>
+						</div>
+					</GlassCard>
+				</div>
+
+				{/* Bottom Row */}
+				<GlassCard
+					title="System Resources"
+					subtitle="Latest Inventory Updates"
+				>
+					<div className="overflow-x-auto">
+						<table className="w-full text-left text-xs">
+							<thead>
+								<tr className="border-b border-white/[0.06] text-[#D9D9D9]/30">
+									<th className="pb-3 pl-2 font-bold uppercase tracking-widest">
+										Resource
+									</th>
+									<th className="pb-3 font-bold uppercase tracking-widest">
+										Type
+									</th>
+									<th className="pb-3 font-bold uppercase tracking-widest">
+										Quantity
+									</th>
+									<th className="pb-3 font-bold uppercase tracking-widest">
+										Last Updated
+									</th>
+								</tr>
+							</thead>
+							<tbody className="divide-y divide-white/[0.04]">
+								{resourcesAll.slice(0, 6).map((r) => (
+									<tr
+										key={r.id}
+										className="group hover:bg-white/[0.02]"
+									>
+										<td className="py-3 pl-2 font-semibold text-[#D9D9D9]">
+											{r.name}
+										</td>
+										<td className="py-3 text-[#D9D9D9]/40">
+											{r.type}
+										</td>
+										<td
+											className="py-3 font-mono"
+											style={{
+												color:
+													(r.quantity || 0) < 5
+														? "#fd4d4d"
+														: "#34D399",
+											}}
+										>
+											{r.quantity}
+										</td>
+										<td className="py-3 text-[#D9D9D9]/20">
+											{r.updated_at
+												? new Date(
+														r.updated_at,
+													).toLocaleDateString()
+												: "-"}
+										</td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+					</div>
+				</GlassCard>
+
+				<footer className="py-4 text-center">
+					<p
+						className="text-[11px] font-bold uppercase tracking-[0.2em]"
+						style={{ color: "rgba(253,77,77,0.25)" }}
+					>
+						DispatchNow • Telemetry Unit 01
+					</p>
+				</footer>
+			</div>
+		</main>
+	);
 }

@@ -36,8 +36,6 @@ interface Meta {
 	offset: number;
 }
 
-// ── helpers ───────────────────────────────────────────────────────────────────
-
 const RESOURCE_ICONS: Record<ResourceType, string> = {
 	[ResourceType.Water]: "💧",
 	[ResourceType.Blanket]: "🛏️",
@@ -83,7 +81,6 @@ const RESOURCE_COLORS: Record<
 	},
 };
 
-// Derive status colors dynamically since there's no enum yet
 function getStatusColor(status: string): {
 	bg: string;
 	text: string;
@@ -130,16 +127,13 @@ function formatRelativeTime(dateStr: string) {
 	if (mins < 60) return `${mins}m ago`;
 	const hrs = Math.floor(mins / 60);
 	if (hrs < 24) return `${hrs}h ago`;
-	const days = Math.floor(hrs / 24);
-	return `${days}d ago`;
+	return `${Math.floor(hrs / 24)}d ago`;
 }
 
 function formatCoords(lat?: number, lng?: number) {
 	if (lat == null || lng == null) return "Location unknown";
 	return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
 }
-
-// ── sub-components ────────────────────────────────────────────────────────────
 
 function RequestCard({
 	request,
@@ -161,15 +155,12 @@ function RequestCard({
 		>
 			<div className="flex items-start justify-between gap-4">
 				<div className="flex items-start gap-4 min-w-0">
-					{/* Resource type icon */}
 					<div
 						className={`flex-shrink-0 w-10 h-10 rounded-lg ${color.bg} border ${color.border} flex items-center justify-center text-lg mt-0.5`}
 					>
 						{icon}
 					</div>
-
 					<div className="min-w-0 flex-1">
-						{/* Resource type + status */}
 						<div className="flex items-center gap-2 flex-wrap mb-1.5">
 							<span
 								className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${color.bg} ${color.text}`}
@@ -185,13 +176,9 @@ function RequestCard({
 								{request.status}
 							</span>
 						</div>
-
-						{/* Description */}
 						<p className="text-neutral-200 text-sm leading-relaxed line-clamp-2 mb-3">
 							{request.description ?? "No description provided."}
 						</p>
-
-						{/* Meta row */}
 						<div className="flex items-center gap-4 text-xs text-neutral-500 flex-wrap">
 							<span className="flex items-center gap-1.5 font-medium text-neutral-300">
 								<FiPackage size={11} />
@@ -211,7 +198,6 @@ function RequestCard({
 						</div>
 					</div>
 				</div>
-
 				<FiChevronRight
 					size={16}
 					className="flex-shrink-0 text-neutral-600 group-hover:text-[#fd4d4d] transition-colors mt-1"
@@ -237,11 +223,7 @@ function SkeletonCard() {
 	);
 }
 
-// ── main page ─────────────────────────────────────────────────────────────────
-
 const PAGE_SIZE = 15;
-
-// Common statuses — will still work when a RequestStatus enum is added later
 const KNOWN_STATUSES = ["pending", "approved", "fulfilled", "rejected"];
 
 export default function RequestsCatalogPage() {
@@ -282,7 +264,6 @@ export default function RequestsCatalogPage() {
 			if (opts.type) params.set("resource_type", opts.type);
 			params.set("limit", String(PAGE_SIZE));
 			params.set("offset", String(opts.offset));
-
 			try {
 				const res = await fetch(`/api/requests?${params.toString()}`);
 				const json = await res.json();
@@ -353,7 +334,7 @@ export default function RequestsCatalogPage() {
 				/>
 
 				<div className="relative max-w-4xl mx-auto px-4 sm:px-6 py-12">
-					{/* ── Header ── */}
+					{/* Header */}
 					<div className="flex items-start justify-between gap-4 mb-10">
 						<div>
 							<div className="inline-flex items-center gap-2 bg-[#fd4d4d]/10 px-3 py-1.5 rounded-full border border-[#fd4d4d]/10 mb-4">
@@ -372,7 +353,7 @@ export default function RequestsCatalogPage() {
 						</div>
 
 						<button
-							onClick={() => router.push("/requests/create")}
+							onClick={() => router.push("/map")}
 							className="flex-shrink-0 flex items-center gap-2 px-4 py-2.5 mt-1
                                        bg-[#fd4d4d] hover:bg-[#e63e3e] text-white rounded-lg
                                        text-sm font-semibold transition-all duration-200
@@ -383,7 +364,7 @@ export default function RequestsCatalogPage() {
 						</button>
 					</div>
 
-					{/* ── Search + Filter bar ── */}
+					{/* Search + Filter bar */}
 					<div className="flex gap-3 mb-4">
 						<div className="relative flex-1">
 							<FiSearch
@@ -428,10 +409,9 @@ export default function RequestsCatalogPage() {
 						</button>
 					</div>
 
-					{/* ── Filter dropdowns ── */}
+					{/* Filter dropdowns */}
 					{showFilters && (
 						<div className="flex gap-3 mb-6 flex-wrap p-4 bg-[#111111] border border-neutral-800 rounded-xl">
-							{/* Status */}
 							<div className="flex flex-col gap-1.5 flex-1 min-w-[160px]">
 								<label className="text-xs text-neutral-500 font-medium uppercase tracking-wider">
 									Status
@@ -453,7 +433,6 @@ export default function RequestsCatalogPage() {
 								</select>
 							</div>
 
-							{/* Resource type */}
 							<div className="flex flex-col gap-1.5 flex-1 min-w-[160px]">
 								<label className="text-xs text-neutral-500 font-medium uppercase tracking-wider">
 									Resource Type
@@ -487,15 +466,14 @@ export default function RequestsCatalogPage() {
 										}}
 										className="flex items-center gap-1.5 px-3 py-2 text-xs text-neutral-400 hover:text-white border border-neutral-800 rounded-lg hover:border-neutral-600 transition-colors"
 									>
-										<FiX size={12} />
-										Clear
+										<FiX size={12} /> Clear
 									</button>
 								</div>
 							)}
 						</div>
 					)}
 
-					{/* ── Results count ── */}
+					{/* Results count */}
 					{!loading && (
 						<p className="text-xs text-neutral-600 mb-4">
 							{meta.total === 0
@@ -504,7 +482,7 @@ export default function RequestsCatalogPage() {
 						</p>
 					)}
 
-					{/* ── Request list ── */}
+					{/* Request list */}
 					<div className="space-y-3">
 						{loading ? (
 							Array.from({ length: 6 }).map((_, i) => (
@@ -535,7 +513,7 @@ export default function RequestsCatalogPage() {
 						)}
 					</div>
 
-					{/* ── Load more ── */}
+					{/* Load more */}
 					{!loading && hasMore && (
 						<div className="flex justify-center mt-8">
 							<button

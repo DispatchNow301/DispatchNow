@@ -165,48 +165,6 @@ export default function Footer() {
 							))}
 						</div>
 					</div>
-
-					{/* Newsletter */}
-					<div className="flex flex-col gap-4 max-w-sm w-full">
-						<div>
-							<p className="text-white font-semibold text-sm mb-1">
-								Stay in the loop
-							</p>
-							<p className="text-neutral-500 text-sm">
-								Get updates on new features, incidents, and
-								response tools.
-							</p>
-						</div>
-						<div className="flex gap-2">
-							<input
-								type="email"
-								placeholder="your@email.com"
-								className="flex-1 bg-white/[0.03] border border-white/[0.08] rounded-lg px-4 py-2.5 text-sm text-white placeholder-neutral-600 outline-none focus:border-[#fd4d4d]/40 transition-colors duration-200"
-							/>
-							<button
-								className="px-5 py-2.5 rounded-lg text-sm font-semibold text-white transition-all duration-300"
-								style={{
-									background: "rgba(253,77,77,0.15)",
-									border: "1px solid rgba(253,77,77,0.3)",
-								}}
-								onMouseEnter={(e) => {
-									(
-										e.currentTarget as HTMLElement
-									).style.background = "rgba(253,77,77,0.25)";
-								}}
-								onMouseLeave={(e) => {
-									(
-										e.currentTarget as HTMLElement
-									).style.background = "rgba(253,77,77,0.15)";
-								}}
-							>
-								Subscribe
-							</button>
-						</div>
-						<p className="text-neutral-600 text-xs">
-							No spam, ever. Unsubscribe anytime.
-						</p>
-					</div>
 				</div>
 
 				{/* Bottom bar */}
