@@ -176,12 +176,12 @@ export default function MinigameTestPage() {
           onFailure={() => { setActiveFire(false); setFireResult("lost"); }}
         />
       )}
-      {/* {activeHack && (
+      {activeHack && (
         <HackMinigame
           onSuccess={() => { setActiveHack(false); setHackResult("won"); }}
           onFailure={() => { setActiveHack(false); setHackResult("lost"); }}
         />
-      )} */}
+      )}
     </>
   );
 }
