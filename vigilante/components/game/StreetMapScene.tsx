@@ -8,6 +8,7 @@ import type { LatLngBounds, LatLngTuple } from "leaflet";
 import { MapContainer, Marker, Pane, TileLayer, useMap } from "react-leaflet";
 import * as L from "leaflet";
 import { vigilantes } from "@/app/components/data/vigilante";
+import VettingMinigameModal from "@/components/game/VettingMinigameModal";
 
 if (typeof window !== "undefined") {
 	// eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -93,7 +94,7 @@ const LEVELS = [
 	{ id: 3, label: "L3", zoomOut: 13, zoomIn: 13 },
 ];
 
-const CHARACTER_PINS: CharacterPin[] = [
+const STATIC_CHARACTER_BASES: CharacterPin[] = [
 	{ id: "cit-oldman", name: "Old Man", initial: "O", kind: "citizen", lat: 40.713, lng: -74.0112 },
 	{ id: "cit-girl", name: "Girl", initial: "G", kind: "citizen", lat: 40.7178, lng: -74.0014 },
 	{ id: "cit-woman", name: "Woman", initial: "W", kind: "citizen", lat: 40.7102, lng: -74.0005 },
@@ -214,6 +215,66 @@ function sampleInBounds(bounds: LatLngBounds): { lat: number; lng: number } {
 	const lng = west + (east - west) * inset + Math.random() * lngSpan;
 
 	return { lat, lng };
+}
+
+function nudgeNearby(lat: number, lng: number) {
+	const maxOffset = 0.0014;
+	return {
+		lat: lat + (Math.random() - 0.5) * maxOffset,
+		lng: lng + (Math.random() - 0.5) * maxOffset,
+	};
+}
+
+function nudgeNearPoint(lat: number, lng: number, maxOffset = 0.00085) {
+	return {
+		lat: lat + (Math.random() - 0.5) * maxOffset,
+		lng: lng + (Math.random() - 0.5) * maxOffset,
+	};
+}
+
+function moveToward(
+	from: { lat: number; lng: number },
+	to: { lat: number; lng: number },
+	factor: number,
+) {
+	return {
+		lat: from.lat + (to.lat - from.lat) * factor,
+		lng: from.lng + (to.lng - from.lng) * factor,
+	};
+}
+
+function distanceSq(
+	a: { lat: number; lng: number },
+	b: { lat: number; lng: number },
+) {
+	const dLat = a.lat - b.lat;
+	const dLng = a.lng - b.lng;
+	return dLat * dLat + dLng * dLng;
+}
+
+function pushAwayFromPoint(
+	point: { lat: number; lng: number },
+	center: { lat: number; lng: number },
+	minDistance: number,
+) {
+	const dLat = point.lat - center.lat;
+	const dLng = point.lng - center.lng;
+	const dist = Math.sqrt(dLat * dLat + dLng * dLng);
+
+	if (dist >= minDistance) return point;
+
+	if (dist < 1e-9) {
+		return {
+			lat: center.lat + minDistance,
+			lng: center.lng,
+		};
+	}
+
+	const scale = minDistance / dist;
+	return {
+		lat: center.lat + dLat * scale,
+		lng: center.lng + dLng * scale,
+	};
 }
 
 function randomFrom<T>(arr: T[]) {
@@ -401,14 +462,24 @@ function ZoomController({
 	useEffect(() => {
 		const lvl = levelConfig(level);
 
+		const pane = map.getPane("mapPane");
+		if (!pane) return;
+
 		map.setMinZoom(lvl.zoomOut);
 		map.setMaxZoom(lvl.zoomIn);
 		map.setMaxBounds(undefined as unknown as LatLngBounds);
 		map.invalidateSize({ animate: false });
 
 		requestAnimationFrame(() => {
+			const safePane = map.getPane("mapPane");
+			if (!safePane) return;
+
 			map.setView(BASE, lvl.zoomOut, { animate: false });
+
 			requestAnimationFrame(() => {
+				const finalPane = map.getPane("mapPane");
+				if (!finalPane) return;
+
 				try {
 					const b = map.getBounds();
 					map.setMaxBounds(b);
@@ -461,18 +532,22 @@ function CharacterMarkers({
 }) {
 	return (
 		<Pane name="characterPane" style={{ zIndex: 700 }}>
-			{pins.map((pin) => (
-				<Marker
-					key={pin.id}
-					position={[pin.lat, pin.lng]}
-					icon={makeCharacterIcon(pin.initial, pin.kind)}
-					interactive
-					riseOnHover
-					eventHandlers={{
-						click: () => onSelect(pin),
-					}}
-				/>
-			))}
+			{pins.map((pin) => {
+				const key = `${pin.id}-${pin.lat.toFixed(5)}-${pin.lng.toFixed(5)}`;
+				return (
+					<Marker
+						key={key}
+						position={[pin.lat, pin.lng]}
+						icon={makeCharacterIcon(pin.initial, pin.kind)}
+						zIndexOffset={0}
+						interactive
+						riseOnHover
+						eventHandlers={{
+							click: () => onSelect(pin),
+						}}
+					/>
+				);
+			})}
 		</Pane>
 	);
 }
@@ -485,7 +560,7 @@ function RecruitMarkers({
 	onSelect: (lead: RecruitLead) => void;
 }) {
 	return (
-		<Pane name="recruitPane" style={{ zIndex: 760 }}>
+		<Pane name="recruitPane" style={{ zIndex: 860 }}>
 			{leads.map((lead) => {
 				const v = vigilantes.find((vv) => vv.id === lead.vigilanteId);
 				if (!v) return null;
@@ -494,6 +569,7 @@ function RecruitMarkers({
 						key={lead.id}
 						position={[lead.lat, lead.lng]}
 						icon={makeRecruitIcon(v.name[0]?.toUpperCase() ?? "V")}
+						zIndexOffset={15000}
 						interactive
 						riseOnHover
 						eventHandlers={{
@@ -508,10 +584,11 @@ function RecruitMarkers({
 
 function HomebaseMarker({ onClick }: { onClick: () => void }) {
 	return (
-		<Pane name="homebasePane" style={{ zIndex: 780 }}>
+		<Pane name="homebasePane" style={{ zIndex: 880 }}>
 			<Marker
 				position={HOMEBASE_POS}
 				icon={makeHomebaseIcon()}
+				zIndexOffset={20000}
 				interactive
 				riseOnHover
 				eventHandlers={{ click: onClick }}
@@ -530,7 +607,7 @@ function IncidentMarkers({
 	onSelect: (id: string) => void;
 }) {
 	return (
-		<Pane name="incidentPane" style={{ zIndex: 650 }}>
+		<Pane name="incidentPane" style={{ zIndex: 820 }}>
 			{incidents
 				.filter((inc) => inc.status === "active")
 				.map((inc) => (
@@ -538,6 +615,7 @@ function IncidentMarkers({
 						key={inc.id}
 						position={[inc.lat, inc.lng]}
 						icon={makeIncidentIcon(inc.id === selectedId, false)}
+						zIndexOffset={10000}
 						interactive
 						eventHandlers={{ click: () => onSelect(inc.id) }}
 					/>
@@ -561,9 +639,18 @@ function SelectedIncidentFollower({
 		lastIdRef.current = selectedId;
 
 		if (!selectedId) return;
+
 		const inc = incidents.find((i) => i.id === selectedId);
 		if (!inc) return;
-		map.setView([inc.lat, inc.lng], map.getZoom(), { animate: true });
+
+		const pane = map.getPane("mapPane");
+		if (!pane) return;
+
+		requestAnimationFrame(() => {
+			const safePane = map.getPane("mapPane");
+			if (!safePane) return;
+			map.setView([inc.lat, inc.lng], map.getZoom(), { animate: false });
+		});
 	}, [incidents, selectedId, map]);
 
 	return null;
@@ -601,7 +688,7 @@ function loadState(saveKey: string): GameState {
 					: true,
 			ownedVigilanteIds: Array.isArray(p.ownedVigilanteIds)
 				? (p.ownedVigilanteIds as string[])
-				: [],
+				: ["bruce", "parya"],
 			recruitLeads: Array.isArray(p.recruitLeads)
 				? (p.recruitLeads as RecruitLead[])
 				: [],
@@ -624,6 +711,22 @@ export default function StreetMapScene({ saveKey }: Props) {
 
 	const [dialogue, setDialogue] = useState<DialogueState>(null);
 	const [showHomebasePanel, setShowHomebasePanel] = useState(false);
+	const [showVettingModal, setShowVettingModal] = useState(false);
+
+	const helperBase =
+		STATIC_CHARACTER_BASES.find((p) => p.id === "cit-helper") ?? STATIC_CHARACTER_BASES[0];
+	const diazBase =
+		STATIC_CHARACTER_BASES.find((p) => p.id === "cop-diaz") ?? STATIC_CHARACTER_BASES[0];
+
+	const [helperPos, setHelperPos] = useState({
+		lat: helperBase.lat,
+		lng: helperBase.lng,
+	});
+
+	const [diazPos, setDiazPos] = useState({
+		lat: diazBase.lat,
+		lng: diazBase.lng,
+	});
 
 	useEffect(() => {
 		setState(loadState(saveKey));
@@ -653,6 +756,7 @@ export default function StreetMapScene({ saveKey }: Props) {
 		setSelectedOwnedVigilanteId(null);
 		setDialogue(null);
 		setShowHomebasePanel(false);
+		setShowVettingModal(false);
 
 		setState((s) => {
 			if (s.selectedIncidentId === id && s.showIncidentPanel) {
@@ -680,6 +784,7 @@ export default function StreetMapScene({ saveKey }: Props) {
 	const handleRecruitSelect = (lead: RecruitLead) => {
 		setDialogue(null);
 		setShowHomebasePanel(false);
+		setShowVettingModal(false);
 		setState((s) => ({
 			...s,
 			selectedIncidentId: null,
@@ -691,6 +796,7 @@ export default function StreetMapScene({ saveKey }: Props) {
 
 	const handleOwnedVigilanteSelect = (vigilanteId: string) => {
 		setDialogue(null);
+		setShowVettingModal(false);
 		setOverlayMode("owned");
 		setSelectedRecruitLeadId(null);
 		setSelectedOwnedVigilanteId(vigilanteId);
@@ -704,6 +810,7 @@ export default function StreetMapScene({ saveKey }: Props) {
 		setSelectedRecruitLeadId(null);
 		setSelectedOwnedVigilanteId(null);
 		setShowHomebasePanel(false);
+		setShowVettingModal(false);
 
 		if (pin.kind === "citizen") {
 			const citizen =
@@ -745,6 +852,7 @@ export default function StreetMapScene({ saveKey }: Props) {
 		setDialogue(null);
 		setSelectedRecruitLeadId(null);
 		setSelectedOwnedVigilanteId(null);
+		setShowVettingModal(false);
 		setState((s) => ({
 			...s,
 			selectedIncidentId: null,
@@ -765,6 +873,7 @@ export default function StreetMapScene({ saveKey }: Props) {
 		}));
 
 		setSelectedRecruitLeadId(null);
+		setShowVettingModal(false);
 		setShowHomebasePanel(true);
 	};
 
@@ -914,6 +1023,111 @@ export default function StreetMapScene({ saveKey }: Props) {
 		return () => window.clearInterval(id);
 	}, [selectedRecruitLeadId, state.recruitLeads]);
 
+	useEffect(() => {
+		const id = window.setInterval(() => {
+			setHelperPos(() => {
+				const moved = nudgeNearby(helperBase.lat, helperBase.lng);
+				return {
+					lat: moved.lat,
+					lng: moved.lng,
+				};
+			});
+		}, 9000);
+
+		return () => window.clearInterval(id);
+	}, [helperBase.lat, helperBase.lng]);
+
+	useEffect(() => {
+		const id = window.setInterval(() => {
+			setDiazPos((prev) => {
+				const activeIncidents = state.incidents.filter((i) => i.status === "active");
+
+				if (activeIncidents.length === 0) {
+					return moveToward(prev, { lat: diazBase.lat, lng: diazBase.lng }, 0.12);
+				}
+
+				const nearest = activeIncidents.reduce((best, current) => {
+					const bestDist = distanceSq(prev, { lat: best.lat, lng: best.lng });
+					const currDist = distanceSq(prev, { lat: current.lat, lng: current.lng });
+					return currDist < bestDist ? current : best;
+				});
+
+				const movedToward = moveToward(
+					prev,
+					{ lat: nearest.lat, lng: nearest.lng },
+					0.12,
+				);
+
+				const heldBack = pushAwayFromPoint(
+					movedToward,
+					{ lat: nearest.lat, lng: nearest.lng },
+					0.00135,
+				);
+
+				return heldBack;
+			});
+		}, 1400);
+
+		return () => window.clearInterval(id);
+	}, [state.incidents, diazBase.lat, diazBase.lng]);
+
+	const visibleDynamicPins = useMemo(() => {
+		const activeIncidents = state.incidents.filter((i) => i.status === "active");
+		const evanAvailable = state.recruitLeads.some((lead) => lead.vigilanteId === "familiar-face");
+
+		const helperPin: CharacterPin = {
+			id: "cit-helper",
+			name: "Helper",
+			initial: "H",
+			kind: "citizen",
+			lat: helperPos.lat,
+			lng: helperPos.lng,
+		};
+
+		const citizenTemplates = [
+			STATIC_CHARACTER_BASES.find((p) => p.id === "cit-oldman"),
+			STATIC_CHARACTER_BASES.find((p) => p.id === "cit-girl"),
+			STATIC_CHARACTER_BASES.find((p) => p.id === "cit-woman"),
+		].filter(Boolean) as CharacterPin[];
+
+		const incidentCitizens: CharacterPin[] = activeIncidents
+			.slice(0, citizenTemplates.length)
+			.map((incident, idx) => {
+				const tpl = citizenTemplates[idx];
+				const near = nudgeNearPoint(incident.lat, incident.lng, 0.0018);
+				const safe = pushAwayFromPoint(
+					near,
+					{ lat: incident.lat, lng: incident.lng },
+					0.00095,
+				);
+				return {
+					...tpl,
+					lat: safe.lat,
+					lng: safe.lng,
+				};
+			});
+
+		const diazPin: CharacterPin = {
+			id: "cop-diaz",
+			name: "Officer Diaz",
+			initial: "D",
+			kind: "police",
+			lat: diazPos.lat,
+			lng: diazPos.lng,
+		};
+
+		const kimBase = STATIC_CHARACTER_BASES.find((p) => p.id === "cop-kim");
+		const chiefBase = STATIC_CHARACTER_BASES.find((p) => p.id === "chief-williams");
+
+		const policePins: CharacterPin[] = [
+			diazPin,
+			...(evanAvailable || !kimBase ? [] : [kimBase]),
+			...(chiefBase ? [chiefBase] : []),
+		];
+
+		return [helperPin, ...incidentCitizens, ...policePins];
+	}, [state.incidents, state.recruitLeads, helperPos, diazPos]);
+
 	const zoomConfig = useMemo(() => {
 		const minZoom = LEVELS[LEVELS.length - 1].zoomOut;
 		const maxZoom = LEVELS[0].zoomIn;
@@ -953,6 +1167,7 @@ export default function StreetMapScene({ saveKey }: Props) {
 	const closeDossier = () => {
 		setSelectedRecruitLeadId(null);
 		setSelectedOwnedVigilanteId(null);
+		setShowVettingModal(false);
 	};
 
 	return (
@@ -975,9 +1190,9 @@ export default function StreetMapScene({ saveKey }: Props) {
 				.vigilante-hide-scrollbar::-webkit-scrollbar { display: none; }
 				.vigilante-hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 				.leaflet-pane.characterPane { z-index: 700 !important; }
-				.leaflet-pane.incidentPane { z-index: 650 !important; }
-				.leaflet-pane.recruitPane { z-index: 760 !important; }
-				.leaflet-pane.homebasePane { z-index: 780 !important; }
+				.leaflet-pane.incidentPane { z-index: 820 !important; }
+				.leaflet-pane.recruitPane { z-index: 860 !important; }
+				.leaflet-pane.homebasePane { z-index: 880 !important; }
 				.vigilante-character-icon > div,
 				.vigilante-recruit-icon > div,
 				.vigilante-homebase-icon > div {
@@ -1032,7 +1247,7 @@ export default function StreetMapScene({ saveKey }: Props) {
 				/>
 
 				<HomebaseMarker onClick={handleHomebaseClick} />
-				<CharacterMarkers pins={CHARACTER_PINS} onSelect={handleCharacterSelect} />
+				<CharacterMarkers pins={visibleDynamicPins} onSelect={handleCharacterSelect} />
 				<RecruitMarkers leads={state.recruitLeads} onSelect={handleRecruitSelect} />
 				<IncidentMarkers
 					incidents={state.incidents}
@@ -1113,29 +1328,16 @@ export default function StreetMapScene({ saveKey }: Props) {
 												) : null}
 											</div>
 
-											<div className="mt-5 grid gap-4">
-												{activeDossier.joinedAt ? (
-													<div className="rounded-xl border border-amber-900/30 bg-black/25 p-4">
-														<div className="text-[11px] uppercase tracking-[0.24em] text-amber-400/70">
-															Joined
-														</div>
-														<div className="mt-2 text-sm text-amber-100/80">
-															{activeDossier.joinedAt}
-														</div>
+											{activeDossier.backgroundNote ? (
+												<div className="rounded-xl border border-amber-900/30 bg-black/25 p-4">
+													<div className="text-[11px] uppercase tracking-[0.24em] text-amber-400/70">
+														Background
 													</div>
-												) : null}
-
-												{activeDossier.backgroundNote ? (
-													<div className="rounded-xl border border-amber-900/30 bg-black/25 p-4">
-														<div className="text-[11px] uppercase tracking-[0.24em] text-amber-400/70">
-															Background
-														</div>
-														<div className="mt-2 text-sm leading-6 text-amber-100/75">
-															{activeDossier.backgroundNote}
-														</div>
+													<div className="mt-2 text-sm leading-6 text-amber-100/75">
+														{activeDossier.backgroundNote}
 													</div>
-												) : null}
-											</div>
+												</div>
+											) : null}
 
 											<p className="text-sm leading-6 text-amber-100/75">
 												{activeDossier.bio ?? "Backstory TBD."}
@@ -1192,7 +1394,7 @@ export default function StreetMapScene({ saveKey }: Props) {
 										{overlayMode === "recruit" ? (
 											<button
 												type="button"
-												onClick={handleHireSelected}
+												onClick={() => setShowVettingModal(true)}
 												className="rounded-xl border border-amber-700/40 bg-amber-950/30 px-5 py-3 text-sm font-semibold text-amber-100 hover:bg-amber-900/35 transition"
 											>
 												Hire Vigilante
@@ -1332,6 +1534,20 @@ export default function StreetMapScene({ saveKey }: Props) {
 					</motion.aside>
 				)}
 			</AnimatePresence>
+
+			<VettingMinigameModal
+				open={showVettingModal && overlayMode === "recruit" && !!selectedRecruitVigilante}
+				character={selectedRecruitVigilante}
+				onClose={() => setShowVettingModal(false)}
+				onReject={() => {
+					setShowVettingModal(false);
+					setSelectedRecruitLeadId(null);
+				}}
+				onApprove={() => {
+					setShowVettingModal(false);
+					handleHireSelected();
+				}}
+			/>
 
 			<div className="pointer-events-none absolute inset-x-0 top-0 z-[1000] flex justify-center pt-4">
 				<div className="pointer-events-auto inline-flex items-center gap-3 rounded-xl border border-amber-900/40 bg-black/40 backdrop-blur-md px-4 py-3 text-amber-200/70">
