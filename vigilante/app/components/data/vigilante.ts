@@ -58,7 +58,7 @@ export const vigilantes: VigilanteSheet[] = [
         trueIdentity: "Undercover Officer",
         stats: {
           combat: 4,
-          stealth: 2,
+          stealth: 1,
           tactics: 3,
           nerve: 5,
         },
@@ -103,10 +103,10 @@ export const vigilantes: VigilanteSheet[] = [
         isUndercover: true,
         trueIdentity: "Undercover Officer",
         stats: {
-          combat: 4,
+          combat: 3,
           stealth: 1,
           tactics: 5,
-          nerve: 4,
+          nerve: 3,
         },
       },
       {
@@ -129,7 +129,7 @@ export const vigilantes: VigilanteSheet[] = [
           combat: 1,
           stealth: 4,
           tactics: 5,
-          nerve: 4,
+          nerve: 3,
         },
       },
       
@@ -279,7 +279,6 @@ export const vigilantes: VigilanteSheet[] = [
     alias: "Z",
     role: "Field Operative",
     portrait: Z,
-    age: 999,
     status: "Available",
     heat: 1,
     joinedAt: "Joined 3 weeks ago",
