@@ -1328,17 +1328,6 @@ export default function StreetMapScene({ saveKey }: Props) {
 												) : null}
 											</div>
 
-											{activeDossier.backgroundNote ? (
-												<div className="rounded-xl border border-amber-900/30 bg-black/25 p-4">
-													<div className="text-[11px] uppercase tracking-[0.24em] text-amber-400/70">
-														Background
-													</div>
-													<div className="mt-2 text-sm leading-6 text-amber-100/75">
-														{activeDossier.backgroundNote}
-													</div>
-												</div>
-											) : null}
-
 											<p className="text-sm leading-6 text-amber-100/75">
 												{activeDossier.bio ?? "Backstory TBD."}
 											</p>
