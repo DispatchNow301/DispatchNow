@@ -3,10 +3,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronLeft, ChevronRight, Home, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronUp, Home, X } from "lucide-react";
 import type { LatLngBounds, LatLngTuple } from "leaflet";
 import { MapContainer, Marker, Pane, TileLayer, useMap } from "react-leaflet";
 import * as L from "leaflet";
+import Inventory from "./Inventory";
 import { vigilantes } from "@/app/components/data/vigilante";
 import VettingMinigameModal from "@/components/game/VettingMinigameModal";
 
@@ -80,6 +81,7 @@ type GameState = {
 	selectedIncidentId: string | null;
 	incidents: Incident[];
 	showIncidentPanel: boolean;
+	showInventoryPanel: boolean;
 	ownedVigilanteIds: string[];
 	recruitLeads: RecruitLead[];
 };
@@ -121,7 +123,7 @@ const NPC_DIALOGUE = {
 			role: "Citizen" as const,
 			portrait: "/npcs/OldMan.png",
 			lines: [
-				"I’ve lived on this block thirty years. Something’s wrong tonight.",
+				"I've lived on this block thirty years. Something's wrong tonight.",
 				"I heard boots in the alley and then everything went quiet.",
 				"You vigilantes are the only ones keeping this city together.",
 			],
@@ -132,8 +134,8 @@ const NPC_DIALOGUE = {
 			portrait: "/npcs/Girl.png",
 			lines: [
 				"I saw them run past the subway entrance. They looked armed.",
-				"If your crew is taking this job, don’t be late.",
-				"People are scared. Nobody’s waiting for the cops anymore.",
+				"If your crew is taking this job, don't be late.",
+				"People are scared. Nobody's waiting for the cops anymore.",
 			],
 		},
 		{
@@ -141,8 +143,8 @@ const NPC_DIALOGUE = {
 			role: "Citizen" as const,
 			portrait: "/npcs/Woman.png",
 			lines: [
-				"The whole street feels wrong tonight. Like everyone’s waiting for something.",
-				"I’m not asking questions. I just need this handled.",
+				"The whole street feels wrong tonight. Like everyone's waiting for something.",
+				"I'm not asking questions. I just need this handled.",
 				"They moved fast. Professional fast.",
 			],
 		},
@@ -152,8 +154,8 @@ const NPC_DIALOGUE = {
 			portrait: "/npcs/Helper.png",
 			lines: [
 				"I can point your people to the exact building if they move now.",
-				"I’ve got eyes on the block. Tell me where you want me.",
-				"Your vigilantes aren’t subtle, but they’re faster than dispatch.",
+				"I've got eyes on the block. Tell me where you want me.",
+				"Your vigilantes aren't subtle, but they're faster than dispatch.",
 			],
 		},
 	],
@@ -175,7 +177,7 @@ const NPC_DIALOGUE = {
 			lines: [
 				"This city makes vigilantes out of everyone eventually.",
 				"When your people make messes for us to clean up, we don't get the chance to focus on what's really important...",
-				"There’s a pattern here. I know what you've been up to... I just need to prove it.",
+				"There's a pattern here. I know what you've been up to… I just need to prove it.",
 			],
 		},
 	],
@@ -186,7 +188,7 @@ const NPC_DIALOGUE = {
 		lines: [
 			"The city is slipping faster than my officers can hold it together.",
 			"Damn vigilantes running around the city thinking they're helping us. We don't need them.",
-			"If you’re going to play guardian, then act like professionals.",
+			"If you're going to play guardian, then act like professionals.",
 		],
 	},
 };
@@ -335,7 +337,7 @@ function makeRecruitLead(vigilanteId: string, bounds: LatLngBounds): RecruitLead
 	};
 }
 
-function makeIncidentIcon(isSelected: boolean, isResolved: boolean) {
+function makeIncidentIcon(category: IncidentCategory, isSelected: boolean, isResolved: boolean) {
 	const border = isSelected ? "#b91c1c" : "#7f1d1d";
 	const baseColor = "#f97373";
 	const bg = isResolved ? "rgba(24,24,27,0.9)" : "rgba(127,29,29,0.6)";
@@ -606,6 +608,22 @@ function IncidentMarkers({
 	selectedId: string | null;
 	onSelect: (id: string) => void;
 }) {
+	// Cache icons so existing markers don't get their DOM replaced on every
+	// state tick/spawn (which would restart CSS animations and look choppy).
+	const iconCacheRef = useRef<
+		Map<string, { selected: boolean; icon: L.DivIcon }>
+	>(new Map());
+
+	// Prune cache entries for incidents that no longer exist.
+	useEffect(() => {
+		const activeIds = new Set(
+			incidents.filter((i) => i.status === "active").map((i) => i.id),
+		);
+		for (const key of iconCacheRef.current.keys()) {
+			if (!activeIds.has(key)) iconCacheRef.current.delete(key);
+		}
+	}, [incidents]);
+
 	return (
 		<Pane name="incidentPane" style={{ zIndex: 820 }}>
 			{incidents
@@ -614,9 +632,19 @@ function IncidentMarkers({
 					<Marker
 						key={inc.id}
 						position={[inc.lat, inc.lng]}
-						icon={makeIncidentIcon(inc.id === selectedId, false)}
+						icon={(() => {
+							const isSelected = inc.id === selectedId;
+							const cached = iconCacheRef.current.get(inc.id);
+							if (cached && cached.selected === isSelected) {
+								return cached.icon;
+							}
+							const icon = makeIncidentIcon(inc.category, isSelected, false);
+							iconCacheRef.current.set(inc.id, { selected: isSelected, icon });
+							return icon;
+						})()}
 						zIndexOffset={10000}
 						interactive
+						riseOnHover
 						eventHandlers={{ click: () => onSelect(inc.id) }}
 					/>
 				))}
@@ -662,6 +690,7 @@ function initialState(): GameState {
 		selectedIncidentId: null,
 		incidents: [],
 		showIncidentPanel: true,
+		showInventoryPanel: true,
 		ownedVigilanteIds: ["bruce", "parya"],
 		recruitLeads: [],
 	};
@@ -685,6 +714,10 @@ function loadState(saveKey: string): GameState {
 			showIncidentPanel:
 				typeof p.showIncidentPanel === "boolean"
 					? p.showIncidentPanel
+					: true,
+			showInventoryPanel:
+				typeof p.showInventoryPanel === "boolean"
+					? p.showInventoryPanel
 					: true,
 			ownedVigilanteIds: Array.isArray(p.ownedVigilanteIds)
 				? (p.ownedVigilanteIds as string[])
@@ -1260,6 +1293,7 @@ export default function StreetMapScene({ saveKey }: Props) {
 				/>
 			</MapContainer>
 
+			{/* ── Dossier overlay (recruit lead or owned vigilante) ── */}
 			<AnimatePresence>
 				{activeDossier ? (
 					<>
@@ -1415,6 +1449,7 @@ export default function StreetMapScene({ saveKey }: Props) {
 				) : null}
 			</AnimatePresence>
 
+			{/* ── NPC dialogue box ── */}
 			<AnimatePresence>
 				{dialogue ? (
 					<motion.div
@@ -1468,6 +1503,7 @@ export default function StreetMapScene({ saveKey }: Props) {
 				) : null}
 			</AnimatePresence>
 
+			{/* ── Homebase panel ── */}
 			<AnimatePresence>
 				{showHomebasePanel && (
 					<motion.aside
@@ -1549,6 +1585,7 @@ export default function StreetMapScene({ saveKey }: Props) {
 				}}
 			/>
 
+			{/* ── Top bar ── */}
 			<div className="pointer-events-none absolute inset-x-0 top-0 z-[1000] flex justify-center pt-4">
 				<div className="pointer-events-auto inline-flex items-center gap-3 rounded-xl border border-amber-900/40 bg-black/40 backdrop-blur-md px-4 py-3 text-amber-200/70">
 					<div className="text-[11px] uppercase tracking-[0.22em] text-amber-400/70">
@@ -1575,6 +1612,7 @@ export default function StreetMapScene({ saveKey }: Props) {
 				</div>
 			</div>
 
+			{/* ── Left incident panel + toggle ── */}
 			<div className="pointer-events-none absolute inset-y-16 left-0 z-[950] flex items-start">
 				<div className="pointer-events-auto mt-4">
 					<button
@@ -1675,6 +1713,70 @@ export default function StreetMapScene({ saveKey }: Props) {
 									More incidents below – scroll to view.
 								</div>
 							)}
+						</motion.div>
+					)}
+				</AnimatePresence>
+			</div>
+
+			{/* ── Bottom inventory panel ── */}
+			<div className="pointer-events-none absolute inset-x-0 bottom-0 z-[980] max-h-[min(92vh,100%)] overflow-hidden">
+				<AnimatePresence initial={false} mode="wait">
+					{state.showInventoryPanel ? (
+						<motion.div
+							key="inventory-panel"
+							initial={{ y: "100%" }}
+							animate={{ y: 0 }}
+							exit={{ y: "100%" }}
+							transition={{
+								type: "tween",
+								duration: 0.48,
+								ease: [0.22, 0.9, 0.28, 1],
+							}}
+							style={{ transformOrigin: "bottom center" }}
+							className="pointer-events-none w-full transform-gpu will-change-transform"
+						>
+							<Inventory
+								onHide={() =>
+									setState((s) => ({
+										...s,
+										showInventoryPanel: false,
+									}))
+								}
+							/>
+						</motion.div>
+					) : (
+						<motion.div
+							key="inventory-collapsed"
+							initial={{ y: "100%" }}
+							animate={{ y: 0 }}
+							exit={{ y: "100%" }}
+							transition={{
+								type: "tween",
+								duration: 0.38,
+								ease: [0.22, 0.9, 0.28, 1],
+							}}
+							style={{ transformOrigin: "bottom center" }}
+							className="pointer-events-auto w-full transform-gpu will-change-transform border-t border-amber-900/55 bg-black/80 px-4 py-2.5 backdrop-blur-md"
+						>
+							<button
+								type="button"
+								onClick={() =>
+									setState((s) => ({
+										...s,
+										showInventoryPanel: true,
+									}))
+								}
+								className="flex w-full cursor-pointer items-center justify-center gap-2 text-[11px] font-medium uppercase tracking-[0.14em] text-amber-200/75 transition-colors hover:text-amber-100"
+								aria-expanded={false}
+								aria-label="Show inventory"
+							>
+								<span>Show inventory</span>
+								<ChevronUp
+									className="h-4 w-4 shrink-0"
+									strokeWidth={2.25}
+									aria-hidden
+								/>
+							</button>
 						</motion.div>
 					)}
 				</AnimatePresence>
