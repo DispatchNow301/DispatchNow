@@ -46,7 +46,139 @@ type VettingDocs = {
 	};
 };
 
+function getGeneratedDocs(character: CharacterLike) {
+	switch (character.id) {
+		case "adam":
+			return {
+				background:
+					"Independent infiltrator known for entry work, rooftop movement, and bypassing locked service routes. Previously operated alone on short reconnaissance and retrieval jobs.",
+				notes:
+					"Applicant presents as quiet and self-contained. Answers were sparse but internally consistent. Showed familiarity with physical entry methods and low-visibility movement. Did not ask many questions beyond gear access and safe approach routes.",
+				referral: "North Block intermediary",
+			};
+
+		case "kevin":
+			return {
+				background:
+					"Former contract protection worker with experience in escort, perimeter control, and civilian extraction. Left private security after repeated disputes over employer conduct.",
+				notes:
+					"Applicant remained calm throughout intake and spoke in a direct, professional way. Emphasized reliability over spectacle. Demonstrated practical judgment about when to hold ground and when to pull back. Reads as experienced and difficult to rattle.",
+				referral: "Old transit contact",
+			};
+
+		case "jen":
+			return {
+				background:
+					"Background tied to nightlife logistics, courier favors, and informal information trading between venues and neighborhood crews. Known for reading people quickly and moving comfortably across social lines.",
+				notes:
+					"Applicant is personable without oversharing. Displayed strong awareness of rumor flow, crowd behavior, and informal neighborhood networks. Appears confident in mixed environments and likely useful for soft-contact work. No obvious inconsistency surfaced during intake.",
+				referral: "Club district source",
+			};
+
+		case "iris":
+			return {
+				background:
+					"Former lookout and runner with a reputation for stable judgment under pressure. Has prior experience tracking exits, monitoring approach paths, and supporting small field teams.",
+				notes:
+					"Applicant gave measured answers and never rushed a response. Showed a strong habit of thinking in terms of escape routes and fallback positions. Comes across as patient, careful, and dependable in overheated situations. Would likely reinforce discipline on field calls.",
+				referral: "Dockside neighborhood lead",
+			};
+
+		case "bruce":
+			return {
+				background:
+					"Veteran of protection work and neighborhood defense, with years spent around armed escorts and block-level enforcement. Known for stepping in when civilians were being leaned on by stronger groups.",
+				notes:
+					"Applicant was blunt, confident, and physically imposing from the start. Framed his role as keeping people standing when everything else breaks down. Not subtle, but clearly experienced and committed once he chooses a side. Strong presence and high tolerance for pressure.",
+				referral: "Direct approach to homebase",
+			};
+
+		case "zonaka":
+			return {
+				background:
+					"Solo disruptor associated with reconnaissance, sabotage, and mobility-heavy street work. Limited formal history, but multiple mentions describe fast adaptation and unconventional methods.",
+				notes:
+					"Applicant showed style and confidence without losing track of specifics. Spoke fluently about misdirection, route pressure, and exploiting weak points in a response. Feels creative rather than reckless. Likely valuable when a mission needs flexibility instead of force.",
+				referral: "Encrypted channel tip",
+			};
+
+		case "ashley":
+			return {
+				background:
+					"Courier and movement specialist with prior experience transporting people and supplies through unstable zones. Record suggests repeated work under time pressure and limited support.",
+				notes:
+					"Applicant came across as energetic and highly reactive. Described a preference for acting decisively before hesitation can spread through a team. Still rough around the edges in planning, but clearly capable in urgent conditions. Would fit best where speed matters more than polish.",
+				referral: "East corridor runner",
+			};
+
+		case "z":
+			return {
+				background:
+					"Subject has no verified civic history under this alias. Fragmented reports place a masked vigilante matching the description at several unresolved street interventions over multiple years.",
+				notes:
+					"Applicant revealed almost nothing beyond operational basics. Avoided personal history and redirected questions toward capability, access, and mission structure. Despite the silence, the demeanor was controlled rather than evasive in a panicked way. File remains thin, but field reputation appears genuine.",
+				referral: "Unsolicited appearance",
+			};
+
+		case "parya":
+			return {
+				background:
+					"Independent watcher, courier, and fixer with a long-running reputation for surveillance support and route intelligence. Past mentions consistently describe strong observational discipline and self-sufficiency.",
+				notes:
+					"Applicant was reserved but highly attentive during intake. Asked focused questions about infrastructure, intel flow, and fallback coordination rather than status or pay. Appears comfortable working alone, yet open to structure when it improves mission odds. Strong signs of judgment and patience.",
+				referral: "Foundational member contact",
+			};
+
+		case "marcus":
+			return {
+				background:
+					"Claims freelance security and convoy work across state lines, mostly short contracts with irregular crews. Records are sparse and supporting names remain difficult to verify.",
+				notes:
+					"Applicant was concise and physically composed throughout intake. Spoke like someone familiar with procedural environments but offered very little color around previous teams. Presented useful field instincts and kept eye contact steady. Overall file is workable, though thinner than ideal.",
+				referral: "Walk-in recruitment lead",
+			};
+
+		case "robin":
+			return {
+				background:
+					"States she relocated after the breakup of a smaller out-of-town crew and has since been operating independently. Claims light courier, lookout, and support experience under shifting aliases and contacts.",
+				notes:
+					"Applicant was calm and cooperative, but overly interested in active crew names and current roster makeup. Story remained smooth even when pressed, though outside names offered during intake do not fully line up. Recent arrival and thin verification make the file worth a second look. Nothing else stands out immediately.",
+				referral: "Street referral",
+			};
+
+		case "tom":
+			return {
+				background:
+					"Former warehouse guard and low-visibility contract hand with a clean employment timeline and few disciplinary marks. Claims to prefer support work, route checks, and quiet perimeter coverage.",
+				notes:
+					"Applicant was controlled, patient, and easy to process. Answers arrived without hesitation and remained neatly aligned across the interview. Little emotional leakage, little wasted speech. Overall presentation is orderly and believable.",
+				referral: "West side contact",
+			};
+
+		case "familiar-face":
+			return {
+				background:
+					"Former investigator on private insurance fraud matters, later shifting into freelance fact-check and background work. Paper trail is coherent and the stated work history scans as functional.",
+				notes:
+					"He showed an interest in the crew itself not our cause. Asked unusually specific questions about structure, communication, and internal trust instead of neighborhood conditions. The field admission record reads too perfect, almost as if it were designed specifically for this. Nothing is plainly wrong, but the tone of the file feels assembled rather than lived in.",
+				referral: "Private introduction",
+			};
+
+		default:
+			return {
+				background:
+					"Applicant reports prior independent activity with enough field exposure to justify recruitment consideration. Supporting context is limited but broadly plausible.",
+				notes:
+					"Intake completed without major contradiction. Applicant appears field-capable and reasonably composed. Further observation recommended after first assignment. No immediate disqualifier noted.",
+				referral: "General intake",
+			};
+	}
+}
+
 function buildDocs(character: CharacterLike): VettingDocs {
+	const generated = getGeneratedDocs(character);
+
 	const base: VettingDocs = {
 		idCard: {
 			legalName: character.name,
@@ -60,9 +192,9 @@ function buildDocs(character: CharacterLike): VettingDocs {
 		intakeSheet: {
 			alias: character.alias,
 			joinedAt: character.joinedAt ?? "Joined recently",
-			background: character.backgroundNote ?? "Background not provided.",
-			referral: "Street referral",
-			notes: character.bio ?? "No notes.",
+			background: generated.background,
+			referral: generated.referral,
+			notes: generated.notes,
 		},
 	};
 
@@ -87,8 +219,6 @@ function buildDocs(character: CharacterLike): VettingDocs {
 				},
 				intakeSheet: {
 					...base.intakeSheet,
-					background:
-						"Claims prior work with the Larks and the East Lantern Crew. No corroboration found.",
 				},
 			};
 
@@ -110,8 +240,6 @@ function buildDocs(character: CharacterLike): VettingDocs {
 				},
 				intakeSheet: {
 					...base.intakeSheet,
-					notes:
-						"He showed an interest in the crew itself not our cause. Notes feel too perfect, almost as if they were designed specifically for this.",
 				},
 			};
 
