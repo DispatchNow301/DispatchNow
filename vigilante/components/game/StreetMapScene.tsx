@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronUp } from "lucide-react";
 import type { LatLngBounds, LatLngTuple } from "leaflet";
 import {
 	MapContainer,
@@ -11,7 +11,7 @@ import {
 	useMap,
 } from "react-leaflet";
 import * as L from "leaflet";
-import InventoryDock from "./InventoryDock";
+import Inventory from "./Inventory";
 
 // ---------------------------------------------------------------------------
 // Tile buffer patch — bumps keepBuffer and kills fade-in flash
@@ -71,6 +71,7 @@ type GameState = {
 	selectedIncidentId: string | null;
 	incidents: Incident[];
 	showIncidentPanel: boolean;
+	showInventoryPanel: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -369,6 +370,7 @@ function initialState(): GameState {
 		selectedIncidentId: null,
 		incidents: [],
 		showIncidentPanel: true,
+		showInventoryPanel: true,
 	};
 }
 
@@ -392,6 +394,10 @@ function loadState(saveKey: string): GameState {
 			showIncidentPanel:
 				typeof p.showIncidentPanel === "boolean"
 					? p.showIncidentPanel
+					: true,
+			showInventoryPanel:
+				typeof p.showInventoryPanel === "boolean"
+					? p.showInventoryPanel
 					: true,
 		};
 	} catch {
@@ -784,8 +790,69 @@ export default function StreetMapScene({ saveKey }: Props) {
 				</AnimatePresence>
 			</div>
 
-			{/* ── Bottom inventory dock ── */}
-			<InventoryDock />
+			{/* ── Bottom inventory: true slide (transform only; clip overflow) ── */}
+			<div className="pointer-events-none absolute inset-x-0 bottom-0 z-980 max-h-[min(92vh,100%)] overflow-hidden">
+				<AnimatePresence initial={false} mode="wait">
+					{state.showInventoryPanel ? (
+						<motion.div
+							key="inventory-panel"
+							initial={{ y: "100%" }}
+							animate={{ y: 0 }}
+							exit={{ y: "100%" }}
+							transition={{
+								type: "tween",
+								duration: 0.48,
+								ease: [0.22, 0.9, 0.28, 1],
+							}}
+							style={{ transformOrigin: "bottom center" }}
+							className="pointer-events-none w-full transform-gpu will-change-transform"
+						>
+							<Inventory
+								onHide={() =>
+									setState((s) => ({
+										...s,
+										showInventoryPanel: false,
+									}))
+								}
+							/>
+						</motion.div>
+					) : (
+						<motion.div
+							key="inventory-collapsed"
+							initial={{ y: "100%" }}
+							animate={{ y: 0 }}
+							exit={{ y: "100%" }}
+							transition={{
+								type: "tween",
+								duration: 0.38,
+								ease: [0.22, 0.9, 0.28, 1],
+							}}
+							style={{ transformOrigin: "bottom center" }}
+							className="pointer-events-auto w-full transform-gpu will-change-transform border-t border-amber-900/55 bg-black/80 px-4 py-2.5 backdrop-blur-md"
+						>
+							<button
+								type="button"
+								onClick={() =>
+									setState((s) => ({
+										...s,
+										showInventoryPanel: true,
+									}))
+								}
+								className="flex w-full cursor-pointer items-center justify-center gap-2 text-[11px] font-medium uppercase tracking-[0.14em] text-amber-200/75 transition-colors hover:text-amber-100"
+								aria-expanded={false}
+								aria-label="Show inventory"
+							>
+								<span>Show inventory</span>
+								<ChevronUp
+									className="h-4 w-4 shrink-0"
+									strokeWidth={2.25}
+									aria-hidden
+								/>
+							</button>
+						</motion.div>
+					)}
+				</AnimatePresence>
+			</div>
 		</div>
 	);
 }
