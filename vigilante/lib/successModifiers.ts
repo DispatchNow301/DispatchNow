@@ -1,6 +1,8 @@
 /**
  * Heuristic success chance for dispatch: combines base incident odds with
  * assigned vigilante stats (per archetype) and carried resources/buffs.
+ * Understaffing and empty kit are penalized with smooth multipliers (no special
+ * cases): reference crew size is 2+; staged gear ramps odds up continuously.
  * Not ML — deterministic math + small luck jitter.
  */
 
@@ -164,7 +166,28 @@ const PER_ITEM_FACTOR_MIN = 0.72;
 const PER_ITEM_FACTOR_MAX = 1.38;
 
 /** Max additive boost from vigilantes (on top of base %) */
-const VIGILANTE_BONUS_CAP = 0.22;
+const VIGILANTE_BONUS_CAP = 0.13;
+/** How quickly weighted stat fit reaches the cap (lower = harder to max out) */
+const VIGILANTE_BONUS_PER_FIT = 0.18;
+
+/**
+ * Reference crew on scene = 2. One operative is under-supported; three+ capped.
+ * Smooth in count — not a one-person special case.
+ */
+function computeStaffingSupportMultiplier(vigilanteCount: number): number {
+	if (vigilanteCount <= 0) return 0.45;
+	return Math.min(1, vigilanteCount / 2);
+}
+
+/**
+ * No staged gear hurts; each item eases toward 1.0 (separate from per-item
+ * archetype multipliers, which apply when anything is staged).
+ */
+function computeGearPresenceMultiplier(stagedResourceCount: number): number {
+	const t = Math.max(0, stagedResourceCount);
+	/** Asymptote 1.0; empty loadout is clearly disadvantaged */
+	return 0.7 + 0.3 * (1 - Math.exp(-t * 0.55));
+}
 
 export type ComputeAdjustedSuccessInput = {
 	/** Base % from incident (0–100) */
@@ -177,7 +200,7 @@ export type ComputeAdjustedSuccessInput = {
 	buffIds?: string[];
 	/**
 	 * Luck: uniform jitter in ±halfWidth on the **final** percent (after modifiers).
-	 * Default 2.5 → ±2.5 points.
+	 * Default 1.25 → ±1.25 points (keeps outcomes closer to crew/gear math).
 	 */
 	luckHalfWidthPercentPoints?: number;
 	/** RNG in [0,1); default Math.random — inject for tests */
@@ -195,6 +218,15 @@ export type ComputeAdjustedSuccessResult = {
 	buffMultiplier: number;
 	/** 1 + vigilante bonus capped */
 	vigilanteMultiplier: number;
+	/**
+	 * 0–1 weighted stat match vs this incident archetype (before solo penalty on
+	 * the multiplier). Used to correlate the resolution roll with who you sent.
+	 */
+	avgArchetypeFit: number;
+	/** &lt;1 when understaffed vs a 2-person reference */
+	staffingSupportMultiplier: number;
+	/** &lt;1 when no gear staged; ramps with staged item count */
+	gearPresenceMultiplier: number;
 };
 
 function resolveResourceKey(id: string): string {
@@ -222,11 +254,13 @@ function productMultipliers(
 	return p;
 }
 
-function vigilanteStatMultiplier(
+function vigilanteStatFit(
 	archetype: IncidentArchetype,
 	vigilantes: VigilanteForSuccess[],
-): number {
-	if (vigilantes.length === 0) return 1;
+): { multiplier: number; avgArchetypeFit: number } {
+	if (vigilantes.length === 0) {
+		return { multiplier: 1, avgArchetypeFit: 0 };
+	}
 	const weights = STAT_WEIGHTS[archetype];
 	let sum = 0;
 	for (const v of vigilantes) {
@@ -241,13 +275,17 @@ function vigilanteStatMultiplier(
 		}
 		sum += per;
 	}
-	const avgFit = sum / vigilantes.length;
-	const bonus = Math.min(VIGILANTE_BONUS_CAP, avgFit * 0.28);
-	return 1 + bonus;
+	const avgArchetypeFit = sum / vigilantes.length;
+	const bonus = Math.min(
+		VIGILANTE_BONUS_CAP,
+		avgArchetypeFit * VIGILANTE_BONUS_PER_FIT,
+	);
+	return { multiplier: 1 + bonus, avgArchetypeFit };
 }
 
 /**
- * Combined success %: base × gear × buffs × vigilante fit, then small luck jitter.
+ * Combined success %: base × gear × buffs × vigilante fit × staffing × kit
+ * presence, then small luck jitter.
  */
 export function computeAdjustedSuccessChance(
 	input: ComputeAdjustedSuccessInput,
@@ -258,7 +296,7 @@ export function computeAdjustedSuccessChance(
 		vigilantes,
 		resourceIds,
 		buffIds = [],
-		luckHalfWidthPercentPoints = 2.5,
+		luckHalfWidthPercentPoints = 1.25,
 		rng = Math.random,
 	} = input;
 
@@ -272,16 +310,23 @@ export function computeAdjustedSuccessChance(
 		buffIds,
 		BUFF_ARCHETYPE_MULTIPLIER,
 	);
-	const vigilanteMultiplier = vigilanteStatMultiplier(
+	const { multiplier: vigilanteMultiplier, avgArchetypeFit } = vigilanteStatFit(
 		archetype,
 		vigilantes,
 	);
+
+	const staffingSupportMultiplier = computeStaffingSupportMultiplier(
+		vigilantes.length,
+	);
+	const gearPresenceMultiplier = computeGearPresenceMultiplier(resourceIds.length);
 
 	const raw =
 		baseChancePercent *
 		resourceMultiplier *
 		buffMultiplier *
-		vigilanteMultiplier;
+		vigilanteMultiplier *
+		staffingSupportMultiplier *
+		gearPresenceMultiplier;
 
 	const beforeLuckPercent = Math.round(
 		Math.max(0, Math.min(100, raw)),
@@ -298,5 +343,8 @@ export function computeAdjustedSuccessChance(
 		resourceMultiplier,
 		buffMultiplier,
 		vigilanteMultiplier,
+		avgArchetypeFit,
+		staffingSupportMultiplier,
+		gearPresenceMultiplier,
 	};
 }

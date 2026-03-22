@@ -8,37 +8,23 @@ import React, {
 	useState,
 } from "react";
 import { createPortal } from "react-dom";
-import type { StaticImageData } from "next/image";
 import {
 	vigilantes as vigilanteSheets,
 	type VigilanteSheet,
 } from "@/app/components/data/vigilante";
+import { portraitToSrc } from "@/lib/vigilantePortrait";
 import { AnimatePresence, motion } from "framer-motion";
 import {
 	AlertTriangle,
 	Ban,
 	Check,
 	ChevronDown,
+	X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import {
-	FaBolt,
-	FaBroadcastTower,
-	FaFireExtinguisher,
-	FaHeart,
-	FaMedkit,
-	FaSyringe,
-	FaUser,
-} from "react-icons/fa";
-import {
-	FaHandcuffs,
-	FaRoadBarrier,
-	FaSatellite,
-	FaScrewdriverWrench,
-	FaTruck,
-	FaVest,
-	FaWalkieTalkie,
-} from "react-icons/fa6";
+import { FaBolt, FaBroadcastTower, FaHeart, FaUser } from "react-icons/fa";
+import type { ResourcePoolEntry } from "@/lib/resourcePool";
+import { ResourceGearIcon } from "@/components/game/ResourceGearIcon";
 
 type VigilanteStatus = "available" | "injured" | "unavailable";
 type ResourceStatus = "ready" | "cooldown" | "offline";
@@ -74,19 +60,6 @@ type BuffItem = {
 
 type InventoryTab = "vigilantes" | "resources" | "buffs";
 
-function portraitToSrc(portrait: VigilanteSheet["portrait"]): string | undefined {
-	if (typeof portrait === "string") return portrait;
-	if (
-		portrait &&
-		typeof portrait === "object" &&
-		"src" in portrait &&
-		typeof (portrait as StaticImageData).src === "string"
-	) {
-		return (portrait as StaticImageData).src;
-	}
-	return undefined;
-}
-
 function sheetStatusToGameStatus(s?: string): VigilanteStatus {
 	const t = (s ?? "Available").toLowerCase();
 	if (t.includes("injur")) return "injured";
@@ -117,13 +90,35 @@ function stableFiveFromSheets(sheets: VigilanteSheet[]): VigilanteItem[] {
 		.map(sheetToVigilanteItem);
 }
 
-function shufflePickFiveSheets(sheets: VigilanteSheet[]): VigilanteItem[] {
-	const copy = [...sheets];
-	for (let i = copy.length - 1; i > 0; i--) {
-		const j = Math.floor(Math.random() * (i + 1));
-		[copy[i], copy[j]] = [copy[j]!, copy[i]!];
+const ROSTER_SLOTS = 5;
+
+type VigilanteSlot =
+	| { kind: "filled"; item: VigilanteItem }
+	| { kind: "empty"; index: number };
+
+/** Home-base roster: up to 5 owned vigilantes (sorted by id), rest empty slots. */
+function buildHomeBaseVigilanteSlots(
+	ownedIds: string[],
+	sheets: VigilanteSheet[],
+): VigilanteSlot[] {
+	const byId = new Map(sheets.map((s) => [s.id, s]));
+	const sortedIds = [...new Set(ownedIds)].sort((a, b) =>
+		a.localeCompare(b),
+	);
+	const filled: VigilanteItem[] = [];
+	for (const id of sortedIds) {
+		const s = byId.get(id);
+		if (s) filled.push(sheetToVigilanteItem(s));
+		if (filled.length >= ROSTER_SLOTS) break;
 	}
-	return copy.slice(0, 5).map(sheetToVigilanteItem);
+	const out: VigilanteSlot[] = filled.map((item) => ({
+		kind: "filled",
+		item,
+	}));
+	while (out.length < ROSTER_SLOTS) {
+		out.push({ kind: "empty", index: out.length });
+	}
+	return out;
 }
 
 const TAB_ORDER: Record<InventoryTab, number> = {
@@ -193,12 +188,20 @@ const tabPanelVariants = {
 
 type InventoryProps = {
 	onHide?: () => void;
+	/** When set, resource/buff quantities reflect pool − deployed (from map game state). */
+	resourcePool?: Record<string, ResourcePoolEntry>;
+	/**
+	 * Roster on the map (home base). When set, the Vigilantes tab shows exactly 5
+	 * slots: owned characters + grey empty slots until 5.
+	 */
+	ownedVigilanteIds?: string[];
 };
 
 type InventoryHoverTip =
 	| { kind: "v"; item: VigilanteItem; el: HTMLElement }
 	| { kind: "r"; item: ResourceItem; el: HTMLElement }
-	| { kind: "b"; item: BuffItem; el: HTMLElement };
+	| { kind: "b"; item: BuffItem; el: HTMLElement }
+	| { kind: "e"; el: HTMLElement };
 
 function VigilantePortrait({
 	portraitSrc,
@@ -235,13 +238,301 @@ function VigilantePortrait({
 	);
 }
 
-export default function Inventory({ onHide }: InventoryProps) {
+/** Static catalog; merged with `resourcePool` when provided. */
+const BASE_RESOURCES: ResourceItem[] = [
+	{
+		id: "r1",
+		name: "First Aid Kit",
+		summary: "Treats cuts, burns, and small wounds.",
+		qty: 2,
+		status: "ready",
+	},
+	{
+		id: "r2",
+		name: "Fire Extinguisher",
+		summary: "Puts out small fires.",
+		qty: 1,
+		status: "cooldown",
+	},
+	{
+		id: "r3",
+		name: "Walkie-Talkie",
+		summary: "Talk to your team by radio.",
+		qty: 1,
+		status: "ready",
+	},
+	{
+		id: "r4",
+		name: "Handcuffs",
+		summary: "Locks on someone's wrists.",
+		qty: 3,
+		status: "ready",
+	},
+	{
+		id: "r5",
+		name: "Surveillance Drone",
+		summary: "See the area from the air.",
+		qty: 1,
+		status: "offline",
+	},
+	{
+		id: "r6",
+		name: "Protective Gear",
+		summary: "Vest and pads so you get hurt less.",
+		qty: 2,
+		status: "ready",
+	},
+	{
+		id: "r7",
+		name: "Barricade Kit",
+		summary: "Blocks doors and paths.",
+		qty: 1,
+		status: "ready",
+	},
+	{
+		id: "r8",
+		name: "EpiPen",
+		summary: "Shot for a bad allergic reaction.",
+		qty: 1,
+		status: "ready",
+	},
+	{
+		id: "r9",
+		name: "Rescue Tool",
+		summary: "Open stuck doors or cut through metal.",
+		qty: 1,
+		status: "cooldown",
+	},
+	{
+		id: "r10",
+		name: "Armored Vehicle",
+		summary: "Heavy truck with armor on the sides.",
+		qty: 1,
+		status: "ready",
+	},
+];
+
+export { BASE_RESOURCES };
+
+function InventoryVigilanteDossierPane({
+	sheet,
+	onClose,
+}: {
+	sheet: VigilanteSheet;
+	onClose: () => void;
+}) {
+	const portraitSrc = portraitToSrc(sheet.portrait);
+
+	useEffect(() => {
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === "Escape") onClose();
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [onClose]);
+
+	if (typeof document === "undefined") return null;
+
+	return createPortal(
+		<div className="fixed inset-0 z-[10020] flex items-center justify-center p-4">
+			<motion.div
+				role="presentation"
+				aria-hidden
+				initial={{ opacity: 0 }}
+				animate={{ opacity: 1 }}
+				transition={{ duration: 0.18 }}
+				className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
+				onClick={onClose}
+			/>
+			<motion.div
+				id="inventory-vigilante-dossier"
+				role="dialog"
+				aria-modal
+				aria-labelledby="inventory-dossier-title"
+				initial={{ opacity: 0, scale: 0.96, y: 16 }}
+				animate={{ opacity: 1, scale: 1, y: 0 }}
+				transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+				className="relative z-10 flex min-h-0 max-h-[min(90vh,720px)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-amber-900/45 bg-[#0a0908]/95 text-amber-100 shadow-[0_24px_80px_rgba(0,0,0,0.65)] backdrop-blur-md"
+				onClick={(e) => e.stopPropagation()}
+			>
+				<div className="flex min-h-0 w-full flex-1 flex-col">
+					<div className="flex shrink-0 items-start justify-between border-b border-amber-900/30 px-5 py-4">
+						<div className="min-w-0">
+							<div className="text-[11px] uppercase tracking-[0.28em] text-amber-400/70">
+								Vigilante dossier
+							</div>
+							<h2
+								id="inventory-dossier-title"
+								className="mt-2 truncate text-2xl font-bold text-amber-100"
+							>
+								{sheet.alias}
+							</h2>
+							<div className="mt-1 text-sm text-amber-200/60">
+								{sheet.name} • {sheet.role}
+							</div>
+						</div>
+						<button
+							type="button"
+							onClick={onClose}
+							className="shrink-0 rounded-lg border border-amber-900/35 bg-black/30 p-2 text-amber-200/70 transition hover:bg-amber-950/20 hover:text-amber-100"
+							aria-label="Close dossier"
+						>
+							<X className="h-4 w-4" />
+						</button>
+					</div>
+
+					<div className="min-h-0 flex-1 overflow-y-auto vigilante-hide-scrollbar px-5 py-4">
+						<div className="grid grid-cols-[108px_1fr] gap-4">
+							<div className="relative h-[140px] overflow-hidden rounded-xl border border-amber-900/35 bg-black/35">
+								{portraitSrc ? (
+									<img
+										src={portraitSrc}
+										alt=""
+										className="h-full w-full object-cover object-[center_top]"
+									/>
+								) : (
+									<div className="flex h-full w-full items-center justify-center">
+										<FaUser className="h-16 w-16 text-amber-200/35" />
+									</div>
+								)}
+							</div>
+							<div className="min-w-0 space-y-3">
+								<div className="flex flex-wrap gap-2">
+									{sheet.status ? (
+										<span className="rounded-full border border-amber-900/35 bg-black/30 px-3 py-1 text-[11px] uppercase tracking-[0.15em] text-amber-200/75">
+											{sheet.status}
+										</span>
+									) : null}
+									{typeof sheet.heat === "number" ? (
+										<span className="rounded-full border border-red-900/35 bg-red-950/20 px-3 py-1 text-[11px] uppercase tracking-[0.15em] text-red-300/75">
+											Heat {sheet.heat}
+										</span>
+									) : null}
+									{typeof sheet.age === "number" ? (
+										<span className="rounded-full border border-amber-900/35 bg-black/30 px-3 py-1 text-[11px] uppercase tracking-[0.15em] text-amber-200/75">
+											Age {sheet.age}
+										</span>
+									) : null}
+								</div>
+								<p className="text-sm leading-6 text-amber-100/75">
+									{sheet.bio ?? "Backstory TBD."}
+								</p>
+							</div>
+						</div>
+
+						<div className="mt-6 grid grid-cols-2 gap-3">
+							{(
+								[
+									"combat",
+									"stealth",
+									"tactics",
+									"nerve",
+								] as const
+							).map((stat) => (
+								<div
+									key={stat}
+									className="rounded-xl border border-amber-900/30 bg-black/25 p-3"
+								>
+									<div className="text-[11px] uppercase tracking-[0.2em] text-amber-400/70">
+										{stat}
+									</div>
+									<div className="mt-2 text-lg font-bold">
+										{sheet.stats[stat]}
+									</div>
+								</div>
+							))}
+						</div>
+
+						<div className="mt-6 rounded-xl border border-amber-900/30 bg-black/25 p-4">
+							<div className="text-[11px] uppercase tracking-[0.24em] text-amber-400/70">
+								Traits
+							</div>
+							<div className="mt-3 flex flex-wrap gap-2">
+								{(sheet.traits ?? []).length > 0 ? (
+									sheet.traits?.map((trait) => (
+										<span
+											key={trait}
+											className="rounded-full border border-amber-900/30 bg-black/30 px-3 py-1 text-xs text-amber-100/80"
+										>
+											{trait}
+										</span>
+									))
+								) : (
+									<span className="text-sm text-amber-200/45">
+										No listed traits.
+									</span>
+								)}
+							</div>
+						</div>
+
+						{sheet.equipment && sheet.equipment.length > 0 ? (
+							<div className="mt-6 rounded-xl border border-amber-900/30 bg-black/25 p-4">
+								<div className="text-[11px] uppercase tracking-[0.24em] text-amber-400/70">
+									Equipment
+								</div>
+								<ul className="mt-3 space-y-2 text-sm text-amber-100/75">
+									{sheet.equipment.map((item) => (
+										<li key={item}>• {item}</li>
+									))}
+								</ul>
+							</div>
+						) : null}
+					</div>
+
+					<div className="shrink-0 border-t border-amber-900/30 px-5 py-4">
+						<button
+							type="button"
+							onClick={onClose}
+							className="w-full rounded-xl border border-amber-900/35 bg-black/30 px-4 py-3 text-sm text-amber-200/80 transition hover:bg-amber-950/20"
+						>
+							Close
+						</button>
+					</div>
+				</div>
+			</motion.div>
+		</div>,
+		document.body,
+	);
+}
+
+const BASE_BUFFS: BuffItem[] = [
+	{
+		id: "b1",
+		name: "Noir Focus",
+		summary: "Timers tick down more slowly.",
+		qty: 1,
+		status: "ready",
+	},
+	{
+		id: "b2",
+		name: "Street Network",
+		summary: "Send help again sooner.",
+		qty: 1,
+		status: "ready",
+	},
+	{
+		id: "b3",
+		name: "Adrenal Surge",
+		summary: "Move faster and take hits better for a short time.",
+		qty: 1,
+		status: "cooldown",
+	},
+];
+
+export default function Inventory({
+	onHide,
+	resourcePool,
+	ownedVigilanteIds,
+}: InventoryProps) {
 	const [tab, setTab] = useState<InventoryTab>("vigilantes");
 	const [slideDir, setSlideDir] = useState<1 | -1>(1);
 	const [hoverTip, setHoverTip] = useState<InventoryHoverTip | null>(null);
 	const [tipPos, setTipPos] = useState({ left: 0, top: 0 });
 	/** Bumps when re-entering the Vigilantes tab so portrait <img> nodes remount (avoids blank tiles after animation). */
 	const [vigilantePortraitEpoch, setVigilantePortraitEpoch] = useState(0);
+	const [dossierSheet, setDossierSheet] = useState<VigilanteSheet | null>(
+		null,
+	);
 
 	const updateTipPos = useCallback((el: HTMLElement) => {
 		if (!el.isConnected) {
@@ -279,117 +570,49 @@ export default function Inventory({ onHide }: InventoryProps) {
 		setTab(next);
 	};
 
-	/** From `vigilante.ts` + `public/characters`. Stable first paint, then random 5 after mount. */
-	const [vigilantes, setVigilantes] = useState<VigilanteItem[]>(() =>
-		stableFiveFromSheets(vigilanteSheets),
-	);
+	/** Home-base roster row, or catalog demo when `ownedVigilanteIds` is omitted. */
+	const vigilanteSlots: VigilanteSlot[] = useMemo(() => {
+		if (ownedVigilanteIds !== undefined) {
+			return buildHomeBaseVigilanteSlots(
+				ownedVigilanteIds,
+				vigilanteSheets,
+			);
+		}
+		return stableFiveFromSheets(vigilanteSheets).map((item) => ({
+			kind: "filled" as const,
+			item,
+		}));
+	}, [ownedVigilanteIds, vigilanteSheets]);
 
 	useEffect(() => {
-		setVigilantes(shufflePickFiveSheets(vigilanteSheets));
-	}, []);
+		if (ownedVigilanteIds !== undefined) {
+			setVigilantePortraitEpoch((n) => n + 1);
+		}
+	}, [ownedVigilanteIds]);
 
-	const resources: ResourceItem[] = useMemo(
-		() => [
-			{
-				id: "r1",
-				name: "First Aid Kit",
-				summary: "Treats cuts, burns, and small wounds.",
-				qty: 2,
-				status: "ready",
-			},
-			{
-				id: "r2",
-				name: "Fire Extinguisher",
-				summary: "Puts out small fires.",
-				qty: 1,
-				status: "cooldown",
-			},
-			{
-				id: "r3",
-				name: "Walkie-Talkie",
-				summary: "Talk to your team by radio.",
-				qty: 1,
-				status: "ready",
-			},
-			{
-				id: "r4",
-				name: "Handcuffs",
-				summary: "Locks on someone's wrists.",
-				qty: 3,
-				status: "ready",
-			},
-			{
-				id: "r5",
-				name: "Surveillance Drone",
-				summary: "See the area from the air.",
-				qty: 1,
-				status: "offline",
-			},
-			{
-				id: "r6",
-				name: "Protective Gear",
-				summary: "Vest and pads so you get hurt less.",
-				qty: 2,
-				status: "ready",
-			},
-			{
-				id: "r7",
-				name: "Barricade Kit",
-				summary: "Blocks doors and paths.",
-				qty: 1,
-				status: "ready",
-			},
-			{
-				id: "r8",
-				name: "EpiPen",
-				summary: "Shot for a bad allergic reaction.",
-				qty: 1,
-				status: "ready",
-			},
-			{
-				id: "r9",
-				name: "Rescue Tool",
-				summary: "Open stuck doors or cut through metal.",
-				qty: 1,
-				status: "cooldown",
-			},
-			{
-				id: "r10",
-				name: "Armored Vehicle",
-				summary: "Heavy truck with armor on the sides.",
-				qty: 1,
-				status: "ready",
-			},
-		],
-		[],
-	);
+	const resources: ResourceItem[] = useMemo(() => {
+		if (!resourcePool) return BASE_RESOURCES;
+		return BASE_RESOURCES.map((r) => {
+			const p = resourcePool[r.id];
+			const available = p ? Math.max(0, p.qty - p.deployed) : r.qty;
+			let status: ResourceStatus = r.status;
+			if (r.id === "r5" && r.status === "offline") status = "offline";
+			else if (available <= 0) status = "cooldown";
+			else status = "ready";
+			return { ...r, qty: available, status };
+		});
+	}, [resourcePool]);
 
-	const buffs: BuffItem[] = useMemo(
-		() => [
-			{
-				id: "b1",
-				name: "Noir Focus",
-				summary: "Timers tick down more slowly.",
-				qty: 1,
-				status: "ready",
-			},
-			{
-				id: "b2",
-				name: "Street Network",
-				summary: "Send help again sooner.",
-				qty: 1,
-				status: "ready",
-			},
-			{
-				id: "b3",
-				name: "Adrenal Surge",
-				summary: "Move faster and take hits better for a short time.",
-				qty: 1,
-				status: "cooldown",
-			},
-		],
-		[],
-	);
+	const buffs: BuffItem[] = useMemo(() => {
+		if (!resourcePool) return BASE_BUFFS;
+		return BASE_BUFFS.map((b) => {
+			const p = resourcePool[b.id];
+			const available = p ? Math.max(0, p.qty - p.deployed) : b.qty;
+			const status: ResourceStatus =
+				available <= 0 ? "cooldown" : "ready";
+			return { ...b, qty: available, status };
+		});
+	}, [resourcePool]);
 
 	const tileIconClass =
 		"w-[1.25rem] h-[1.25rem] sm:w-6 sm:h-6 md:w-7 md:h-7";
@@ -442,21 +665,11 @@ export default function Inventory({ onHide }: InventoryProps) {
 
 	const hideInventoryTip = () => setHoverTip(null);
 
-	const resourceIcon = (id: ResourceItem["id"]) => {
-		const cls = tileIconClass;
-		if (id === "r1") return <FaMedkit className={cls} aria-hidden />;
-		if (id === "r2")
-			return <FaFireExtinguisher className={cls} aria-hidden />;
-		if (id === "r3")
-			return <FaWalkieTalkie className={cls} aria-hidden />;
-		if (id === "r4") return <FaHandcuffs className={cls} aria-hidden />;
-		if (id === "r5") return <FaSatellite className={cls} aria-hidden />;
-		if (id === "r6") return <FaVest className={cls} aria-hidden />;
-		if (id === "r7") return <FaRoadBarrier className={cls} aria-hidden />;
-		if (id === "r8") return <FaSyringe className={cls} aria-hidden />;
-		if (id === "r9")
-			return <FaScrewdriverWrench className={cls} aria-hidden />;
-		return <FaTruck className={cls} aria-hidden />;
+	const showEmptyRosterTip = (e: React.MouseEvent<HTMLElement>) => {
+		const el = e.currentTarget;
+		const r = el.getBoundingClientRect();
+		setTipPos({ left: r.left + r.width / 2, top: r.top - 10 });
+		setHoverTip({ kind: "e", el });
 	};
 
 	const buffIcon = (id: BuffItem["id"]) => {
@@ -468,6 +681,7 @@ export default function Inventory({ onHide }: InventoryProps) {
 	};
 
 	return (
+		<>
 		<div className="pointer-events-none w-full px-4 py-2">
 			<div className="pointer-events-auto mx-auto max-w-5xl overflow-hidden rounded-2xl border border-amber-900/40 bg-black/55 backdrop-blur-md shadow-2xl shadow-black/60">
 				{onHide && (
@@ -581,7 +795,28 @@ export default function Inventory({ onHide }: InventoryProps) {
 							>
 								{tab === "vigilantes" ? (
 									<div className={vigilanteGridClass}>
-										{vigilantes.map((v) => {
+										{vigilanteSlots.map((slot) => {
+											if (slot.kind === "empty") {
+												return (
+													<div
+														key={`roster-empty-${slot.index}`}
+														className="relative flex min-w-0 items-center justify-center"
+													>
+														<div
+															className={`group relative flex items-center justify-center ${vigilanteTileClass} cursor-default border-dashed border-zinc-600/50 bg-zinc-950/40 opacity-55 grayscale hover:opacity-70`}
+															aria-label="Empty roster slot"
+															onMouseEnter={showEmptyRosterTip}
+															onMouseLeave={hideInventoryTip}
+														>
+															<FaUser
+																className={`${vigilantePortraitIconClass} text-zinc-500/80`}
+																aria-hidden
+															/>
+														</div>
+													</div>
+												);
+											}
+											const v = slot.item;
 											const st = vigilanteStatusUi(v.status);
 											const StatusIcon = st.Icon;
 											return (
@@ -589,15 +824,29 @@ export default function Inventory({ onHide }: InventoryProps) {
 													key={v.id}
 													className="relative flex min-w-0 items-center justify-center"
 												>
-													<div
-														className={`group relative flex items-center justify-center ${vigilanteTileClass} ${VIGILANTE_TILE_NEUTRAL}`}
-														aria-label={`${v.name}, ${st.shortLabel}`}
+													<button
+														type="button"
+														className={`group relative m-0 flex items-center justify-center p-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/35 ${vigilanteTileClass} ${VIGILANTE_TILE_NEUTRAL}`}
+														aria-label={`${v.name}, ${st.shortLabel}. Open dossier.`}
 														onMouseEnter={(e) =>
 															showVigilanteTip(e, v)
 														}
 														onMouseLeave={
 															hideInventoryTip
 														}
+														onClick={() => {
+															hideInventoryTip();
+															const full =
+																vigilanteSheets.find(
+																	(s) =>
+																		s.id ===
+																		v.id,
+																);
+															if (full)
+																setDossierSheet(
+																	full,
+																);
+														}}
 													>
 														<div className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-3xl">
 															<div className="relative flex h-full w-full items-center justify-center">
@@ -623,7 +872,7 @@ export default function Inventory({ onHide }: InventoryProps) {
 																strokeWidth={2.75}
 															/>
 														</div>
-													</div>
+													</button>
 												</div>
 											);
 										})}
@@ -643,7 +892,10 @@ export default function Inventory({ onHide }: InventoryProps) {
 													}
 													onMouseLeave={hideInventoryTip}
 												>
-													{resourceIcon(r.id)}
+													<ResourceGearIcon
+														resourceId={r.id}
+														className={tileIconClass}
+													/>
 
 													<div
 														className={`absolute -top-1 -left-1 flex size-6 shrink-0 items-center justify-center rounded-full border border-amber-900/60 bg-black/80 text-[10px] font-semibold tabular-nums leading-none ${
@@ -742,9 +994,27 @@ export default function Inventory({ onHide }: InventoryProps) {
 								</p>
 							</div>
 						)}
+						{hoverTip.kind === "e" && (
+							<div className="min-w-0 text-[11px] leading-tight text-amber-200/80">
+								<div className="font-semibold text-amber-100/95">
+									Open slot
+								</div>
+								<p className="mt-1 text-[11px] text-amber-200/65">
+									Recruit vigilantes at the base to grow your
+									roster (up to {ROSTER_SLOTS} shown here).
+								</p>
+							</div>
+						)}
 					</div>,
 					document.body,
 				)}
 		</div>
+		{dossierSheet ? (
+			<InventoryVigilanteDossierPane
+				sheet={dossierSheet}
+				onClose={() => setDossierSheet(null)}
+			/>
+		) : null}
+		</>
 	);
 }

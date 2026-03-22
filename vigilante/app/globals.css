@@ -39,3 +39,13 @@ body {
 .vigilante-leaflet.leaflet-container {
   background: #05070a;
 }
+
+/* Incident expiry bar (incident list + deploy modal) */
+@keyframes vigilante-timer-drain {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
