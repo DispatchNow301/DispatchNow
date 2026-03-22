@@ -8,7 +8,11 @@ import React, {
 	useState,
 } from "react";
 import { createPortal } from "react-dom";
-import Image from "next/image";
+import type { StaticImageData } from "next/image";
+import {
+	vigilantes as vigilanteSheets,
+	type VigilanteSheet,
+} from "@/app/components/data/vigilante";
 import { AnimatePresence, motion } from "framer-motion";
 import {
 	AlertTriangle,
@@ -44,7 +48,7 @@ type VigilanteItem = {
 	name: string;
 	status: VigilanteStatus;
 	/**
-	 * Optional portrait served from `public/` (e.g. `/assets/vigilantes/1.png`).
+	 * Public URL or bundled image `src` (from `vigilante.ts` / `public/characters`).
 	 * If missing or load fails, the default user icon is shown.
 	 */
 	portraitSrc?: string;
@@ -69,6 +73,58 @@ type BuffItem = {
 };
 
 type InventoryTab = "vigilantes" | "resources" | "buffs";
+
+function portraitToSrc(portrait: VigilanteSheet["portrait"]): string | undefined {
+	if (typeof portrait === "string") return portrait;
+	if (
+		portrait &&
+		typeof portrait === "object" &&
+		"src" in portrait &&
+		typeof (portrait as StaticImageData).src === "string"
+	) {
+		return (portrait as StaticImageData).src;
+	}
+	return undefined;
+}
+
+function sheetStatusToGameStatus(s?: string): VigilanteStatus {
+	const t = (s ?? "Available").toLowerCase();
+	if (t.includes("injur")) return "injured";
+	if (
+		t.includes("unavail") ||
+		t.includes("offline") ||
+		t.includes("down")
+	) {
+		return "unavailable";
+	}
+	return "available";
+}
+
+function sheetToVigilanteItem(s: VigilanteSheet): VigilanteItem {
+	return {
+		id: s.id,
+		name: s.name,
+		status: sheetStatusToGameStatus(s.status),
+		portraitSrc: portraitToSrc(s.portrait),
+	};
+}
+
+/** Stable ordering so server + first client paint match (hydration-safe). */
+function stableFiveFromSheets(sheets: VigilanteSheet[]): VigilanteItem[] {
+	return [...sheets]
+		.sort((a, b) => a.id.localeCompare(b.id))
+		.slice(0, 5)
+		.map(sheetToVigilanteItem);
+}
+
+function shufflePickFiveSheets(sheets: VigilanteSheet[]): VigilanteItem[] {
+	const copy = [...sheets];
+	for (let i = copy.length - 1; i > 0; i--) {
+		const j = Math.floor(Math.random() * (i + 1));
+		[copy[i], copy[j]] = [copy[j]!, copy[i]!];
+	}
+	return copy.slice(0, 5).map(sheetToVigilanteItem);
+}
 
 const TAB_ORDER: Record<InventoryTab, number> = {
 	vigilantes: 0,
@@ -152,6 +208,12 @@ function VigilantePortrait({
 	tileIconClass: string;
 }) {
 	const [failed, setFailed] = useState(false);
+
+	// Tab + motion can abort loads; reset so we don’t stay stuck on the fallback.
+	useEffect(() => {
+		setFailed(false);
+	}, [portraitSrc]);
+
 	const showImage = Boolean(portraitSrc) && !failed;
 
 	if (!showImage) {
@@ -160,14 +222,14 @@ function VigilantePortrait({
 		);
 	}
 
-	/* `unoptimized`: serve files from /public as-is — avoids extra compression pass from the image optimizer. */
+	/* Native <img>: Next/Image + Framer opacity/transform sometimes leaves a blank layer after tab changes. */
 	return (
-		<Image
-			src={portraitSrc!}
+		<img
+			src={portraitSrc}
 			alt=""
-			fill
-			unoptimized
-			className="h-full w-full object-cover object-center"
+			loading="eager"
+			decoding="async"
+			className="pointer-events-none absolute inset-0 z-0 h-full w-full object-cover object-[center_top]"
 			onError={() => setFailed(true)}
 		/>
 	);
@@ -178,6 +240,8 @@ export default function Inventory({ onHide }: InventoryProps) {
 	const [slideDir, setSlideDir] = useState<1 | -1>(1);
 	const [hoverTip, setHoverTip] = useState<InventoryHoverTip | null>(null);
 	const [tipPos, setTipPos] = useState({ left: 0, top: 0 });
+	/** Bumps when re-entering the Vigilantes tab so portrait <img> nodes remount (avoids blank tiles after animation). */
+	const [vigilantePortraitEpoch, setVigilantePortraitEpoch] = useState(0);
 
 	const updateTipPos = useCallback((el: HTMLElement) => {
 		if (!el.isConnected) {
@@ -207,44 +271,22 @@ export default function Inventory({ onHide }: InventoryProps) {
 	const handleTabChange = (next: InventoryTab) => {
 		if (next === tab) return;
 		setSlideDir(TAB_ORDER[next] > TAB_ORDER[tab] ? 1 : -1);
+		// Must bump in the same commit as `tab` — useEffect ran one frame late, so keys
+		// stayed e.g. `*-0` on first paint and matched the initial mount (blank img layer).
+		if (next === "vigilantes" && tab !== "vigilantes") {
+			setVigilantePortraitEpoch((n) => n + 1);
+		}
 		setTab(next);
 	};
 
-	const vigilantes: VigilanteItem[] = useMemo(
-		() => [
-			{
-				id: "v1",
-				name: "Vigilante 1",
-				status: "available",
-				portraitSrc: "/assets/vigilantes/1.png",
-			},
-			{
-				id: "v2",
-				name: "Vigilante 2",
-				status: "injured",
-				portraitSrc: "/assets/vigilantes/2.png",
-			},
-			{
-				id: "v3",
-				name: "Vigilante 3",
-				status: "unavailable",
-				portraitSrc: "/assets/vigilantes/3.png",
-			},
-			{
-				id: "v4",
-				name: "Vigilante 4",
-				status: "available",
-				portraitSrc: "/assets/vigilantes/4.png",
-			},
-			{
-				id: "v5",
-				name: "Vigilante 5",
-				status: "available",
-				portraitSrc: "/assets/vigilantes/5.png",
-			},
-		],
-		[],
+	/** From `vigilante.ts` + `public/characters`. Stable first paint, then random 5 after mount. */
+	const [vigilantes, setVigilantes] = useState<VigilanteItem[]>(() =>
+		stableFiveFromSheets(vigilanteSheets),
 	);
+
+	useEffect(() => {
+		setVigilantes(shufflePickFiveSheets(vigilanteSheets));
+	}, []);
 
 	const resources: ResourceItem[] = useMemo(
 		() => [
@@ -560,6 +602,7 @@ export default function Inventory({ onHide }: InventoryProps) {
 														<div className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-3xl">
 															<div className="relative flex h-full w-full items-center justify-center">
 																<VigilantePortrait
+																	key={`${v.id}-${vigilantePortraitEpoch}`}
 																	portraitSrc={
 																		v.portraitSrc
 																	}

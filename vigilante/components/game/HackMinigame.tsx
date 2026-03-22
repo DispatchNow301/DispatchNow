@@ -209,7 +209,9 @@ export default function HackMinigame({ seed, onSuccess, onFailure }: Props) {
   const [errorWords,   setErrorWords]   = useState<Set<number>>(new Set());
   const [result,       setResult]       = useState<"win" | "lose" | null>(null);
   const [timeLeft,     setTimeLeft]     = useState(TIME_LIMIT_S);
-  const timerRef = useRef<ReturnType<typeof setInterval>>();
+  const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(
+    undefined,
+  );
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Timer

@@ -1,7 +1,6 @@
 "use client";
 
 import { Suspense } from "react";
-import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 
@@ -16,17 +15,6 @@ function SingleplayerPlayInner() {
 	return (
 		<div className="fixed inset-0">
 			<StreetMapScene saveKey={saveKey} />
-
-			<header className="absolute inset-x-0 top-0 z-1100 flex items-center justify-start px-6 py-4 pointer-events-none">
-				<Link
-					href="/"
-					className="pointer-events-auto text-base font-semibold text-amber-200/80 hover:text-amber-100 transition-colors cursor-pointer"
-					style={{ fontFamily: "Georgia, 'Times New Roman', serif" }}
-					aria-label="Back to main menu"
-				>
-					Vigilante
-				</Link>
-			</header>
 		</div>
 	);
 }

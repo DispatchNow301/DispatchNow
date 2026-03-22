@@ -117,7 +117,7 @@ export default function FireMinigame({ onSuccess, onFailure }: Props) {
   const [phase,      setPhase]      = useState<"ready" | "playing">("ready");
   const [uiProgress, setUiProgress] = useState(0.5);
   const [result,     setResult]     = useState<"win" | "lose" | null>(null);
-  const rafId = useRef<number>();
+  const rafId = useRef<number | undefined>(undefined);
 
   const press   = useCallback(() => { gs.current.pressing = true;  }, []);
   const release = useCallback(() => { gs.current.pressing = false; }, []);

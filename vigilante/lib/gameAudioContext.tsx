@@ -36,9 +36,8 @@ function sliderToPlaybackGain(slider: number): number {
 	return Math.pow(clamped, PLAYBACK_CURVE_EXPONENT) * PLAYBACK_GAIN_CAP;
 }
 
-/** Public URL for the file in `public/audio/music/background music.ogg` */
-export const BACKGROUND_MUSIC_SRC =
-	"/audio/music/" + encodeURIComponent("background music.ogg");
+/** Public URL for the file in `public/audio/music/music.ogg` */
+export const BACKGROUND_MUSIC_SRC = "/audio/music/music.ogg";
 
 type GameAudioContextValue = {
 	/** UI slider level 0–1 (0 = silent). Playback uses a curve + gain cap. */

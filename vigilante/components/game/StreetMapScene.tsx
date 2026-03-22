@@ -1,15 +1,76 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronLeft, ChevronRight, ChevronUp, Home, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronUp, X } from "lucide-react";
 import type { LatLngBounds, LatLngTuple } from "leaflet";
 import { MapContainer, Marker, Pane, TileLayer, useMap } from "react-leaflet";
 import * as L from "leaflet";
 import Inventory from "./Inventory";
 import { vigilantes } from "@/app/components/data/vigilante";
 import VettingMinigameModal from "@/components/game/VettingMinigameModal";
+import {
+	INCIDENT_TEMPLATES,
+	shortenPlaceName,
+	type IncidentArchetype,
+	type IncidentTemplate,
+} from "@/lib/incidentTemplates";
+
+// ── Inlined helpers (not exported by incidentTemplates) ───────────────────────
+
+function archetypeSuccessBase(archetype: IncidentArchetype): number {
+	switch (archetype) {
+		case "crime":
+			return 0.65;
+		case "fire_rescue":
+			return 0.55;
+		case "medical":
+			return 0.6;
+		case "disaster":
+			return 0.45;
+		case "traffic":
+			return 0.7;
+		default:
+			return 0.6;
+	}
+}
+
+function pickIncidentTemplate(): IncidentTemplate {
+	const total = INCIDENT_TEMPLATES.reduce((sum, t) => sum + t.weight, 0);
+	let r = Math.random() * total;
+	for (const t of INCIDENT_TEMPLATES) {
+		r -= t.weight;
+		if (r <= 0) return t;
+	}
+	return INCIDENT_TEMPLATES[INCIDENT_TEMPLATES.length - 1]!;
+}
+
+function fillIncidentTemplate(
+	template: IncidentTemplate,
+	placeName: string,
+): {
+	archetype: IncidentArchetype;
+	typeLabel: string;
+	title: string;
+	summary: string;
+} {
+	const filled = template.summary.replace(/\{place\}/g, placeName);
+	return {
+		archetype: template.archetype,
+		typeLabel: template.typeLabel,
+		title: `${template.typeLabel} — ${placeName}`,
+		summary: filled,
+	};
+}
+// Inlined from @/lib/osmPlaces
+type OsmPlace = { name: string; lat: number; lng: number; kind?: string };
 
 if (typeof window !== "undefined") {
 	// eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -39,12 +100,12 @@ type Props = {
 	saveKey: string;
 };
 
-type IncidentCategory = "fire" | "robbery" | "medical";
 type IncidentStatus = "active" | "resolved";
 
 type Incident = {
 	id: string;
-	category: IncidentCategory;
+	category: IncidentArchetype;
+	typeLabel: string;
 	status: IncidentStatus;
 	lat: number;
 	lng: number;
@@ -88,7 +149,15 @@ type GameState = {
 
 const CENTER: LatLngTuple = [40.7128, -74.006];
 const BASE: LatLngTuple = [40.7139, -74.0038];
-const HOMEBASE_POS: LatLngTuple = [40.7139, -74.0038];
+
+const OWNED_VIG_MARKER_OFFSETS: { dLat: number; dLng: number }[] = [
+	{ dLat: 0.0028, dLng: -0.0022 },
+	{ dLat: -0.0019, dLng: 0.0026 },
+	{ dLat: 0.0012, dLng: 0.0029 },
+	{ dLat: -0.0025, dLng: -0.0014 },
+	{ dLat: 0.0021, dLng: 0.001 },
+	{ dLat: -0.0012, dLng: -0.0028 },
+];
 
 const LEVELS = [
 	{ id: 1, label: "L1", zoomOut: 15, zoomIn: 15 },
@@ -97,14 +166,62 @@ const LEVELS = [
 ];
 
 const STATIC_CHARACTER_BASES: CharacterPin[] = [
-	{ id: "cit-oldman", name: "Old Man", initial: "O", kind: "citizen", lat: 40.713, lng: -74.0112 },
-	{ id: "cit-girl", name: "Girl", initial: "G", kind: "citizen", lat: 40.7178, lng: -74.0014 },
-	{ id: "cit-woman", name: "Woman", initial: "W", kind: "citizen", lat: 40.7102, lng: -74.0005 },
-	{ id: "cit-helper", name: "Helper", initial: "H", kind: "citizen", lat: 40.7185, lng: -74.0072 },
-
-	{ id: "cop-diaz", name: "Officer Diaz", initial: "D", kind: "police", lat: 40.7129, lng: -73.9998 },
-	{ id: "cop-kim", name: "Detective Kim", initial: "K", kind: "police", lat: 40.7166, lng: -74.01 },
-	{ id: "chief-williams", name: "Chief Williams", initial: "C", kind: "police", lat: 40.7095, lng: -74.0069 },
+	{
+		id: "cit-oldman",
+		name: "Old Man",
+		initial: "O",
+		kind: "citizen",
+		lat: 40.713,
+		lng: -74.0112,
+	},
+	{
+		id: "cit-girl",
+		name: "Girl",
+		initial: "G",
+		kind: "citizen",
+		lat: 40.7178,
+		lng: -74.0014,
+	},
+	{
+		id: "cit-woman",
+		name: "Woman",
+		initial: "W",
+		kind: "citizen",
+		lat: 40.7102,
+		lng: -74.0005,
+	},
+	{
+		id: "cit-helper",
+		name: "Helper",
+		initial: "H",
+		kind: "citizen",
+		lat: 40.7185,
+		lng: -74.0072,
+	},
+	{
+		id: "cop-diaz",
+		name: "Officer Diaz",
+		initial: "D",
+		kind: "police",
+		lat: 40.7129,
+		lng: -73.9998,
+	},
+	{
+		id: "cop-kim",
+		name: "Detective Kim",
+		initial: "K",
+		kind: "police",
+		lat: 40.7166,
+		lng: -74.01,
+	},
+	{
+		id: "chief-williams",
+		name: "Chief Williams",
+		initial: "C",
+		kind: "police",
+		lat: 40.7095,
+		lng: -74.0069,
+	},
 ];
 
 type DialogueRole = "Citizen" | "Police" | "Chief";
@@ -193,14 +310,14 @@ const NPC_DIALOGUE = {
 	},
 };
 
-function incidentCategoryLabel(cat: IncidentCategory) {
-	if (cat === "fire") return "Fire";
-	if (cat === "robbery") return "Robbery";
-	return "Medical";
-}
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function levelConfig(level: number) {
 	return LEVELS[Math.max(0, Math.min(level - 1, LEVELS.length - 1))];
+}
+
+function randomFrom<T>(arr: T[]): T {
+	return arr[Math.floor(Math.random() * arr.length)];
 }
 
 function sampleInBounds(bounds: LatLngBounds): { lat: number; lng: number } {
@@ -208,15 +325,13 @@ function sampleInBounds(bounds: LatLngBounds): { lat: number; lng: number } {
 	const north = bounds.getNorth();
 	const west = bounds.getWest();
 	const east = bounds.getEast();
-
 	const inset = 0.04;
 	const latSpan = (north - south) * (1 - inset * 2);
 	const lngSpan = (east - west) * (1 - inset * 2);
-
-	const lat = south + (north - south) * inset + Math.random() * latSpan;
-	const lng = west + (east - west) * inset + Math.random() * lngSpan;
-
-	return { lat, lng };
+	return {
+		lat: south + (north - south) * inset + Math.random() * latSpan,
+		lng: west + (east - west) * inset + Math.random() * lngSpan,
+	};
 }
 
 function nudgeNearby(lat: number, lng: number) {
@@ -262,16 +377,8 @@ function pushAwayFromPoint(
 	const dLat = point.lat - center.lat;
 	const dLng = point.lng - center.lng;
 	const dist = Math.sqrt(dLat * dLat + dLng * dLng);
-
 	if (dist >= minDistance) return point;
-
-	if (dist < 1e-9) {
-		return {
-			lat: center.lat + minDistance,
-			lng: center.lng,
-		};
-	}
-
+	if (dist < 1e-9) return { lat: center.lat + minDistance, lng: center.lng };
 	const scale = minDistance / dist;
 	return {
 		lat: center.lat + dLat * scale,
@@ -279,12 +386,19 @@ function pushAwayFromPoint(
 	};
 }
 
-function randomFrom<T>(arr: T[]) {
-	return arr[Math.floor(Math.random() * arr.length)];
+function isLikelyWaterOnlyPoi(p: OsmPlace): boolean {
+	const k = (p.kind ?? "").toLowerCase();
+	if (k === "ferry_terminal") return true;
+	const n = p.name.toLowerCase();
+	if (n.includes("ferry terminal")) return true;
+	return false;
 }
 
-function computeSuccessChance(cat: IncidentCategory, lifetimeMs: number) {
-	const base = cat === "fire" ? 0.65 : cat === "robbery" ? 0.5 : 0.7;
+function computeSuccessChance(
+	archetype: IncidentArchetype,
+	lifetimeMs: number,
+) {
+	const base = archetypeSuccessBase(archetype);
 	const t = Math.min(lifetimeMs / (5 * 60_000), 1);
 	const noise = (Math.random() - 0.5) * 0.1;
 	return Math.round(
@@ -292,41 +406,33 @@ function computeSuccessChance(cat: IncidentCategory, lifetimeMs: number) {
 	);
 }
 
-function makeIncident(lat: number, lng: number): Incident {
+function makeIncident(lat: number, lng: number, place: OsmPlace): Incident {
 	const now = Date.now();
-	const categories: IncidentCategory[] = ["fire", "robbery", "medical"];
-	const category = categories[Math.floor(Math.random() * categories.length)];
 	const lifetimeMs = 30_000;
-
+	const template = pickIncidentTemplate();
+	const filled = fillIncidentTemplate(template, shortenPlaceName(place.name));
 	return {
 		id: `incident_${Math.random().toString(16).slice(2)}_${now.toString(16)}`,
-		category,
+		category: filled.archetype,
+		typeLabel: filled.typeLabel,
 		status: "active",
 		lat,
 		lng,
-		title:
-			category === "fire"
-				? "Alleyway Fire"
-				: category === "robbery"
-					? "Corner Store Robbery"
-					: "Medical Emergency",
-		summary:
-			category === "fire"
-				? "Reports of smoke near a tenement block. Neighbors say they heard shouting."
-				: category === "robbery"
-					? "Masked figures spotted running from a storefront. No sirens yet."
-					: "Caller reports someone collapsed on a dimly lit street.",
+		title: filled.title,
+		summary: filled.summary,
 		createdAt: now,
 		expiresAt: now + lifetimeMs,
-		successChance: computeSuccessChance(category, lifetimeMs),
+		successChance: computeSuccessChance(filled.archetype, lifetimeMs),
 	};
 }
 
-function makeRecruitLead(vigilanteId: string, bounds: LatLngBounds): RecruitLead {
+function makeRecruitLead(
+	vigilanteId: string,
+	bounds: LatLngBounds,
+): RecruitLead {
 	const now = Date.now();
 	const lifetimeMs = 40_000;
 	const { lat, lng } = sampleInBounds(bounds);
-
 	return {
 		id: `recruit_${vigilanteId}_${now.toString(16)}`,
 		vigilanteId,
@@ -337,17 +443,82 @@ function makeRecruitLead(vigilanteId: string, bounds: LatLngBounds): RecruitLead
 	};
 }
 
-function makeIncidentIcon(category: IncidentCategory, isSelected: boolean, isResolved: boolean) {
+/**
+ * Spatially uniform POI picker.
+ *
+ * Divides the bounding box into a COLS×ROWS grid, shuffles the cells, then
+ * walks them until it finds one containing at least one POI — and returns a
+ * random POI from that cell. Every cell has equal probability of being chosen
+ * first, so incidents spread evenly across the map regardless of how densely
+ * OSM has tagged any given neighbourhood.
+ *
+ * Falls back to a plain random pick if somehow all cells are empty.
+ */
+const SPAWN_GRID_COLS = 8;
+const SPAWN_GRID_ROWS = 5;
+
+function pickSpatiallyUniformPoi(
+	places: OsmPlace[],
+	bounds: LatLngBounds,
+): OsmPlace | null {
+	if (places.length === 0) return null;
+
+	const land = places.filter((p) => !isLikelyWaterOnlyPoi(p));
+	const pool = land.length > 0 ? land : places;
+
+	const s = bounds.getSouth();
+	const n = bounds.getNorth();
+	const w = bounds.getWest();
+	const e = bounds.getEast();
+
+	// Shuffle cell indices so every spawn picks a fresh random cell order
+	const cellCount = SPAWN_GRID_COLS * SPAWN_GRID_ROWS;
+	const cellOrder = Array.from({ length: cellCount }, (_, i) => i);
+	for (let i = cellOrder.length - 1; i > 0; i--) {
+		const j = Math.floor(Math.random() * (i + 1));
+		[cellOrder[i], cellOrder[j]] = [cellOrder[j]!, cellOrder[i]!];
+	}
+
+	for (const idx of cellOrder) {
+		const row = Math.floor(idx / SPAWN_GRID_COLS);
+		const col = idx % SPAWN_GRID_COLS;
+		const cellS = s + (row / SPAWN_GRID_ROWS) * (n - s);
+		const cellN = s + ((row + 1) / SPAWN_GRID_ROWS) * (n - s);
+		const cellW = w + (col / SPAWN_GRID_COLS) * (e - w);
+		const cellE = w + ((col + 1) / SPAWN_GRID_COLS) * (e - w);
+		const pad = 1e-4;
+		const inCell = pool.filter(
+			(p) =>
+				p.lat >= cellS - pad &&
+				p.lat <= cellN + pad &&
+				p.lng >= cellW - pad &&
+				p.lng <= cellE + pad,
+		);
+		if (inCell.length > 0) return randomFrom(inCell);
+	}
+
+	return randomFrom(pool); // fallback: all cells were empty
+}
+
+// ── Icon factories ────────────────────────────────────────────────────────────
+
+function makeIncidentIcon(
+	_category: IncidentArchetype,
+	isSelected: boolean,
+	isResolved: boolean,
+) {
 	const border = isSelected ? "#b91c1c" : "#7f1d1d";
 	const baseColor = "#f97373";
-	const bg = isResolved ? "rgba(24,24,27,0.9)" : "rgba(127,29,29,0.6)";
+	const bg = "rgba(127,29,29,0.6)";
+	const resolvedBg = "rgba(24,24,27,0.9)";
+	const resolvedBorder = "#52525b";
 	const pulse = !isResolved && isSelected;
 
 	const html = `<div style="
 		width:28px;height:28px;border-radius:999px;
-		border:2px solid ${border};background:${bg};
+		border:2px solid ${isResolved ? resolvedBorder : border};background:${isResolved ? resolvedBg : bg};
 		display:flex;align-items:center;justify-content:center;
-		color:${baseColor};font-weight:800;font-size:16px;
+		color:${isResolved ? "#a1a1aa" : baseColor};font-weight:800;font-size:16px;
 		text-shadow:0 0 4px rgba(0,0,0,0.9);
 		box-shadow:0 0 16px rgba(0,0,0,0.9);">!</div>`;
 
@@ -364,32 +535,26 @@ function makeIncidentIcon(category: IncidentCategory, isSelected: boolean, isRes
 function makeCharacterIcon(initial: string, kind: CharacterKind) {
 	const palette =
 		kind === "police"
-			? {
-					border: "#1d4ed8",
-					bg: "rgba(30,64,175,0.78)",
-					text: "#dbeafe",
-				}
-			: {
-					border: "#4b5563",
-					bg: "rgba(55,65,81,0.8)",
-					text: "#f3f4f6",
-				};
+			? { border: "#1d4ed8", bg: "rgba(30,64,175,0.78)", text: "#dbeafe" }
+			: kind === "vigilante"
+				? {
+						border: "#b45309",
+						bg: "rgba(120,53,15,0.82)",
+						text: "#fde68a",
+					}
+				: {
+						border: "#4b5563",
+						bg: "rgba(55,65,81,0.8)",
+						text: "#f3f4f6",
+					};
 
 	const html = `<div style="
-		width:30px;
-		height:30px;
-		border-radius:999px;
-		border:2px solid ${palette.border};
-		background:${palette.bg};
-		display:flex;
-		align-items:center;
-		justify-content:center;
-		color:${palette.text};
-		font-weight:800;
-		font-size:14px;
+		width:30px;height:30px;border-radius:999px;
+		border:2px solid ${palette.border};background:${palette.bg};
+		display:flex;align-items:center;justify-content:center;
+		color:${palette.text};font-weight:800;font-size:14px;
 		text-shadow:0 0 4px rgba(0,0,0,0.8);
-		box-shadow:0 0 14px rgba(0,0,0,0.85);
-		cursor:pointer;
+		box-shadow:0 0 14px rgba(0,0,0,0.85);cursor:pointer;
 	">${initial}</div>`;
 
 	return L.divIcon({
@@ -402,20 +567,12 @@ function makeCharacterIcon(initial: string, kind: CharacterKind) {
 
 function makeRecruitIcon(initial: string) {
 	const html = `<div style="
-		width:34px;
-		height:34px;
-		border-radius:999px;
-		border:2px solid #b45309;
-		background:rgba(120,53,15,0.86);
-		display:flex;
-		align-items:center;
-		justify-content:center;
-		color:#fde68a;
-		font-weight:800;
-		font-size:15px;
+		width:34px;height:34px;border-radius:999px;
+		border:2px solid #b45309;background:rgba(120,53,15,0.86);
+		display:flex;align-items:center;justify-content:center;
+		color:#fde68a;font-weight:800;font-size:15px;
 		text-shadow:0 0 4px rgba(0,0,0,0.85);
-		box-shadow:0 0 18px rgba(120,53,15,0.55);
-		cursor:pointer;
+		box-shadow:0 0 18px rgba(120,53,15,0.55);cursor:pointer;
 	">${initial}</div>`;
 
 	return L.divIcon({
@@ -426,31 +583,7 @@ function makeRecruitIcon(initial: string) {
 	});
 }
 
-function makeHomebaseIcon() {
-	const html = `<div style="
-		width:36px;
-		height:36px;
-		border-radius:12px;
-		border:2px solid #7c2d12;
-		background:rgba(20,20,20,0.92);
-		display:flex;
-		align-items:center;
-		justify-content:center;
-		color:#fde68a;
-		font-weight:800;
-		font-size:18px;
-		text-shadow:0 0 4px rgba(0,0,0,0.85);
-		box-shadow:0 0 16px rgba(0,0,0,0.9);
-		cursor:pointer;
-	">⌂</div>`;
-
-	return L.divIcon({
-		html,
-		className: "vigilante-homebase-icon",
-		iconSize: [36, 36],
-		iconAnchor: [18, 18],
-	});
-}
+// ── Map sub-components ────────────────────────────────────────────────────────
 
 function ZoomController({
 	level,
@@ -463,7 +596,6 @@ function ZoomController({
 
 	useEffect(() => {
 		const lvl = levelConfig(level);
-
 		const pane = map.getPane("mapPane");
 		if (!pane) return;
 
@@ -475,13 +607,11 @@ function ZoomController({
 		requestAnimationFrame(() => {
 			const safePane = map.getPane("mapPane");
 			if (!safePane) return;
-
 			map.setView(BASE, lvl.zoomOut, { animate: false });
 
 			requestAnimationFrame(() => {
 				const finalPane = map.getPane("mapPane");
 				if (!finalPane) return;
-
 				try {
 					const b = map.getBounds();
 					map.setMaxBounds(b);
@@ -541,12 +671,10 @@ function CharacterMarkers({
 						key={key}
 						position={[pin.lat, pin.lng]}
 						icon={makeCharacterIcon(pin.initial, pin.kind)}
-						zIndexOffset={0}
+						zIndexOffset={pin.kind === "vigilante" ? 11000 : 0}
 						interactive
 						riseOnHover
-						eventHandlers={{
-							click: () => onSelect(pin),
-						}}
+						eventHandlers={{ click: () => onSelect(pin) }}
 					/>
 				);
 			})}
@@ -574,27 +702,10 @@ function RecruitMarkers({
 						zIndexOffset={15000}
 						interactive
 						riseOnHover
-						eventHandlers={{
-							click: () => onSelect(lead),
-						}}
+						eventHandlers={{ click: () => onSelect(lead) }}
 					/>
 				);
 			})}
-		</Pane>
-	);
-}
-
-function HomebaseMarker({ onClick }: { onClick: () => void }) {
-	return (
-		<Pane name="homebasePane" style={{ zIndex: 880 }}>
-			<Marker
-				position={HOMEBASE_POS}
-				icon={makeHomebaseIcon()}
-				zIndexOffset={20000}
-				interactive
-				riseOnHover
-				eventHandlers={{ click: onClick }}
-			/>
 		</Pane>
 	);
 }
@@ -608,13 +719,10 @@ function IncidentMarkers({
 	selectedId: string | null;
 	onSelect: (id: string) => void;
 }) {
-	// Cache icons so existing markers don't get their DOM replaced on every
-	// state tick/spawn (which would restart CSS animations and look choppy).
 	const iconCacheRef = useRef<
 		Map<string, { selected: boolean; icon: L.DivIcon }>
 	>(new Map());
 
-	// Prune cache entries for incidents that no longer exist.
 	useEffect(() => {
 		const activeIds = new Set(
 			incidents.filter((i) => i.status === "active").map((i) => i.id),
@@ -635,11 +743,17 @@ function IncidentMarkers({
 						icon={(() => {
 							const isSelected = inc.id === selectedId;
 							const cached = iconCacheRef.current.get(inc.id);
-							if (cached && cached.selected === isSelected) {
+							if (cached && cached.selected === isSelected)
 								return cached.icon;
-							}
-							const icon = makeIncidentIcon(inc.category, isSelected, false);
-							iconCacheRef.current.set(inc.id, { selected: isSelected, icon });
+							const icon = makeIncidentIcon(
+								inc.category,
+								isSelected,
+								false,
+							);
+							iconCacheRef.current.set(inc.id, {
+								selected: isSelected,
+								icon,
+							});
 							return icon;
 						})()}
 						zIndexOffset={10000}
@@ -652,36 +766,75 @@ function IncidentMarkers({
 	);
 }
 
-function SelectedIncidentFollower({
-	incidents,
-	selectedId,
-}: {
-	incidents: Incident[];
-	selectedId: string | null;
-}) {
-	const map = useMap();
-	const lastIdRef = useRef<string | null>(null);
+// ── Persistence ───────────────────────────────────────────────────────────────
 
-	useEffect(() => {
-		if (selectedId === lastIdRef.current) return;
-		lastIdRef.current = selectedId;
+const INCIDENT_ARCHETYPES: IncidentArchetype[] = [
+	"crime",
+	"fire_rescue",
+	"medical",
+	"disaster",
+	"traffic",
+];
 
-		if (!selectedId) return;
+function normalizeIncidentArchetype(c: unknown): IncidentArchetype {
+	if (c === "fire" || c === "fire_rescue") return "fire_rescue";
+	if (c === "robbery" || c === "crime") return "crime";
+	if (c === "medical") return "medical";
+	if (
+		typeof c === "string" &&
+		INCIDENT_ARCHETYPES.includes(c as IncidentArchetype)
+	) {
+		return c as IncidentArchetype;
+	}
+	return "crime";
+}
 
-		const inc = incidents.find((i) => i.id === selectedId);
-		if (!inc) return;
+function fallbackTypeLabel(archetype: IncidentArchetype): string {
+	switch (archetype) {
+		case "crime":
+			return "Police call";
+		case "fire_rescue":
+			return "Fire / Rescue";
+		case "medical":
+			return "Medical";
+		case "disaster":
+			return "Disaster";
+		case "traffic":
+			return "Traffic";
+		default:
+			return "Incident";
+	}
+}
 
-		const pane = map.getPane("mapPane");
-		if (!pane) return;
-
-		requestAnimationFrame(() => {
-			const safePane = map.getPane("mapPane");
-			if (!safePane) return;
-			map.setView([inc.lat, inc.lng], map.getZoom(), { animate: false });
-		});
-	}, [incidents, selectedId, map]);
-
-	return null;
+function parseStoredIncident(raw: unknown): Incident | null {
+	if (!raw || typeof raw !== "object") return null;
+	const o = raw as Record<string, unknown>;
+	if (typeof o.id !== "string") return null;
+	if (typeof o.lat !== "number" || typeof o.lng !== "number") return null;
+	if (o.status !== "active" && o.status !== "resolved") return null;
+	if (typeof o.title !== "string" || typeof o.summary !== "string")
+		return null;
+	if (typeof o.createdAt !== "number" || typeof o.expiresAt !== "number")
+		return null;
+	if (typeof o.successChance !== "number") return null;
+	const category = normalizeIncidentArchetype(o.category);
+	const typeLabel =
+		typeof o.typeLabel === "string" && o.typeLabel.length > 0
+			? o.typeLabel
+			: fallbackTypeLabel(category);
+	return {
+		id: o.id,
+		category,
+		typeLabel,
+		status: o.status,
+		lat: o.lat,
+		lng: o.lng,
+		title: o.title,
+		summary: o.summary,
+		createdAt: o.createdAt,
+		expiresAt: o.expiresAt,
+		successChance: o.successChance,
+	};
 }
 
 function initialState(): GameState {
@@ -710,7 +863,11 @@ function loadState(saveKey: string): GameState {
 				typeof p.selectedIncidentId === "string"
 					? p.selectedIncidentId
 					: null,
-			incidents: Array.isArray(p.incidents) ? (p.incidents as Incident[]) : [],
+			incidents: Array.isArray(p.incidents)
+				? p.incidents
+						.map(parseStoredIncident)
+						.filter((x): x is Incident => x !== null)
+				: [],
 			showIncidentPanel:
 				typeof p.showIncidentPanel === "boolean"
 					? p.showIncidentPanel
@@ -735,45 +892,105 @@ function saveState(saveKey: string, state: GameState) {
 	localStorage.setItem(saveKey, JSON.stringify(state));
 }
 
+// ── Main component ────────────────────────────────────────────────────────────
+
 export default function StreetMapScene({ saveKey }: Props) {
 	const [state, setState] = useState<GameState>(() => initialState());
-
-	const [selectedRecruitLeadId, setSelectedRecruitLeadId] = useState<string | null>(null);
-	const [selectedOwnedVigilanteId, setSelectedOwnedVigilanteId] = useState<string | null>(null);
+	const [selectedRecruitLeadId, setSelectedRecruitLeadId] = useState<
+		string | null
+	>(null);
+	const [selectedOwnedVigilanteId, setSelectedOwnedVigilanteId] = useState<
+		string | null
+	>(null);
 	const [overlayMode, setOverlayMode] = useState<OverlayMode>("recruit");
-
 	const [dialogue, setDialogue] = useState<DialogueState>(null);
-	const [showHomebasePanel, setShowHomebasePanel] = useState(false);
 	const [showVettingModal, setShowVettingModal] = useState(false);
 
 	const helperBase =
-		STATIC_CHARACTER_BASES.find((p) => p.id === "cit-helper") ?? STATIC_CHARACTER_BASES[0];
+		STATIC_CHARACTER_BASES.find((p) => p.id === "cit-helper") ??
+		STATIC_CHARACTER_BASES[0];
 	const diazBase =
-		STATIC_CHARACTER_BASES.find((p) => p.id === "cop-diaz") ?? STATIC_CHARACTER_BASES[0];
+		STATIC_CHARACTER_BASES.find((p) => p.id === "cop-diaz") ??
+		STATIC_CHARACTER_BASES[0];
 
 	const [helperPos, setHelperPos] = useState({
 		lat: helperBase.lat,
 		lng: helperBase.lng,
 	});
-
 	const [diazPos, setDiazPos] = useState({
 		lat: diazBase.lat,
 		lng: diazBase.lng,
 	});
 
+	const levelBoundsRef = useRef<Map<number, LatLngBounds>>(new Map());
+	const spawnPlacesByLevelRef = useRef<Map<number, OsmPlace[]>>(new Map());
+	/** Incremented per level on each new bounds+fetch so stale responses are ignored. */
+	const placesFetchGenRef = useRef<Map<number, number>>(new Map());
+	const placesAbortByLevelRef = useRef<Map<number, AbortController>>(new Map());
+
 	useEffect(() => {
 		setState(loadState(saveKey));
 	}, [saveKey]);
-
 	useEffect(() => {
 		saveState(saveKey, state);
 	}, [saveKey, state]);
 
-	const levelBoundsRef = useRef<Map<number, LatLngBounds>>(new Map());
+	// Called by ZoomController each time the active level settles.
+	// Aborts any in-flight fetch for that tier and only applies the latest result.
+	const handleBoundsReady = useCallback(
+		(level: number, bounds: LatLngBounds) => {
+			levelBoundsRef.current.set(level, bounds);
 
-	const handleBoundsReady = (level: number, bounds: LatLngBounds) => {
-		levelBoundsRef.current.set(level, bounds);
-	};
+			const prevAbort = placesAbortByLevelRef.current.get(level);
+			prevAbort?.abort();
+			const ac = new AbortController();
+			placesAbortByLevelRef.current.set(level, ac);
+
+			const gen = (placesFetchGenRef.current.get(level) ?? 0) + 1;
+			placesFetchGenRef.current.set(level, gen);
+
+			const south = bounds.getSouth();
+			const west = bounds.getWest();
+			const north = bounds.getNorth();
+			const east = bounds.getEast();
+			const params = new URLSearchParams({
+				south: String(south),
+				west: String(west),
+				north: String(north),
+				east: String(east),
+			});
+
+			void fetch(`/api/osm/places?${params.toString()}`, {
+				signal: ac.signal,
+			})
+				.then(async (r) => {
+					if (placesFetchGenRef.current.get(level) !== gen) return;
+					const data = (r.ok
+						? await r.json()
+						: { places: [] }) as { places?: OsmPlace[] };
+					if (placesFetchGenRef.current.get(level) !== gen) return;
+					spawnPlacesByLevelRef.current.set(
+						level,
+						Array.isArray(data.places) ? data.places : [],
+					);
+				})
+				.catch((err: unknown) => {
+					if (
+						err &&
+						typeof err === "object" &&
+						"name" in err &&
+						(err as { name?: string }).name === "AbortError"
+					) {
+						return;
+					}
+					if (placesFetchGenRef.current.get(level) !== gen) return;
+					spawnPlacesByLevelRef.current.set(level, []);
+				});
+		},
+		[],
+	);
+
+	// ── Incident helpers ──────────────────────────────────────────────────────
 
 	const expireIncident = (id: string) => {
 		setState((s) => ({
@@ -788,9 +1005,7 @@ export default function StreetMapScene({ saveKey }: Props) {
 		setSelectedRecruitLeadId(null);
 		setSelectedOwnedVigilanteId(null);
 		setDialogue(null);
-		setShowHomebasePanel(false);
 		setShowVettingModal(false);
-
 		setState((s) => {
 			if (s.selectedIncidentId === id && s.showIncidentPanel) {
 				return {
@@ -816,12 +1031,8 @@ export default function StreetMapScene({ saveKey }: Props) {
 
 	const handleRecruitSelect = (lead: RecruitLead) => {
 		setDialogue(null);
-		setShowHomebasePanel(false);
 		setShowVettingModal(false);
-		setState((s) => ({
-			...s,
-			selectedIncidentId: null,
-		}));
+		setState((s) => ({ ...s, selectedIncidentId: null }));
 		setOverlayMode("recruit");
 		setSelectedOwnedVigilanteId(null);
 		setSelectedRecruitLeadId(lead.id);
@@ -830,26 +1041,27 @@ export default function StreetMapScene({ saveKey }: Props) {
 	const handleOwnedVigilanteSelect = (vigilanteId: string) => {
 		setDialogue(null);
 		setShowVettingModal(false);
+		setState((s) => ({ ...s, selectedIncidentId: null }));
 		setOverlayMode("owned");
 		setSelectedRecruitLeadId(null);
 		setSelectedOwnedVigilanteId(vigilanteId);
 	};
 
 	const handleCharacterSelect = (pin: CharacterPin) => {
-		setState((s) => ({
-			...s,
-			selectedIncidentId: null,
-		}));
+		setState((s) => ({ ...s, selectedIncidentId: null }));
 		setSelectedRecruitLeadId(null);
 		setSelectedOwnedVigilanteId(null);
-		setShowHomebasePanel(false);
 		setShowVettingModal(false);
+
+		if (pin.kind === "vigilante") {
+			handleOwnedVigilanteSelect(pin.id);
+			return;
+		}
 
 		if (pin.kind === "citizen") {
 			const citizen =
 				NPC_DIALOGUE.citizens.find((c) => c.name === pin.name) ??
 				NPC_DIALOGUE.citizens[0];
-
 			setDialogue({
 				name: citizen.name,
 				role: citizen.role,
@@ -872,7 +1084,6 @@ export default function StreetMapScene({ saveKey }: Props) {
 		const officer =
 			NPC_DIALOGUE.police.find((p) => p.name === pin.name) ??
 			NPC_DIALOGUE.police[0];
-
 		setDialogue({
 			name: officer.name,
 			role: officer.role,
@@ -881,22 +1092,11 @@ export default function StreetMapScene({ saveKey }: Props) {
 		});
 	};
 
-	const handleHomebaseClick = () => {
-		setDialogue(null);
-		setSelectedRecruitLeadId(null);
-		setSelectedOwnedVigilanteId(null);
-		setShowVettingModal(false);
-		setState((s) => ({
-			...s,
-			selectedIncidentId: null,
-		}));
-		setShowHomebasePanel((v) => !v);
-	};
-
 	const handleHireSelected = () => {
-		const lead = state.recruitLeads.find((r) => r.id === selectedRecruitLeadId);
+		const lead = state.recruitLeads.find(
+			(r) => r.id === selectedRecruitLeadId,
+		);
 		if (!lead) return;
-
 		setState((s) => ({
 			...s,
 			ownedVigilanteIds: s.ownedVigilanteIds.includes(lead.vigilanteId)
@@ -904,16 +1104,15 @@ export default function StreetMapScene({ saveKey }: Props) {
 				: [...s.ownedVigilanteIds, lead.vigilanteId],
 			recruitLeads: s.recruitLeads.filter((r) => r.id !== lead.id),
 		}));
-
 		setSelectedRecruitLeadId(null);
 		setShowVettingModal(false);
-		setShowHomebasePanel(true);
 	};
 
+	// ── Incident spawner — random POI, no grid ────────────────────────────────
 	useEffect(() => {
 		let alive = true;
-		const MAX_ACTIVE = 20;
-		const SPAWN_INTERVAL_MS = 20_000;
+		const MAX_ACTIVE = 100;
+		const SPAWN_INTERVAL_MS = 1_000;
 
 		const scheduleNext = () => {
 			if (!alive) return;
@@ -925,18 +1124,20 @@ export default function StreetMapScene({ saveKey }: Props) {
 					).length;
 					if (activeCount >= MAX_ACTIVE) return s;
 
-					const bounds =
-						levelBoundsRef.current.get(s.level) ??
-						levelBoundsRef.current.get(s.level - 1) ??
-						levelBoundsRef.current.get(s.level + 1) ??
-						[...levelBoundsRef.current.values()][0];
-
+					const bounds = levelBoundsRef.current.get(s.level);
 					if (!bounds) return s;
 
-					const { lat, lng } = sampleInBounds(bounds);
+					const places =
+						spawnPlacesByLevelRef.current.get(s.level) ?? [];
+					const place = pickSpatiallyUniformPoi(places, bounds);
+					if (!place) return s;
+
 					return {
 						...s,
-						incidents: [...s.incidents, makeIncident(lat, lng)],
+						incidents: [
+							...s.incidents,
+							makeIncident(place.lat, place.lng, place),
+						],
 					};
 				});
 				scheduleNext();
@@ -949,6 +1150,7 @@ export default function StreetMapScene({ saveKey }: Props) {
 		};
 	}, []);
 
+	// ── Recruit lead spawner ──────────────────────────────────────────────────
 	useEffect(() => {
 		let alive = true;
 		const MAX_RECRUITS = 3;
@@ -961,51 +1163,60 @@ export default function StreetMapScene({ saveKey }: Props) {
 				setState((s) => {
 					if (s.recruitLeads.length >= MAX_RECRUITS) return s;
 
-					const bounds =
-						levelBoundsRef.current.get(s.level) ??
-						levelBoundsRef.current.get(s.level - 1) ??
-						levelBoundsRef.current.get(s.level + 1) ??
-						[...levelBoundsRef.current.values()][0];
-
+					const bounds = levelBoundsRef.current.get(s.level);
 					if (!bounds) return s;
 
 					const unavailable = new Set([
 						...s.ownedVigilanteIds,
 						...s.recruitLeads.map((r) => r.vigilanteId),
 					]);
-
-					const available = vigilantes.filter((v) => !unavailable.has(v.id));
+					const available = vigilantes.filter(
+						(v) => !unavailable.has(v.id),
+					);
 					if (available.length === 0) return s;
 
-					const undercoverAvailable = available.filter((v) => v.isUndercover);
-					const normalAvailable = available.filter((v) => !v.isUndercover);
-
-					const undercoverAlreadyOnMap = s.recruitLeads.some((lead) => {
-						const match = vigilantes.find((v) => v.id === lead.vigilanteId);
-						return match?.isUndercover;
-					});
+					const undercoverAvailable = available.filter(
+						(v) => v.isUndercover,
+					);
+					const normalAvailable = available.filter(
+						(v) => !v.isUndercover,
+					);
+					const undercoverAlreadyOnMap = s.recruitLeads.some(
+						(lead) => {
+							const match = vigilantes.find(
+								(v) => v.id === lead.vigilanteId,
+							);
+							return match?.isUndercover;
+						},
+					);
 
 					let chosen;
-
-					if (!undercoverAlreadyOnMap && undercoverAvailable.length > 0) {
-						const roll = Math.random();
-
-						if (roll < 0.45) {
-							chosen = randomFrom(undercoverAvailable);
-						} else {
-							chosen = randomFrom(
-								normalAvailable.length > 0 ? normalAvailable : available,
-							);
-						}
+					if (
+						!undercoverAlreadyOnMap &&
+						undercoverAvailable.length > 0
+					) {
+						chosen =
+							Math.random() < 0.45
+								? randomFrom(undercoverAvailable)
+								: randomFrom(
+										normalAvailable.length > 0
+											? normalAvailable
+											: available,
+									);
 					} else {
 						chosen = randomFrom(
-							normalAvailable.length > 0 ? normalAvailable : available,
+							normalAvailable.length > 0
+								? normalAvailable
+								: available,
 						);
 					}
 
 					return {
 						...s,
-						recruitLeads: [...s.recruitLeads, makeRecruitLead(chosen.id, bounds)],
+						recruitLeads: [
+							...s.recruitLeads,
+							makeRecruitLead(chosen.id, bounds),
+						],
 					};
 				});
 				scheduleNext();
@@ -1018,33 +1229,43 @@ export default function StreetMapScene({ saveKey }: Props) {
 		};
 	}, []);
 
+	// ── Expiry ticker ─────────────────────────────────────────────────────────
 	useEffect(() => {
 		const id = window.setInterval(() => {
 			setState((s) => {
 				const now = Date.now();
-
 				const expiredIncidentIds = new Set(
 					s.incidents
-						.filter((i) => i.status === "active" && now >= i.expiresAt)
+						.filter(
+							(i) => i.status === "active" && now >= i.expiresAt,
+						)
 						.map((i) => i.id),
 				);
-
 				const expiredRecruitIds = new Set(
-					s.recruitLeads.filter((r) => now >= r.expiresAt).map((r) => r.id),
+					s.recruitLeads
+						.filter((r) => now >= r.expiresAt)
+						.map((r) => r.id),
 				);
-
-				if (expiredIncidentIds.size === 0 && expiredRecruitIds.size === 0) return s;
-
+				if (
+					expiredIncidentIds.size === 0 &&
+					expiredRecruitIds.size === 0
+				)
+					return s;
 				return {
 					...s,
-					selectedIncidentId: expiredIncidentIds.has(s.selectedIncidentId ?? "")
+					selectedIncidentId: expiredIncidentIds.has(
+						s.selectedIncidentId ?? "",
+					)
 						? null
 						: s.selectedIncidentId,
-					incidents: s.incidents.filter((i) => !expiredIncidentIds.has(i.id)),
-					recruitLeads: s.recruitLeads.filter((r) => !expiredRecruitIds.has(r.id)),
+					incidents: s.incidents.filter(
+						(i) => !expiredIncidentIds.has(i.id),
+					),
+					recruitLeads: s.recruitLeads.filter(
+						(r) => !expiredRecruitIds.has(r.id),
+					),
 				};
 			});
-
 			if (
 				selectedRecruitLeadId &&
 				!state.recruitLeads.some((r) => r.id === selectedRecruitLeadId)
@@ -1052,61 +1273,67 @@ export default function StreetMapScene({ saveKey }: Props) {
 				setSelectedRecruitLeadId(null);
 			}
 		}, 1_000);
-
 		return () => window.clearInterval(id);
 	}, [selectedRecruitLeadId, state.recruitLeads]);
 
+	// ── NPC movement ──────────────────────────────────────────────────────────
 	useEffect(() => {
 		const id = window.setInterval(() => {
 			setHelperPos(() => {
 				const moved = nudgeNearby(helperBase.lat, helperBase.lng);
-				return {
-					lat: moved.lat,
-					lng: moved.lng,
-				};
+				return { lat: moved.lat, lng: moved.lng };
 			});
 		}, 9000);
-
 		return () => window.clearInterval(id);
 	}, [helperBase.lat, helperBase.lng]);
 
 	useEffect(() => {
 		const id = window.setInterval(() => {
 			setDiazPos((prev) => {
-				const activeIncidents = state.incidents.filter((i) => i.status === "active");
-
+				const activeIncidents = state.incidents.filter(
+					(i) => i.status === "active",
+				);
 				if (activeIncidents.length === 0) {
-					return moveToward(prev, { lat: diazBase.lat, lng: diazBase.lng }, 0.12);
+					return moveToward(
+						prev,
+						{ lat: diazBase.lat, lng: diazBase.lng },
+						0.12,
+					);
 				}
-
 				const nearest = activeIncidents.reduce((best, current) => {
-					const bestDist = distanceSq(prev, { lat: best.lat, lng: best.lng });
-					const currDist = distanceSq(prev, { lat: current.lat, lng: current.lng });
+					const bestDist = distanceSq(prev, {
+						lat: best.lat,
+						lng: best.lng,
+					});
+					const currDist = distanceSq(prev, {
+						lat: current.lat,
+						lng: current.lng,
+					});
 					return currDist < bestDist ? current : best;
 				});
-
 				const movedToward = moveToward(
 					prev,
 					{ lat: nearest.lat, lng: nearest.lng },
 					0.12,
 				);
-
-				const heldBack = pushAwayFromPoint(
+				return pushAwayFromPoint(
 					movedToward,
 					{ lat: nearest.lat, lng: nearest.lng },
 					0.00135,
 				);
-
-				return heldBack;
 			});
 		}, 1400);
-
 		return () => window.clearInterval(id);
 	}, [state.incidents, diazBase.lat, diazBase.lng]);
 
+	// ── Derived pin list ──────────────────────────────────────────────────────
 	const visibleDynamicPins = useMemo(() => {
-		const activeIncidents = state.incidents.filter((i) => i.status === "active");
-		const evanAvailable = state.recruitLeads.some((lead) => lead.vigilanteId === "familiar-face");
+		const activeIncidents = state.incidents.filter(
+			(i) => i.status === "active",
+		);
+		const evanAvailable = state.recruitLeads.some(
+			(lead) => lead.vigilanteId === "familiar-face",
+		);
 
 		const helperPin: CharacterPin = {
 			id: "cit-helper",
@@ -1133,11 +1360,7 @@ export default function StreetMapScene({ saveKey }: Props) {
 					{ lat: incident.lat, lng: incident.lng },
 					0.00095,
 				);
-				return {
-					...tpl,
-					lat: safe.lat,
-					lng: safe.lng,
-				};
+				return { ...tpl, lat: safe.lat, lng: safe.lng };
 			});
 
 		const diazPin: CharacterPin = {
@@ -1150,33 +1373,62 @@ export default function StreetMapScene({ saveKey }: Props) {
 		};
 
 		const kimBase = STATIC_CHARACTER_BASES.find((p) => p.id === "cop-kim");
-		const chiefBase = STATIC_CHARACTER_BASES.find((p) => p.id === "chief-williams");
-
+		const chiefBase = STATIC_CHARACTER_BASES.find(
+			(p) => p.id === "chief-williams",
+		);
 		const policePins: CharacterPin[] = [
 			diazPin,
 			...(evanAvailable || !kimBase ? [] : [kimBase]),
 			...(chiefBase ? [chiefBase] : []),
 		];
 
-		return [helperPin, ...incidentCitizens, ...policePins];
-	}, [state.incidents, state.recruitLeads, helperPos, diazPos]);
+		const ownedRoster = vigilantes.filter((v) =>
+			state.ownedVigilanteIds.includes(v.id),
+		);
+		const ownedPins: CharacterPin[] = ownedRoster.map((v, i) => {
+			const off =
+				OWNED_VIG_MARKER_OFFSETS[i % OWNED_VIG_MARKER_OFFSETS.length];
+			return {
+				id: v.id,
+				name: v.alias,
+				initial: v.name[0]?.toUpperCase() ?? "V",
+				kind: "vigilante",
+				lat: BASE[0] + off.dLat,
+				lng: BASE[1] + off.dLng,
+			};
+		});
 
-	const zoomConfig = useMemo(() => {
-		const minZoom = LEVELS[LEVELS.length - 1].zoomOut;
-		const maxZoom = LEVELS[0].zoomIn;
-		const initialZoom = levelConfig(state.level).zoomOut;
-		return { minZoom, maxZoom, initialZoom };
-	}, [state.level]);
+		return [helperPin, ...incidentCitizens, ...policePins, ...ownedPins];
+	}, [
+		state.incidents,
+		state.recruitLeads,
+		state.ownedVigilanteIds,
+		helperPos,
+		diazPos,
+	]);
+
+	const zoomConfig = useMemo(
+		() => ({
+			minZoom: LEVELS[LEVELS.length - 1].zoomOut,
+			maxZoom: LEVELS[0].zoomIn,
+			initialZoom: levelConfig(state.level).zoomOut,
+		}),
+		[state.level],
+	);
 
 	const selectedRecruitLead = useMemo(
-		() => state.recruitLeads.find((r) => r.id === selectedRecruitLeadId) ?? null,
+		() =>
+			state.recruitLeads.find((r) => r.id === selectedRecruitLeadId) ??
+			null,
 		[state.recruitLeads, selectedRecruitLeadId],
 	);
 
 	const selectedRecruitVigilante = useMemo(
 		() =>
 			selectedRecruitLead
-				? vigilantes.find((v) => v.id === selectedRecruitLead.vigilanteId) ?? null
+				? (vigilantes.find(
+						(v) => v.id === selectedRecruitLead.vigilanteId,
+					) ?? null)
 				: null,
 		[selectedRecruitLead],
 	);
@@ -1184,18 +1436,16 @@ export default function StreetMapScene({ saveKey }: Props) {
 	const selectedOwnedVigilante = useMemo(
 		() =>
 			selectedOwnedVigilanteId
-				? vigilantes.find((v) => v.id === selectedOwnedVigilanteId) ?? null
+				? (vigilantes.find((v) => v.id === selectedOwnedVigilanteId) ??
+					null)
 				: null,
 		[selectedOwnedVigilanteId],
 	);
 
-	const ownedVigilantes = useMemo(
-		() => vigilantes.filter((v) => state.ownedVigilanteIds.includes(v.id)),
-		[state.ownedVigilanteIds],
-	);
-
 	const activeDossier =
-		overlayMode === "recruit" ? selectedRecruitVigilante : selectedOwnedVigilante;
+		overlayMode === "recruit"
+			? selectedRecruitVigilante
+			: selectedOwnedVigilante;
 
 	const closeDossier = () => {
 		setSelectedRecruitLeadId(null);
@@ -1203,6 +1453,7 @@ export default function StreetMapScene({ saveKey }: Props) {
 		setShowVettingModal(false);
 	};
 
+	// ── Render ────────────────────────────────────────────────────────────────
 	return (
 		<div className="fixed inset-0">
 			<style>{`
@@ -1218,17 +1469,14 @@ export default function StreetMapScene({ saveKey }: Props) {
 				.vigilante-leaflet { background: #05070a !important; }
 				.vigilante-incident-icon,
 				.vigilante-character-icon,
-				.vigilante-recruit-icon,
-				.vigilante-homebase-icon { background: none; border: none; }
+				.vigilante-recruit-icon { background: none; border: none; }
 				.vigilante-hide-scrollbar::-webkit-scrollbar { display: none; }
 				.vigilante-hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 				.leaflet-pane.characterPane { z-index: 700 !important; }
 				.leaflet-pane.incidentPane { z-index: 820 !important; }
 				.leaflet-pane.recruitPane { z-index: 860 !important; }
-				.leaflet-pane.homebasePane { z-index: 880 !important; }
 				.vigilante-character-icon > div,
-				.vigilante-recruit-icon > div,
-				.vigilante-homebase-icon > div {
+				.vigilante-recruit-icon > div {
 					cursor: pointer !important;
 					pointer-events: auto !important;
 				}
@@ -1271,29 +1519,32 @@ export default function StreetMapScene({ saveKey }: Props) {
 					backgroundColor: "#05070a",
 				}}
 			>
-				<ZoomController level={state.level} onBoundsReady={handleBoundsReady} />
+				<ZoomController
+					level={state.level}
+					onBoundsReady={handleBoundsReady}
+				/>
 				<TileLayer
 					url="https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png"
 					keepBuffer={8}
 					updateWhenZooming
 					updateWhenIdle={false}
 				/>
-
-				<HomebaseMarker onClick={handleHomebaseClick} />
-				<CharacterMarkers pins={visibleDynamicPins} onSelect={handleCharacterSelect} />
-				<RecruitMarkers leads={state.recruitLeads} onSelect={handleRecruitSelect} />
+				<CharacterMarkers
+					pins={visibleDynamicPins}
+					onSelect={handleCharacterSelect}
+				/>
+				<RecruitMarkers
+					leads={state.recruitLeads}
+					onSelect={handleRecruitSelect}
+				/>
 				<IncidentMarkers
 					incidents={state.incidents}
 					selectedId={state.selectedIncidentId}
 					onSelect={handleIncidentSelect}
 				/>
-				<SelectedIncidentFollower
-					incidents={state.incidents}
-					selectedId={state.selectedIncidentId}
-				/>
 			</MapContainer>
 
-			{/* ── Dossier overlay (recruit lead or owned vigilante) ── */}
+			{/* ── Dossier overlay ── */}
 			<AnimatePresence>
 				{activeDossier ? (
 					<>
@@ -1305,9 +1556,17 @@ export default function StreetMapScene({ saveKey }: Props) {
 							onClick={closeDossier}
 						/>
 						<motion.aside
-							initial={{ opacity: 0, x: overlayMode === "owned" ? 30 : -30, scale: 0.98 }}
+							initial={{
+								opacity: 0,
+								x: overlayMode === "owned" ? 30 : -30,
+								scale: 0.98,
+							}}
 							animate={{ opacity: 1, x: 0, scale: 1 }}
-							exit={{ opacity: 0, x: overlayMode === "owned" ? 24 : -24, scale: 0.98 }}
+							exit={{
+								opacity: 0,
+								x: overlayMode === "owned" ? 24 : -24,
+								scale: 0.98,
+							}}
 							transition={{ duration: 0.2, ease: "easeOut" }}
 							className={`absolute top-6 bottom-6 z-[2010] w-[min(34vw,460px)] min-w-[340px] overflow-hidden rounded-2xl border border-amber-900/40 bg-black/75 text-amber-100 shadow-[0_18px_70px_rgba(0,0,0,0.55)] backdrop-blur-md ${
 								overlayMode === "owned" ? "right-6" : "left-6"
@@ -1317,16 +1576,18 @@ export default function StreetMapScene({ saveKey }: Props) {
 								<div className="flex items-start justify-between border-b border-amber-900/30 px-5 py-4">
 									<div>
 										<div className="text-[11px] uppercase tracking-[0.28em] text-amber-400/70">
-											{overlayMode === "owned" ? "Homebase Dossier" : "Recruit Lead"}
+											{overlayMode === "owned"
+												? "Vigilante dossier"
+												: "Recruit lead"}
 										</div>
 										<h2 className="mt-2 text-2xl font-bold text-amber-100">
 											{activeDossier.alias}
 										</h2>
 										<div className="mt-1 text-sm text-amber-200/60">
-											{activeDossier.name} • {activeDossier.role}
+											{activeDossier.name} •{" "}
+											{activeDossier.role}
 										</div>
 									</div>
-
 									<button
 										type="button"
 										onClick={closeDossier}
@@ -1347,7 +1608,6 @@ export default function StreetMapScene({ saveKey }: Props) {
 												sizes="140px"
 											/>
 										</div>
-
 										<div className="space-y-3">
 											<div className="flex flex-wrap gap-2">
 												{activeDossier.status ? (
@@ -1355,36 +1615,42 @@ export default function StreetMapScene({ saveKey }: Props) {
 														{activeDossier.status}
 													</span>
 												) : null}
-												{typeof activeDossier.heat === "number" ? (
+												{typeof activeDossier.heat ===
+												"number" ? (
 													<span className="rounded-full border border-red-900/35 bg-red-950/20 px-3 py-1 text-[11px] uppercase tracking-[0.15em] text-red-300/75">
-														Heat {activeDossier.heat}
+														Heat{" "}
+														{activeDossier.heat}
 													</span>
 												) : null}
 											</div>
-
 											<p className="text-sm leading-6 text-amber-100/75">
-												{activeDossier.bio ?? "Backstory TBD."}
+												{activeDossier.bio ??
+													"Backstory TBD."}
 											</p>
 										</div>
 									</div>
 
 									<div className="mt-6 grid grid-cols-2 gap-3">
-										<div className="rounded-xl border border-amber-900/30 bg-black/25 p-3">
-											<div className="text-[11px] uppercase tracking-[0.2em] text-amber-400/70">Combat</div>
-											<div className="mt-2 text-lg font-bold">{activeDossier.stats.combat}</div>
-										</div>
-										<div className="rounded-xl border border-amber-900/30 bg-black/25 p-3">
-											<div className="text-[11px] uppercase tracking-[0.2em] text-amber-400/70">Stealth</div>
-											<div className="mt-2 text-lg font-bold">{activeDossier.stats.stealth}</div>
-										</div>
-										<div className="rounded-xl border border-amber-900/30 bg-black/25 p-3">
-											<div className="text-[11px] uppercase tracking-[0.2em] text-amber-400/70">Tactics</div>
-											<div className="mt-2 text-lg font-bold">{activeDossier.stats.tactics}</div>
-										</div>
-										<div className="rounded-xl border border-amber-900/30 bg-black/25 p-3">
-											<div className="text-[11px] uppercase tracking-[0.2em] text-amber-400/70">Nerve</div>
-											<div className="mt-2 text-lg font-bold">{activeDossier.stats.nerve}</div>
-										</div>
+										{(
+											[
+												"combat",
+												"stealth",
+												"tactics",
+												"nerve",
+											] as const
+										).map((stat) => (
+											<div
+												key={stat}
+												className="rounded-xl border border-amber-900/30 bg-black/25 p-3"
+											>
+												<div className="text-[11px] uppercase tracking-[0.2em] text-amber-400/70">
+													{stat}
+												</div>
+												<div className="mt-2 text-lg font-bold">
+													{activeDossier.stats[stat]}
+												</div>
+											</div>
+										))}
 									</div>
 
 									<div className="mt-6 rounded-xl border border-amber-900/30 bg-black/25 p-4">
@@ -1392,14 +1658,16 @@ export default function StreetMapScene({ saveKey }: Props) {
 											Traits
 										</div>
 										<div className="mt-3 flex flex-wrap gap-2">
-											{(activeDossier.traits ?? []).map((trait: string) => (
-												<span
-													key={trait}
-													className="rounded-full border border-amber-900/30 bg-black/30 px-3 py-1 text-xs text-amber-100/80"
-												>
-													{trait}
-												</span>
-											))}
+											{(activeDossier.traits ?? []).map(
+												(trait: string) => (
+													<span
+														key={trait}
+														className="rounded-full border border-amber-900/30 bg-black/30 px-3 py-1 text-xs text-amber-100/80"
+													>
+														{trait}
+													</span>
+												),
+											)}
 										</div>
 									</div>
 								</div>
@@ -1411,25 +1679,19 @@ export default function StreetMapScene({ saveKey }: Props) {
 											onClick={closeDossier}
 											className="rounded-xl border border-amber-900/35 bg-black/30 px-4 py-3 text-sm text-amber-200/80 hover:bg-amber-950/20 transition"
 										>
-											Close File
+											Close file
 										</button>
-
 										{overlayMode === "recruit" ? (
 											<button
 												type="button"
-												onClick={() => setShowVettingModal(true)}
+												onClick={() =>
+													setShowVettingModal(true)
+												}
 												className="rounded-xl border border-amber-700/40 bg-amber-950/30 px-5 py-3 text-sm font-semibold text-amber-100 hover:bg-amber-900/35 transition"
 											>
-												Hire Vigilante
+												Hire vigilante
 											</button>
-										) : (
-											<button
-												type="button"
-												className="rounded-xl border border-amber-700/25 bg-black/20 px-5 py-3 text-sm font-semibold text-amber-100/60"
-											>
-												Available at Homebase
-											</button>
-										)}
+										) : null}
 									</div>
 								</div>
 							</div>
@@ -1438,7 +1700,7 @@ export default function StreetMapScene({ saveKey }: Props) {
 				) : null}
 			</AnimatePresence>
 
-			{/* ── NPC dialogue box ── */}
+			{/* ── NPC dialogue ── */}
 			<AnimatePresence>
 				{dialogue ? (
 					<motion.div
@@ -1461,7 +1723,6 @@ export default function StreetMapScene({ saveKey }: Props) {
 										/>
 									</div>
 								</div>
-
 								<div className="flex min-h-[202px] flex-1 flex-col justify-between px-5 py-4">
 									<div>
 										<div className="text-[11px] uppercase tracking-[0.24em] text-amber-400/70">
@@ -1470,12 +1731,10 @@ export default function StreetMapScene({ saveKey }: Props) {
 										<div className="mt-1 text-xl font-bold text-amber-100">
 											{dialogue.name}
 										</div>
-
 										<p className="mt-4 text-sm leading-7 text-amber-100/80">
 											{dialogue.text}
 										</p>
 									</div>
-
 									<div className="mt-4 flex items-center justify-end gap-3">
 										<button
 											type="button"
@@ -1492,76 +1751,12 @@ export default function StreetMapScene({ saveKey }: Props) {
 				) : null}
 			</AnimatePresence>
 
-			{/* ── Homebase panel ── */}
-			<AnimatePresence>
-				{showHomebasePanel && (
-					<motion.aside
-						initial={{ opacity: 0, x: 40 }}
-						animate={{ opacity: 1, x: 0 }}
-						exit={{ opacity: 0, x: 36 }}
-						transition={{ duration: 0.2, ease: "easeOut" }}
-						className="absolute right-0 top-20 bottom-6 z-[1900] w-[360px] max-w-[42vw] rounded-l-2xl border border-r-0 border-amber-900/40 bg-black/70 shadow-[0_18px_70px_rgba(0,0,0,0.55)] backdrop-blur-md"
-					>
-						<div className="flex h-full flex-col">
-							<div className="flex items-center justify-between border-b border-amber-900/30 px-5 py-4">
-								<div className="flex items-center gap-2">
-									<Home className="h-4 w-4 text-amber-300/75" />
-									<div>
-										<div className="text-[11px] uppercase tracking-[0.24em] text-amber-400/70">
-											Homebase
-										</div>
-										<div className="mt-1 text-sm font-semibold text-amber-100">
-											Owned Vigilantes
-										</div>
-									</div>
-								</div>
-
-								<button
-									type="button"
-									onClick={() => setShowHomebasePanel(false)}
-									className="rounded-lg border border-amber-900/35 bg-black/30 p-2 text-amber-200/70 hover:bg-amber-950/20 hover:text-amber-100 transition"
-								>
-									<X className="h-4 w-4" />
-								</button>
-							</div>
-
-							<div className="flex-1 overflow-y-auto vigilante-hide-scrollbar px-4 py-4 space-y-3">
-								{ownedVigilantes.length === 0 ? (
-									<div className="rounded-xl border border-amber-900/30 bg-black/25 p-4 text-sm text-amber-200/55">
-										No vigilantes recruited yet. Keep an eye on the map for available hires.
-									</div>
-								) : (
-									ownedVigilantes.map((v) => (
-										<button
-											key={v.id}
-											type="button"
-											onClick={() => handleOwnedVigilanteSelect(v.id)}
-											className="w-full text-left rounded-xl border border-amber-900/30 bg-black/25 px-4 py-3 hover:bg-amber-950/15 transition"
-										>
-											<div className="flex items-center gap-3">
-												<div className="flex h-10 w-10 items-center justify-center rounded-full border border-amber-700/35 bg-amber-950/20 text-sm font-bold text-amber-100">
-													{v.name[0]?.toUpperCase() ?? "V"}
-												</div>
-												<div className="min-w-0">
-													<div className="truncate text-sm font-semibold text-amber-100">
-														{v.alias}
-													</div>
-													<div className="truncate text-xs text-amber-200/55">
-														{v.name} • {v.role}
-													</div>
-												</div>
-											</div>
-										</button>
-									))
-								)}
-							</div>
-						</div>
-					</motion.aside>
-				)}
-			</AnimatePresence>
-
 			<VettingMinigameModal
-				open={showVettingModal && overlayMode === "recruit" && !!selectedRecruitVigilante}
+				open={
+					showVettingModal &&
+					overlayMode === "recruit" &&
+					!!selectedRecruitVigilante
+				}
 				character={selectedRecruitVigilante}
 				onClose={() => setShowVettingModal(false)}
 				onReject={() => {
@@ -1601,7 +1796,7 @@ export default function StreetMapScene({ saveKey }: Props) {
 				</div>
 			</div>
 
-			{/* ── Left incident panel + toggle ── */}
+			{/* ── Left incident panel ── */}
 			<div className="pointer-events-none absolute inset-y-16 left-0 z-[950] flex items-start">
 				<div className="pointer-events-auto mt-4">
 					<button
@@ -1649,17 +1844,22 @@ export default function StreetMapScene({ saveKey }: Props) {
 								{state.incidents
 									.filter((i) => i.status === "active")
 									.sort((a, b) => {
-										if (a.id === state.selectedIncidentId) return -1;
-										if (b.id === state.selectedIncidentId) return 1;
+										if (a.id === state.selectedIncidentId)
+											return -1;
+										if (b.id === state.selectedIncidentId)
+											return 1;
 										return a.expiresAt - b.expiresAt;
 									})
 									.map((inc) => {
-										const isSelected = state.selectedIncidentId === inc.id;
+										const isSelected =
+											state.selectedIncidentId === inc.id;
 										return (
 											<button
 												key={inc.id}
 												type="button"
-												onClick={() => handleIncidentSelect(inc.id)}
+												onClick={() =>
+													handleIncidentSelect(inc.id)
+												}
 												className={`w-full text-left rounded-lg border px-3 py-2 text-xs transition-colors cursor-pointer ${
 													isSelected
 														? "border-amber-500/80 bg-amber-900/50 text-amber-100"
@@ -1672,15 +1872,23 @@ export default function StreetMapScene({ saveKey }: Props) {
 													</div>
 													<div className="flex-1">
 														<div className="font-semibold text-[11px] uppercase tracking-[0.16em]">
-															{incidentCategoryLabel(inc.category)}
+															{inc.typeLabel}
 														</div>
-														<div className="mt-1 text-[11px] text-amber-200/70 line-clamp-2">
+														<div className="mt-1 text-[11px] text-amber-200/70 leading-snug">
 															{inc.summary}
 														</div>
 														<TimerBar
-															createdAt={inc.createdAt}
-															expiresAt={inc.expiresAt}
-															onExpire={() => expireIncident(inc.id)}
+															createdAt={
+																inc.createdAt
+															}
+															expiresAt={
+																inc.expiresAt
+															}
+															onExpire={() =>
+																expireIncident(
+																	inc.id,
+																)
+															}
 														/>
 													</div>
 												</div>
@@ -1688,16 +1896,21 @@ export default function StreetMapScene({ saveKey }: Props) {
 										);
 									})}
 
-								{state.incidents.filter((i) => i.status === "active").length === 0 && (
+								{state.incidents.filter(
+									(i) => i.status === "active",
+								).length === 0 && (
 									<div className="text-[11px] text-amber-200/40 px-1 py-2">
-										No active incidents. The city is quiet… for now.
+										No active incidents. The city is quiet…
+										for now.
 									</div>
 								)}
 
 								<div className="pointer-events-none absolute inset-x-0 bottom-0 h-4 bg-linear-to-t from-black/70 to-transparent" />
 							</div>
 
-							{state.incidents.filter((i) => i.status === "active").length > 3 && (
+							{state.incidents.filter(
+								(i) => i.status === "active",
+							).length > 3 && (
 								<div className="px-3 pt-2 pb-3 text-[10px] text-amber-200/50">
 									More incidents below – scroll to view.
 								</div>
