@@ -1,0 +1,18 @@
+{
+  "/_not-found/page": "app/_not-found/page.js",
+  "/api/auth/login/route": "app/api/auth/login/route.js",
+  "/api/incidents/route": "app/api/incidents/route.js",
+  "/api/report/[id]/route": "app/api/report/[id]/route.js",
+  "/api/reports/route": "app/api/reports/route.js",
+  "/api/resources/route": "app/api/resources/route.js",
+  "/dashboard/citizen/page": "app/dashboard/citizen/page.js",
+  "/dashboard/page": "app/dashboard/page.js",
+  "/incidents-catalog/page": "app/incidents-catalog/page.js",
+  "/login/page": "app/login/page.js",
+  "/page": "app/page.js",
+  "/profile/[username]/page": "app/profile/[username]/page.js",
+  "/report/[id]/page": "app/report/[id]/page.js",
+  "/reports-catalog/page": "app/reports-catalog/page.js",
+  "/resource-catalog/page": "app/resource-catalog/page.js",
+  "/settings/page": "app/settings/page.js"
+}

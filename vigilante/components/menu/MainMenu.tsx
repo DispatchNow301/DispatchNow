@@ -6,7 +6,6 @@ import { Lock, LogOut, User, UserPlus, UserRound, Users } from "lucide-react";
 import { useAuth } from "../../lib/auth";
 import MenuBackground from "./MenuBackground";
 import RainLayer from "./RainLayer";
-import MuteButton from "./MuteButton";
 import MultiplayerModal from "./MultiplayerModal";
 import SingleplayerModal from "./SingleplayerModal";
 
@@ -39,15 +38,7 @@ export default function MainMenu() {
 				<MenuBackground />
 				<RainLayer />
 
-				<header className="relative z-10 flex items-center justify-between px-6 py-4">
-					<div className="w-20" aria-hidden />
-
-					<div className="flex items-center gap-3">
-						<MuteButton />
-					</div>
-				</header>
-
-				<main className="relative z-10 flex flex-col items-center justify-center min-h-[calc(100vh-8rem)] px-4 pt-4 pb-20 gap-10">
+				<main className="relative z-10 flex flex-col items-center justify-center min-h-screen px-4 pt-16 pb-20 gap-10">
 					<div className="flex flex-col items-center">
 						<h1
 							className="text-5xl sm:text-6xl md:text-7xl font-bold tracking-tight text-center mb-2"
