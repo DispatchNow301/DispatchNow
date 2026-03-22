@@ -1,6 +1,0 @@
-{
-  "version": 3,
-  "sources": [],
-  "sections": [
-    {"offset": {"line": 22, "column": 0}, "map": {"version":3,"sources":["file:///Users/arv/Documents/301H5/DispatchNow/app/profile/page.tsx"],"sourcesContent":["import { redirect } from \"next/navigation\";\n\nexport default function ProfileIndexPage() {\n  redirect(\"/profile/admin1\");\n}"],"names":[],"mappings":";;;;AAAA;AAAA;;AAEe,SAAS;IACtB,IAAA,iMAAQ,EAAC;AACX"}}]
-}

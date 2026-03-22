@@ -1,6 +1,0 @@
-{
-  "version": 3,
-  "sources": [],
-  "sections": [
-    {"offset": {"line": 22, "column": 0}, "map": {"version":3,"sources":["file:///Users/arv/Documents/301H5/DispatchNow/app/page.tsx"],"sourcesContent":["export default function Home() {\n\treturn (\n\t\t<div className=\"flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-black\">\n\t\t\t<main className=\"flex min-h-screen w-full max-w-3xl flex-col items-center justify-center py-32 px-16 bg-white dark:bg-black\">\n\t\t\t\t<h1 className=\"text-4xl font-bold text-black dark:text-zinc-50\">\n\t\t\t\t\tDispatch Now\n\t\t\t\t</h1>\n\t\t\t</main>\n\t\t</div>\n\t);\n}\n"],"names":[],"mappings":";;;;;;AAAe,SAAS;IACvB,qBACC,8OAAC;QAAI,WAAU;kBACd,cAAA,8OAAC;YAAK,WAAU;sBACf,cAAA,8OAAC;gBAAG,WAAU;0BAAkD;;;;;;;;;;;;;;;;AAMpE"}}]
-}
