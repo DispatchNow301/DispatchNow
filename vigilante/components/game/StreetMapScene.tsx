@@ -39,6 +39,11 @@ import {
 	computeIncidentRollOutcome,
 	type DispatchRollBreakdown,
 } from "@/lib/incidentRoll";
+import {
+	isVigilanteRecovering,
+	pruneExpiredInjuries,
+	rollInjuryUpdatesAfterResolve,
+} from "@/lib/vigilanteInjury";
 import VettingMinigameModal from "@/components/game/VettingMinigameModal";
 import { formatIncidentTypeLabel } from "@/lib/formatIncidentTitle";
 import {
@@ -195,6 +200,8 @@ type GameState = {
 	recruitLeads: RecruitLead[];
 	/** r1–r10 + b1–b3: total owned vs out on incidents */
 	resourcePool: Record<string, ResourcePoolEntry>;
+	/** Vigilante id → timestamp (ms) when injury recovery completes */
+	vigilanteInjuryUntil: Record<string, number>;
 };
 
 const CENTER: LatLngTuple = [40.7128, -74.006];
@@ -1022,6 +1029,7 @@ function initialState(): GameState {
 		ownedVigilanteIds: ["bruce", "parya"],
 		recruitLeads: [],
 		resourcePool: { ...DEFAULT_RESOURCE_POOL },
+		vigilanteInjuryUntil: {},
 	};
 }
 
@@ -1063,6 +1071,10 @@ function loadState(saveKey: string): GameState {
 				? (p.recruitLeads as RecruitLead[])
 				: [],
 			resourcePool: mergeResourcePool(p.resourcePool),
+			vigilanteInjuryUntil: pruneExpiredInjuries(
+				p.vigilanteInjuryUntil as Record<string, number> | undefined,
+				Date.now(),
+			),
 		};
 	} catch {
 		return initialState();
@@ -1365,6 +1377,20 @@ export default function StreetMapScene({ saveKey }: Props) {
 		if (!canStageDeployment(state.resourcePool, payload.resourceIds))
 			return;
 
+		const nowCheck = Date.now();
+		if (
+			!payload.vigilanteIds.every(
+				(vid) =>
+					!isVigilanteRecovering(
+						nowCheck,
+						state.vigilanteInjuryUntil,
+						vid,
+					),
+			)
+		) {
+			return;
+		}
+
 		const assignedVigs = vigilantes.filter((v) =>
 			payload.vigilanteIds.includes(v.id),
 		);
@@ -1426,6 +1452,13 @@ export default function StreetMapScene({ saveKey }: Props) {
 				const cur = s.incidents.find((x) => x.id === id);
 				if (!cur || cur.status !== "resolving") return s;
 				const deployed = cur.deployedResourceIds ?? [];
+				const deployedVigs = cur.deployedVigilanteIds ?? [];
+				const now = Date.now();
+				const vigilanteInjuryUntil = rollInjuryUpdatesAfterResolve(
+					now,
+					deployedVigs,
+					s.vigilanteInjuryUntil,
+				);
 				let pool = s.resourcePool;
 				if (deployed.length > 0) {
 					if (rollOutcome.success) {
@@ -1436,6 +1469,7 @@ export default function StreetMapScene({ saveKey }: Props) {
 				}
 				return {
 					...s,
+					vigilanteInjuryUntil,
 					resourcePool: pool,
 					incidents: s.incidents.map((x) =>
 						x.id === id
@@ -2402,6 +2436,7 @@ export default function StreetMapScene({ saveKey }: Props) {
 						: null
 				}
 				ownedVigilanteIds={state.ownedVigilanteIds}
+				vigilanteInjuryUntil={state.vigilanteInjuryUntil}
 				vigilanteSheets={vigilantes}
 				resourcePool={state.resourcePool}
 				onClose={() => setDeployModalOpen(false)}
@@ -2443,6 +2478,7 @@ export default function StreetMapScene({ saveKey }: Props) {
 							<Inventory
 								resourcePool={state.resourcePool}
 								ownedVigilanteIds={state.ownedVigilanteIds}
+								vigilanteInjuryUntil={state.vigilanteInjuryUntil}
 								onHide={() =>
 									setState((s) => ({
 										...s,

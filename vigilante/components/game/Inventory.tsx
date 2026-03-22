@@ -38,6 +38,8 @@ type VigilanteItem = {
 	 * If missing or load fails, the default user icon is shown.
 	 */
 	portraitSrc?: string;
+	/** When set, post-incident injury recovery — cannot deploy until this time (ms). */
+	injuredUntilMs?: number;
 };
 
 type ResourceItem = {
@@ -127,9 +129,24 @@ const TAB_ORDER: Record<InventoryTab, number> = {
 	buffs: 2,
 };
 
-function vigilanteTooltipSubtitle(status: VigilanteStatus): string {
-	if (status === "available") return "Ready to work.";
-	if (status === "injured") return "Hurt. Not at full strength.";
+function recoveryLine(untilMs: number, now: number): string {
+	const s = Math.max(0, Math.ceil((untilMs - now) / 1000));
+	const m = Math.floor(s / 60);
+	const sec = s % 60;
+	if (m >= 1) return `Recovering ${m}m ${sec}s — cannot deploy.`;
+	return `Recovering ${sec}s — cannot deploy.`;
+}
+
+function vigilanteTooltipSubtitle(item: VigilanteItem, now: number): string {
+	if (
+		item.status === "injured" &&
+		item.injuredUntilMs != null &&
+		now < item.injuredUntilMs
+	) {
+		return recoveryLine(item.injuredUntilMs, now);
+	}
+	if (item.status === "available") return "Ready to work.";
+	if (item.status === "injured") return "Hurt. Not at full strength.";
 	return "Can't be sent out.";
 }
 
@@ -195,6 +212,8 @@ type InventoryProps = {
 	 * slots: owned characters + grey empty slots until 5.
 	 */
 	ownedVigilanteIds?: string[];
+	/** Post-incident injury: id → recovery time (ms). Drives injured status + deploy lock. */
+	vigilanteInjuryUntil?: Record<string, number>;
 };
 
 type InventoryHoverTip =
@@ -523,7 +542,14 @@ export default function Inventory({
 	onHide,
 	resourcePool,
 	ownedVigilanteIds,
+	vigilanteInjuryUntil,
 }: InventoryProps) {
+	const [nowTick, setNowTick] = useState(() => Date.now());
+	useEffect(() => {
+		const id = window.setInterval(() => setNowTick(Date.now()), 1000);
+		return () => clearInterval(id);
+	}, []);
+
 	const [tab, setTab] = useState<InventoryTab>("vigilantes");
 	const [slideDir, setSlideDir] = useState<1 | -1>(1);
 	const [hoverTip, setHoverTip] = useState<InventoryHoverTip | null>(null);
@@ -572,17 +598,33 @@ export default function Inventory({
 
 	/** Home-base roster row, or catalog demo when `ownedVigilanteIds` is omitted. */
 	const vigilanteSlots: VigilanteSlot[] = useMemo(() => {
-		if (ownedVigilanteIds !== undefined) {
-			return buildHomeBaseVigilanteSlots(
-				ownedVigilanteIds,
-				vigilanteSheets,
-			);
-		}
-		return stableFiveFromSheets(vigilanteSheets).map((item) => ({
-			kind: "filled" as const,
-			item,
-		}));
-	}, [ownedVigilanteIds, vigilanteSheets]);
+		const base =
+			ownedVigilanteIds !== undefined
+				? buildHomeBaseVigilanteSlots(
+						ownedVigilanteIds,
+						vigilanteSheets,
+					)
+				: stableFiveFromSheets(vigilanteSheets).map((item) => ({
+						kind: "filled" as const,
+						item,
+					}));
+		if (!vigilanteInjuryUntil) return base;
+		return base.map((slot) => {
+			if (slot.kind !== "filled") return slot;
+			const until = vigilanteInjuryUntil[slot.item.id];
+			if (until != null && nowTick < until) {
+				return {
+					kind: "filled" as const,
+					item: {
+						...slot.item,
+						status: "injured" as const,
+						injuredUntilMs: until,
+					},
+				};
+			}
+			return slot;
+		});
+	}, [ownedVigilanteIds, vigilanteSheets, vigilanteInjuryUntil, nowTick]);
 
 	useEffect(() => {
 		if (ownedVigilanteIds !== undefined) {
@@ -970,7 +1012,10 @@ export default function Inventory({
 									{vigilanteStatusUi(hoverTip.item.status).shortLabel}
 								</div>
 								<p className="mt-1 min-w-0 truncate text-[11px] text-amber-200/70">
-									{vigilanteTooltipSubtitle(hoverTip.item.status)}
+									{vigilanteTooltipSubtitle(
+										hoverTip.item,
+										nowTick,
+									)}
 								</p>
 							</div>
 						)}

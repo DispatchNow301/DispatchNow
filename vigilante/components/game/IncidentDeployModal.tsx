@@ -21,6 +21,9 @@ import {
 	canStageDeployment,
 	type ResourcePoolEntry,
 } from "@/lib/resourcePool";
+import { isVigilanteRecovering } from "@/lib/vigilanteInjury";
+
+const EMPTY_INJURY: Record<string, number> = {};
 
 function CrewPortraitThumb({
 	portrait,
@@ -83,6 +86,8 @@ type Props = {
 		expiresAt: number;
 	} | null;
 	ownedVigilanteIds: string[];
+	/** Recovering vigilantes cannot be selected. */
+	vigilanteInjuryUntil?: Record<string, number>;
 	vigilanteSheets: VigilanteSheet[];
 	resourcePool: Record<string, ResourcePoolEntry>;
 	onClose: () => void;
@@ -95,23 +100,34 @@ export default function IncidentDeployModal({
 	open,
 	incident,
 	ownedVigilanteIds,
+	vigilanteInjuryUntil,
 	vigilanteSheets,
 	resourcePool,
 	onClose,
 	onIncidentExpire,
 	onConfirm,
 }: Props) {
+	const injury = vigilanteInjuryUntil ?? EMPTY_INJURY;
+	const [now, setNow] = useState(() => Date.now());
+	useEffect(() => {
+		const id = window.setInterval(() => setNow(Date.now()), 1000);
+		return () => clearInterval(id);
+	}, []);
+
+	const recovering = useCallback(
+		(id: string) => isVigilanteRecovering(now, injury, id),
+		[now, injury],
+	);
+
 	const [vigSet, setVigSet] = useState<Set<string>>(new Set());
 	const [resCounts, setResCounts] = useState<Record<string, number>>({});
 
 	const reset = useCallback(() => {
-		if (ownedVigilanteIds.length > 0) {
-			setVigSet(new Set([ownedVigilanteIds[0]!]));
-		} else {
-			setVigSet(new Set());
-		}
+		const first = ownedVigilanteIds.find((id) => !recovering(id));
+		if (first) setVigSet(new Set([first]));
+		else setVigSet(new Set());
 		setResCounts({});
-	}, [ownedVigilanteIds]);
+	}, [ownedVigilanteIds, recovering]);
 
 	useEffect(() => {
 		if (open && incident) reset();
@@ -122,9 +138,12 @@ export default function IncidentDeployModal({
 	const canSend = useMemo(() => {
 		if (!incident) return false;
 		if (vigSet.size < 1) return false;
+		for (const id of vigSet) {
+			if (recovering(id)) return false;
+		}
 		if (!canStageDeployment(resourcePool, resourceIds)) return false;
 		return true;
-	}, [incident, vigSet.size, resourcePool, resourceIds]);
+	}, [incident, vigSet, resourcePool, resourceIds, recovering]);
 
 	const ownedVigs = useMemo(() => {
 		const byId = new Map(vigilanteSheets.map((v) => [v.id, v]));
@@ -134,6 +153,7 @@ export default function IncidentDeployModal({
 	}, [ownedVigilanteIds, vigilanteSheets]);
 
 	const toggleVig = (id: string) => {
+		if (recovering(id)) return;
 		setVigSet((prev) => {
 			const next = new Set(prev);
 			if (next.has(id)) {
@@ -145,6 +165,24 @@ export default function IncidentDeployModal({
 			return next;
 		});
 	};
+
+	useEffect(() => {
+		if (!open || !incident) return;
+		setVigSet((prev) => {
+			const next = new Set(
+				[...prev].filter(
+					(id) => !isVigilanteRecovering(now, injury, id),
+				),
+			);
+			if (next.size === 0) {
+				const first = ownedVigilanteIds.find(
+					(id) => !isVigilanteRecovering(now, injury, id),
+				);
+				if (first) next.add(first);
+			}
+			return next;
+		});
+	}, [open, incident?.id, now, ownedVigilanteIds, injury]);
 
 	const bumpRes = (resourceId: string, delta: 1 | -1) => {
 		setResCounts((prev) => {
@@ -269,21 +307,34 @@ export default function IncidentDeployModal({
 									<div className="mt-3 flex flex-wrap gap-2.5">
 										{ownedVigs.map((v, i) => {
 											const on = vigSet.has(v.id);
+											const inj = recovering(v.id);
 											return (
 												<button
 													key={v.id}
 													type="button"
-													aria-label={`Crew ${i + 1}`}
+													aria-label={`Crew ${i + 1}${inj ? ", recovering" : ""}`}
 													aria-pressed={on}
+													aria-disabled={inj}
+													disabled={inj}
 													onClick={() => toggleVig(v.id)}
 													className={[
-														"relative flex h-[4.75rem] w-[4.75rem] shrink-0 cursor-pointer overflow-hidden rounded-2xl border transition select-none sm:h-[5.25rem] sm:w-[5.25rem]",
-														on
-															? "border-amber-500/55 bg-amber-950/50 shadow-md shadow-amber-950/35 ring-2 ring-amber-500/25"
-															: "border-amber-900/45 bg-black/35 hover:border-amber-700/45 hover:bg-black/45",
+														"relative flex h-[4.75rem] w-[4.75rem] shrink-0 overflow-hidden rounded-2xl border transition select-none sm:h-[5.25rem] sm:w-[5.25rem]",
+														inj
+															? "cursor-not-allowed border-rose-900/40 bg-black/25 opacity-50 grayscale"
+															: [
+																	"cursor-pointer",
+																	on
+																		? "border-amber-500/55 bg-amber-950/50 shadow-md shadow-amber-950/35 ring-2 ring-amber-500/25"
+																		: "border-amber-900/45 bg-black/35 hover:border-amber-700/45 hover:bg-black/45",
+																].join(" "),
 													].join(" ")}
 												>
 													<CrewPortraitThumb portrait={v.portrait} />
+													{inj ? (
+														<span className="pointer-events-none absolute inset-x-0 bottom-0 bg-rose-950/80 py-0.5 text-center text-[9px] font-medium uppercase tracking-wide text-rose-200/90">
+															Injured
+														</span>
+													) : null}
 												</button>
 											);
 										})}
