@@ -1,100 +1,165 @@
 "use client";
 
-import Image, { type StaticImageData } from "next/image";
+import type { StaticImageData } from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
+import { useEffect, useRef } from "react";
+import { Volume2 } from "lucide-react";
 
 export type DialogueSpeaker = {
-  id: string;
-  name: string;
-  role: "Citizen" | "Police" | "Chief" | "Dispatcher" | "Unknown";
-  portrait: string | StaticImageData;
+	id: string;
+	name: string;
+	role:
+		| "Citizen"
+		| "Police"
+		| "Chief"
+		| "Dispatcher"
+		| "Vigilante"
+		| "Unknown";
+	portrait: string | StaticImageData;
 };
 
 type Props = {
-  open: boolean;
-  speaker: DialogueSpeaker | null;
-  text: string;
-  onClose?: () => void;
-  onNext?: () => void;
-  nextLabel?: string;
-  position?: "bottom-left" | "bottom-center";
+	open: boolean;
+	speaker: DialogueSpeaker | null;
+	text: string;
+	onClose?: () => void;
+	onNext?: () => void;
+	nextLabel?: string;
+	position?: "bottom-left" | "bottom-right" | "bottom-center";
+	/** Tailwind `bottom-*` class when not `docked` — ignored when `docked`. */
+	bottomClass?: string;
+	/** When true, box is `relative` (parent positions with `bottom` offset above inventory). */
+	docked?: boolean;
+	onSpeak?: (text: string, speakerId: string) => void;
+	onStopSpeak?: () => void;
+	isSpeaking?: boolean;
 };
 
 export default function NPCDialogueBox({
-  open,
-  speaker,
-  text,
-  onClose,
-  onNext,
-  nextLabel = "Continue",
-  position = "bottom-left",
+	open,
+	speaker,
+	text,
+	onClose,
+	onNext,
+	nextLabel = "Roger that",
+	position = "bottom-left",
+	bottomClass = "bottom-6",
+	docked = false,
+	onSpeak,
+	onStopSpeak,
+	isSpeaking = false,
 }: Props) {
-  const positionClass =
-    position === "bottom-center"
-      ? "left-1/2 -translate-x-1/2 bottom-6"
-      : "left-6 bottom-6";
+	/** Above inventory (`z-[980]`), below dossier overlays */
+	const Z_OVERLAY = "z-[2500]";
 
-  return (
-    <AnimatePresence>
-      {open && speaker ? (
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 12 }}
-          transition={{ duration: 0.2, ease: "easeOut" }}
-          className={`absolute z-[130] ${positionClass} w-[min(52vw,720px)] min-w-[320px]`}
-        >
-          <div className="overflow-hidden rounded-2xl border border-amber-900/40 bg-black/75 shadow-[0_18px_70px_rgba(0,0,0,0.55)] backdrop-blur-md">
-            <div className="flex items-stretch">
-              <div className="relative h-[160px] w-[132px] shrink-0 border-r border-amber-900/30 bg-black/30">
-                <Image
-                  src={speaker.portrait}
-                  alt={speaker.name}
-                  fill
-                  className="object-cover"
-                  sizes="132px"
-                />
-              </div>
+	const positionClass =
+		position === "bottom-center"
+			? `left-1/2 -translate-x-1/2 ${bottomClass}`
+			: position === "bottom-right"
+				? `right-4 ${bottomClass}`
+				: `left-4 ${bottomClass}`;
 
-              <div className="flex min-h-[160px] flex-1 flex-col justify-between px-5 py-4">
-                <div>
-                  <div className="text-[11px] uppercase tracking-[0.24em] text-amber-400/70">
-                    {speaker.role}
-                  </div>
-                  <div
-                    className="mt-1 text-xl font-bold text-amber-100"
-                    style={{ fontFamily: "Georgia, 'Times New Roman', serif" }}
-                  >
-                    {speaker.name}
-                  </div>
+	const shellClass = docked
+		? `relative ${Z_OVERLAY} w-full min-w-[300px]`
+		: `absolute ${Z_OVERLAY} ${positionClass} w-[min(92vw,720px)] min-w-[300px]`;
 
-                  <p className="mt-4 text-sm leading-7 text-amber-100/80">
-                    {text}
-                  </p>
-                </div>
+	const onSpeakRef = useRef(onSpeak);
+	const onStopSpeakRef = useRef(onStopSpeak);
+	onSpeakRef.current = onSpeak;
+	onStopSpeakRef.current = onStopSpeak;
 
-                <div className="mt-4 flex items-center justify-between gap-3">
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    className="rounded-xl border border-amber-900/35 bg-black/25 px-4 py-2.5 text-sm text-amber-200/75 hover:bg-amber-950/20 transition"
-                  >
-                    Close
-                  </button>
+	useEffect(() => {
+		if (!open) {
+			onStopSpeakRef.current?.();
+			return;
+		}
+		if (!speaker || !onSpeakRef.current) return;
+		onSpeakRef.current(text, speaker.id);
+	}, [open, speaker?.id, text]);
 
-                  <button
-                    type="button"
-                    onClick={onNext}
-                    className="rounded-xl border border-amber-700/40 bg-amber-950/30 px-4 py-2.5 text-sm font-semibold text-amber-100 hover:bg-amber-900/35 transition"
-                  >
-                    {nextLabel}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </motion.div>
-      ) : null}
-    </AnimatePresence>
-  );
+	if (!speaker) return null;
+
+	const portraitSrc =
+		typeof speaker.portrait === "string"
+			? speaker.portrait
+			: speaker.portrait.src;
+
+	const btnPrimary =
+		"cursor-pointer rounded-lg border border-amber-900/45 bg-black/50 px-5 py-2.5 text-sm font-medium text-amber-100/90 transition hover:bg-amber-950/25";
+
+	return (
+		<AnimatePresence mode="wait">
+			{open ? (
+				<motion.div
+					key="dialogue-panel"
+					initial={{ opacity: 0, y: 14 }}
+					animate={{ opacity: 1, y: 0 }}
+					exit={{ opacity: 0 }}
+					transition={{
+						duration: 0.28,
+						ease: [0.22, 1, 0.36, 1],
+					}}
+					className={shellClass}
+				>
+					<div className="overflow-hidden rounded-xl border border-amber-900/40 bg-black/85">
+						<div className="flex items-stretch">
+							<div className="relative min-h-[152px] w-32 shrink-0 self-stretch overflow-hidden border-r border-amber-900/35 bg-black/40">
+								<div className="absolute inset-0">
+									<img
+										src={portraitSrc}
+										alt={speaker.name}
+										loading="eager"
+										decoding="async"
+										draggable={false}
+										className="pointer-events-none block h-full w-full object-cover object-bottom select-none"
+									/>
+								</div>
+							</div>
+
+							<div className="flex min-h-[152px] flex-1 flex-col justify-between px-4 py-3">
+								<div>
+									<div className="flex items-center gap-2">
+										<div className="text-[10px] uppercase tracking-[0.2em] text-amber-400/65">
+											{speaker.role}
+										</div>
+										<div
+											className={`ml-auto transition-opacity duration-200 ${
+												isSpeaking
+													? "opacity-100"
+													: "opacity-0"
+											}`}
+										>
+											<Volume2 className="h-3.5 w-3.5 text-amber-400/60" />
+										</div>
+									</div>
+
+									<div className="mt-0.5 text-lg font-semibold leading-snug text-amber-50/95">
+										{speaker.name}
+									</div>
+
+									<p className="mt-3 text-sm leading-relaxed text-amber-100/85">
+										{text}
+									</p>
+								</div>
+
+								<div className="mt-3 flex justify-end">
+									<button
+										type="button"
+										onClick={() => {
+											onStopSpeak?.();
+											onNext?.();
+											onClose?.();
+										}}
+										className={btnPrimary}
+									>
+										{nextLabel}
+									</button>
+								</div>
+							</div>
+						</div>
+					</div>
+				</motion.div>
+			) : null}
+		</AnimatePresence>
+	);
 }
