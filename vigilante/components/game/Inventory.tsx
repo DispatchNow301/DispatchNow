@@ -214,6 +214,11 @@ type InventoryProps = {
 	ownedVigilanteIds?: string[];
 	/** Post-incident injury: id → recovery time (ms). Drives injured status + deploy lock. */
 	vigilanteInjuryUntil?: Record<string, number>;
+	/**
+	 * Buff ids unlocked (e.g. shop). Omitted = show full catalog (demo / legacy).
+	 * When set, Buffs tab only lists purchased entries; stock still comes from `resourcePool`.
+	 */
+	purchasedBuffIds?: string[];
 };
 
 type InventoryHoverTip =
@@ -543,6 +548,7 @@ export default function Inventory({
 	resourcePool,
 	ownedVigilanteIds,
 	vigilanteInjuryUntil,
+	purchasedBuffIds,
 }: InventoryProps) {
 	const [nowTick, setNowTick] = useState(() => Date.now());
 	useEffect(() => {
@@ -646,15 +652,19 @@ export default function Inventory({
 	}, [resourcePool]);
 
 	const buffs: BuffItem[] = useMemo(() => {
-		if (!resourcePool) return BASE_BUFFS;
-		return BASE_BUFFS.map((b) => {
+		const catalog =
+			purchasedBuffIds === undefined
+				? BASE_BUFFS
+				: BASE_BUFFS.filter((b) => purchasedBuffIds.includes(b.id));
+		if (!resourcePool) return catalog;
+		return catalog.map((b) => {
 			const p = resourcePool[b.id];
 			const available = p ? Math.max(0, p.qty - p.deployed) : b.qty;
 			const status: ResourceStatus =
 				available <= 0 ? "cooldown" : "ready";
 			return { ...b, qty: available, status };
 		});
-	}, [resourcePool]);
+	}, [resourcePool, purchasedBuffIds]);
 
 	const tileIconClass =
 		"w-[1.25rem] h-[1.25rem] sm:w-6 sm:h-6 md:w-7 md:h-7";

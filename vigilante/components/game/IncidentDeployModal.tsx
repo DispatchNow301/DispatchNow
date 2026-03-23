@@ -122,12 +122,19 @@ export default function IncidentDeployModal({
 	const [vigSet, setVigSet] = useState<Set<string>>(new Set());
 	const [resCounts, setResCounts] = useState<Record<string, number>>({});
 
+	/** Only depends on roster + injury map — NOT on `now` — so we don't re-run every second and wipe crew/gear. */
 	const reset = useCallback(() => {
-		const first = ownedVigilanteIds.find((id) => !recovering(id));
+		const sorted = [...new Set(ownedVigilanteIds)].sort((a, b) =>
+			a.localeCompare(b),
+		);
+		const t = Date.now();
+		const first = sorted.find(
+			(id) => !isVigilanteRecovering(t, injury, id),
+		);
 		if (first) setVigSet(new Set([first]));
 		else setVigSet(new Set());
 		setResCounts({});
-	}, [ownedVigilanteIds, recovering]);
+	}, [ownedVigilanteIds, injury]);
 
 	useEffect(() => {
 		if (open && incident) reset();
@@ -147,7 +154,10 @@ export default function IncidentDeployModal({
 
 	const ownedVigs = useMemo(() => {
 		const byId = new Map(vigilanteSheets.map((v) => [v.id, v]));
-		return ownedVigilanteIds
+		const sortedIds = [...new Set(ownedVigilanteIds)].sort((a, b) =>
+			a.localeCompare(b),
+		);
+		return sortedIds
 			.map((id) => byId.get(id))
 			.filter((v): v is VigilanteSheet => v != null);
 	}, [ownedVigilanteIds, vigilanteSheets]);
@@ -166,6 +176,7 @@ export default function IncidentDeployModal({
 		});
 	};
 
+	/** Drop injured crew and ensure ≥1 deployable; only update React state when the set actually changes (avoids fighting user clicks every tick). */
 	useEffect(() => {
 		if (!open || !incident) return;
 		setVigSet((prev) => {
@@ -175,10 +186,19 @@ export default function IncidentDeployModal({
 				),
 			);
 			if (next.size === 0) {
-				const first = ownedVigilanteIds.find(
+				const sorted = [...new Set(ownedVigilanteIds)].sort((a, b) =>
+					a.localeCompare(b),
+				);
+				const first = sorted.find(
 					(id) => !isVigilanteRecovering(now, injury, id),
 				);
 				if (first) next.add(first);
+			}
+			if (
+				prev.size === next.size &&
+				[...prev].every((id) => next.has(id))
+			) {
+				return prev;
 			}
 			return next;
 		});
@@ -346,19 +366,24 @@ export default function IncidentDeployModal({
 								<h3 className="text-xs font-medium text-amber-400/90">
 									Gear
 								</h3>
+								<p className="sr-only">
+									Staging count is top left, available at base is top right.
+									Click to add one up to available; Shift+click or right‑click to
+									remove one.
+								</p>
 								<div className="mt-3 grid grid-cols-5 gap-2">
 									{BASE_RESOURCES.map((r) => {
 										const pool = resourcePool[r.id];
 										const avail = pool
-											? pool.qty - pool.deployed
+											? Math.max(0, pool.qty - pool.deployed)
 											: 0;
 										const n = resCounts[r.id] ?? 0;
-										const empty = avail <= 0 && n <= 0;
+										const empty = avail <= 0;
 										return (
 											<button
 												key={r.id}
 												type="button"
-												aria-label={r.name}
+												aria-label={`${r.name}: ${n} staging, ${avail} available. Click +1, Shift+click or right‑click −1.`}
 												disabled={empty}
 												onClick={(e) =>
 													handleGearTileClick(
@@ -388,17 +413,23 @@ export default function IncidentDeployModal({
 													resourceId={r.id}
 													className={gearIconClass}
 												/>
-												<div
+												<span
 													className={[
-														"absolute -top-1 -left-1 flex size-5 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums leading-none transition-colors",
+														"pointer-events-none absolute left-0.5 top-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border text-[9px] font-semibold tabular-nums leading-none shadow ring-1 ring-black/35",
 														n > 0
-															? "border-amber-600/50 bg-amber-950/90 text-amber-50"
-															: "border-amber-900/55 bg-black/85 text-amber-200/55",
+															? "border-amber-400/50 bg-amber-950/95 text-amber-50"
+															: "border-amber-800/55 bg-black/90 text-amber-200/60",
 													].join(" ")}
 													aria-hidden
 												>
 													{n}
-												</div>
+												</span>
+												<span
+													className="pointer-events-none absolute right-0.5 top-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border border-amber-800/50 bg-black/90 text-[9px] font-medium tabular-nums leading-none text-amber-100/90 shadow ring-1 ring-black/35"
+													aria-hidden
+												>
+													{avail}
+												</span>
 											</button>
 										);
 									})}

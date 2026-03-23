@@ -33,6 +33,14 @@ import {
 	type ResourcePoolEntry,
 } from "@/lib/resourcePool";
 import {
+	DEFAULT_CAREER_STATS,
+	mergeCareerStats,
+	type CareerStats,
+} from "@/lib/careerStats";
+import { mergePurchasedBuffIds } from "@/lib/purchasedBuffs";
+import { markCloudFlush, upsertGameSave } from "@/lib/cloudSaves";
+import { readSave, touchSave, type SaveSlotId } from "@/lib/saves";
+import {
 	computeIncidentRollOutcome,
 	type DispatchRollBreakdown,
 } from "@/lib/incidentRoll";
@@ -122,6 +130,13 @@ if (typeof window !== "undefined") {
 
 type Props = {
 	saveKey: string;
+	/** Slot identity for menu `updatedAt` / titles (`vigilante:save:…`), separate from `saveKey` game blob. */
+	saveSlot?: SaveSlotId;
+	/** When set, game state is upserted to Supabase once per minute while you play, plus on tab close. */
+	cloudSync?: {
+		userId: string;
+		slotIndex: 1 | 2 | 3;
+	};
 };
 
 type IncidentStatus = "active" | "resolving" | "resolved";
@@ -185,6 +200,13 @@ type GameState = {
 	recruitLeads: RecruitLead[];
 	/** r1–r10 + b1–b3: total owned vs out on incidents */
 	resourcePool: Record<string, ResourcePoolEntry>;
+
+	/** Vigilante id → timestamp (ms) when injury recovery completes */
+	vigilanteInjuryUntil: Record<string, number>;
+	/** Lifetime counters (persisted with save). */
+	careerStats: CareerStats;
+	/** Buff upgrades unlocked; stock qty still in `resourcePool` (b1–b3). */
+	purchasedBuffIds: string[];
 };
 
 const CENTER: LatLngTuple = [40.7128, -74.006];
@@ -1080,6 +1102,9 @@ function initialState(): GameState {
 		ownedVigilanteIds: ["bruce", "parya"],
 		recruitLeads: [],
 		resourcePool: { ...DEFAULT_RESOURCE_POOL },
+		vigilanteInjuryUntil: {},
+		careerStats: { ...DEFAULT_CAREER_STATS },
+		purchasedBuffIds: mergePurchasedBuffIds(undefined),
 	};
 }
 
@@ -1125,6 +1150,12 @@ function loadState(saveKey: string): GameState {
 				? (p.recruitLeads as RecruitLead[])
 				: [],
 			resourcePool: mergeResourcePool(p.resourcePool),
+			vigilanteInjuryUntil: pruneExpiredInjuries(
+				p.vigilanteInjuryUntil as Record<string, number> | undefined,
+				Date.now(),
+			),
+			careerStats: mergeCareerStats(p.careerStats),
+			purchasedBuffIds: mergePurchasedBuffIds(p.purchasedBuffIds),
 		};
 	} catch {
 		return initialState();
@@ -1135,10 +1166,18 @@ function saveState(saveKey: string, state: GameState) {
 	localStorage.setItem(saveKey, JSON.stringify(state));
 }
 
+/** Cloud slot: Supabase upsert while playing (plus `pagehide` / unmount). */
+const CLOUD_SAVE_INTERVAL_MS = 60_000;
+
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function StreetMapScene({ saveKey }: Props) {
-	const [state, setState] = useState<GameState>(() => initialState());
+export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) {
+	// Must hydrate from localStorage synchronously; otherwise the save effect below
+	// runs once with `initialState()` and overwrites the real save before load runs.
+	const [state, setState] = useState<GameState>(() => loadState(saveKey));
+	const stateRef = useRef(state);
+	stateRef.current = state;
+	const cloudPushInFlightRef = useRef(false);
 	const [selectedRecruitLeadId, setSelectedRecruitLeadId] = useState<
 		string | null
 	>(null);
@@ -1204,7 +1243,56 @@ export default function StreetMapScene({ saveKey }: Props) {
 	}, [saveKey]);
 	useEffect(() => {
 		saveState(saveKey, state);
-	}, [saveKey, state]);
+		// Game JSON lives at `saveKey`; slot meta (incl. menu "last updated") lives at `keyForSlot(saveSlot)`.
+		if (saveSlot) touchSave(saveSlot);
+	}, [saveKey, saveSlot, state]);
+
+	const pushCloudToServer = useCallback(async () => {
+		if (!cloudSync) return;
+		if (cloudPushInFlightRef.current) return;
+		cloudPushInFlightRef.current = true;
+		const slot: SaveSlotId = {
+			scope: "cloud",
+			index: cloudSync.slotIndex,
+			userId: cloudSync.userId,
+		};
+		try {
+			const meta = readSave(slot);
+			const title = meta?.meta.title ?? `Cloud Slot ${cloudSync.slotIndex}`;
+			const ok = await upsertGameSave({
+				userId: cloudSync.userId,
+				slotIndex: cloudSync.slotIndex,
+				title,
+				state: stateRef.current as unknown as Record<string, unknown>,
+			});
+			if (ok) {
+				markCloudFlush(cloudSync.userId, cloudSync.slotIndex);
+				touchSave(slot);
+			}
+		} finally {
+			cloudPushInFlightRef.current = false;
+		}
+	}, [cloudSync]);
+
+	useEffect(() => {
+		if (!cloudSync) return;
+		const id = window.setInterval(() => {
+			void pushCloudToServer();
+		}, CLOUD_SAVE_INTERVAL_MS);
+		return () => clearInterval(id);
+	}, [cloudSync, pushCloudToServer]);
+
+	useEffect(() => {
+		if (!cloudSync) return;
+		const onPageHide = () => {
+			void pushCloudToServer();
+		};
+		window.addEventListener("pagehide", onPageHide);
+		return () => {
+			window.removeEventListener("pagehide", onPageHide);
+			void pushCloudToServer();
+		};
+	}, [cloudSync, pushCloudToServer]);
 
 	useEffect(() => {
 		setDeployModalOpen(false);
@@ -1279,6 +1367,10 @@ export default function StreetMapScene({ saveKey }: Props) {
 	const expireIncident = (id: string) => {
 		setState((s) => ({
 			...s,
+			careerStats: {
+				...s.careerStats,
+				incidentsExpired: s.careerStats.incidentsExpired + 1,
+			},
 			selectedIncidentId:
 				s.selectedIncidentId === id ? null : s.selectedIncidentId,
 			incidents: s.incidents.filter((i) => i.id !== id),
@@ -1381,13 +1473,23 @@ export default function StreetMapScene({ saveKey }: Props) {
 			(r) => r.id === selectedRecruitLeadId,
 		);
 		if (!lead) return;
-		setState((s) => ({
-			...s,
-			ownedVigilanteIds: s.ownedVigilanteIds.includes(lead.vigilanteId)
-				? s.ownedVigilanteIds
-				: [...s.ownedVigilanteIds, lead.vigilanteId],
-			recruitLeads: s.recruitLeads.filter((r) => r.id !== lead.id),
-		}));
+		setState((s) => {
+			const alreadyOwned = s.ownedVigilanteIds.includes(lead.vigilanteId);
+			return {
+				...s,
+				ownedVigilanteIds: alreadyOwned
+					? s.ownedVigilanteIds
+					: [...s.ownedVigilanteIds, lead.vigilanteId],
+				recruitLeads: s.recruitLeads.filter((r) => r.id !== lead.id),
+				careerStats: alreadyOwned
+					? s.careerStats
+					: {
+							...s.careerStats,
+							vigilantesRecruited:
+								s.careerStats.vigilantesRecruited + 1,
+						},
+			};
+		});
 		setSelectedRecruitLeadId(null);
 		setShowVettingModal(false);
 	};
@@ -1482,6 +1584,17 @@ export default function StreetMapScene({ saveKey }: Props) {
 				return {
 					...s,
 					resourcePool: pool,
+					careerStats: {
+						...s.careerStats,
+						dispatchesCompleted:
+							s.careerStats.dispatchesCompleted + 1,
+						incidentsResolvedSuccess:
+							s.careerStats.incidentsResolvedSuccess +
+							(rollOutcome.success ? 1 : 0),
+						incidentsResolvedFailure:
+							s.careerStats.incidentsResolvedFailure +
+							(rollOutcome.success ? 0 : 1),
+					},
 					incidents: s.incidents.map((x) =>
 						x.id === id
 							? {
@@ -2373,6 +2486,29 @@ export default function StreetMapScene({ saveKey }: Props) {
 								<div className="pointer-events-none absolute inset-x-0 bottom-0 h-4 bg-linear-to-t from-black/70 to-transparent" />
 							</div>
 
+							<div className="shrink-0 border-t border-amber-900/40 px-3 py-2">
+								<div className="text-[9px] font-semibold uppercase tracking-[0.16em] text-amber-400/75">
+									Career
+								</div>
+								<div className="mt-1 text-[10px] tabular-nums text-amber-200/70 leading-snug">
+									<span className="text-emerald-400/90">
+										{state.careerStats.incidentsResolvedSuccess}
+										W
+									</span>
+									{" · "}
+									<span className="text-rose-400/90">
+										{state.careerStats.incidentsResolvedFailure}
+										L
+									</span>
+									{" · "}
+									{state.careerStats.incidentsExpired} expired
+									{" · "}
+									{state.careerStats.dispatchesCompleted} dispatches
+									{" · "}
+									{state.careerStats.vigilantesRecruited} recruited
+								</div>
+							</div>
+
 							{selectedIncident?.status === "active" && (
 								<div className="shrink-0 border-t border-amber-900/40 px-3 py-2.5">
 									<button
@@ -2641,8 +2777,7 @@ export default function StreetMapScene({ saveKey }: Props) {
 			<InventorySorterModal
 				open={inventorySorterOpen}
 				onClose={() => setInventorySorterOpen(false)}
-				onWin={(reward) => {
-					console.log("Inventory Sorter reward:", reward);
+				onWin={() => {
 					setInventorySorterOpen(false);
 				}}
 			/>
@@ -2667,6 +2802,8 @@ export default function StreetMapScene({ saveKey }: Props) {
 							<Inventory
 								resourcePool={state.resourcePool}
 								ownedVigilanteIds={state.ownedVigilanteIds}
+								vigilanteInjuryUntil={state.vigilanteInjuryUntil}
+								purchasedBuffIds={state.purchasedBuffIds}
 								onHide={() =>
 									setState((s) => ({
 										...s,
