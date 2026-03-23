@@ -144,8 +144,20 @@ export default function SingleplayerModal({ open, onClose, isSignedIn }: Singlep
 										<button
 											key={`cloud-${i + 1}`}
 											type="button"
-											onClick={() => actual && handleSlot(actual)}
-											disabled={disabled}
+											onClick={() => {
+												if (disabled) {
+													play("uiClick");
+													router.push(
+														`/login?next=${encodeURIComponent(
+															`/play/singleplayer?scope=cloud&slot=${i + 1}`,
+														)}`,
+													);
+													closeModal();
+													return;
+												}
+												if (actual) handleSlot(actual);
+											}}
+											disabled={false}
 											className="group relative overflow-hidden flex flex-col items-start justify-between py-5 px-4 rounded-xl border border-amber-900/40 bg-linear-to-b from-black/40 to-black/20 text-amber-200/85 hover:border-amber-700/50 hover:shadow-lg hover:shadow-black/30 transition-all min-h-[108px] cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-600/40 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:shadow-none disabled:hover:border-amber-900/40 text-left"
 										>
 											<div

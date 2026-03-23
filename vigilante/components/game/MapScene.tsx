@@ -124,7 +124,7 @@ export default function MapScene({ saveKey }: Props) {
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const wrapRef = useRef<HTMLDivElement>(null);
 
-	const [state, setState] = useState<GameState>(() => initialState());
+	const [state, setState] = useState<GameState>(() => loadState(saveKey));
 	const [size, setSize] = useState({ w: 800, h: 600 });
 
 	useEffect(() => {

@@ -11,7 +11,8 @@ export type AuthUser = {
 
 type AuthContextValue = {
 	user: AuthUser | null;
-	signInWithProvider: (provider: AuthUser["provider"]) => void;
+	/** `next` is post-login path (e.g. `/play/singleplayer?scope=cloud&slot=1`). */
+	signInWithProvider: (provider: AuthUser["provider"], next?: string) => void;
 	signOut: () => void;
 };
 
@@ -57,16 +58,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 		};
 	}, []);
 
-	const signInWithProvider = useCallback((provider: AuthUser["provider"]) => {
-		const supabase = getSupabaseBrowserClient();
-		const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3001";
-		void supabase.auth.signInWithOAuth({
-			provider,
-			options: {
-				redirectTo: `${siteUrl}/auth/callback`,
-			},
-		});
-	}, []);
+	const signInWithProvider = useCallback(
+		(provider: AuthUser["provider"], next?: string) => {
+			const supabase = getSupabaseBrowserClient();
+			const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+			const callback = new URL(`${siteUrl}/auth/callback`);
+			if (next) callback.searchParams.set("next", next);
+			void supabase.auth.signInWithOAuth({
+				provider,
+				options: {
+					redirectTo: callback.toString(),
+				},
+			});
+		},
+		[],
+	);
 
 	const signOut = useCallback(() => {
 		const supabase = getSupabaseBrowserClient();
