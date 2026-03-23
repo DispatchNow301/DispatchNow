@@ -9,7 +9,14 @@ import React, {
 } from "react";
 import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronLeft, ChevronRight, ChevronUp, Home, Package2, X } from "lucide-react";
+import {
+	ChevronLeft,
+	ChevronRight,
+	ChevronUp,
+	Home,
+	Package2,
+	X,
+} from "lucide-react";
 import InventorySorterModal from "../minigames/InventorySorterModal";
 import type { LatLngBounds, LatLngTuple } from "leaflet";
 import { MapContainer, Marker, Pane, TileLayer, useMap } from "react-leaflet";
@@ -56,7 +63,6 @@ import {
 // ── Inlined helpers (not exported by incidentTemplates) ───────────────────────
 
 function archetypeSuccessBase(archetype: IncidentArchetype): number {
-	/* Tuned so base + stats + gear still needs a real roll — not auto-wins */
 	switch (archetype) {
 		case "crime":
 			return 0.58;
@@ -101,7 +107,7 @@ function fillIncidentTemplate(
 		summary: filled,
 	};
 }
-// Inlined from @/lib/osmPlaces
+
 type OsmPlace = { name: string; lat: number; lng: number; kind?: string };
 
 if (typeof window !== "undefined") {
@@ -130,9 +136,7 @@ if (typeof window !== "undefined") {
 
 type Props = {
 	saveKey: string;
-	/** Slot identity for menu `updatedAt` / titles (`vigilante:save:…`), separate from `saveKey` game blob. */
 	saveSlot?: SaveSlotId;
-	/** When set, game state is upserted to Supabase once per minute while you play, plus on tab close. */
 	cloudSync?: {
 		userId: string;
 		slotIndex: 1 | 2 | 3;
@@ -160,9 +164,7 @@ type Incident = {
 	createdAt: number;
 	expiresAt: number;
 	successChance: number;
-	/** Units out on this incident until recalled */
 	deployedResourceIds?: string[];
-	/** Roster sent on this dispatch (success heuristic) */
 	deployedVigilanteIds?: string[];
 	resolution?: IncidentResolution | null;
 };
@@ -198,14 +200,9 @@ type GameState = {
 	showInventoryPanel: boolean;
 	ownedVigilanteIds: string[];
 	recruitLeads: RecruitLead[];
-	/** r1–r10 + b1–b3: total owned vs out on incidents */
 	resourcePool: Record<string, ResourcePoolEntry>;
-
-	/** Vigilante id → timestamp (ms) when injury recovery completes */
 	vigilanteInjuryUntil: Record<string, number>;
-	/** Lifetime counters (persisted with save). */
 	careerStats: CareerStats;
-	/** Buff upgrades unlocked; stock qty still in `resourcePool` (b1–b3). */
 	purchasedBuffIds: string[];
 };
 
@@ -227,7 +224,8 @@ const LEVELS = [
 	{ id: 3, label: "L3", zoomOut: 13, zoomIn: 13 },
 ];
 
-type MinigameId = "inventory-sorter";
+type MinigameId = "inventory-sorter" | "resource-theft";
+type InventorySorterMode = "supply-recovery" | "resource-theft" | null;
 
 type MinigameOption = {
 	id: MinigameId;
@@ -242,6 +240,45 @@ const MINIGAME_OPTIONS: MinigameOption[] = [
 		title: "Inventory Sorter",
 		description: "Reorganize emergency supplies to earn extra resources.",
 		status: "Available",
+	},
+];
+
+type TheftSite = {
+	id: string;
+	name: string;
+	lat: number;
+	lng: number;
+	rewardIds: string[];
+	description: string;
+};
+
+const THEFT_SITES: TheftSite[] = [
+	{
+		id: "theft-pharmacy",
+		name: "Corner Pharmacy",
+		lat: 40.7192,
+		lng: -74.0111,
+		rewardIds: ["r1", "r1", "r8"],
+		description:
+			"Medical stock, sealed drawers, and emergency kits. Good haul if you move fast.",
+	},
+	{
+		id: "theft-hardware",
+		name: "Utility Hardware Yard",
+		lat: 40.7094,
+		lng: -74.0102,
+		rewardIds: ["r2", "r7", "r9"],
+		description:
+			"Maintenance gear, barricade equipment, and industrial tools locked in a side cage.",
+	},
+	{
+		id: "theft-transit",
+		name: "Transit Supply Cage",
+		lat: 40.7176,
+		lng: -73.9988,
+		rewardIds: ["r3", "r4", "r6"],
+		description:
+			"Communications gear and protection equipment staged for city crews.",
 	},
 ];
 
@@ -393,8 +430,6 @@ const NPC_DIALOGUE = {
 	},
 };
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
 function levelConfig(level: number) {
 	return LEVELS[Math.max(0, Math.min(level - 1, LEVELS.length - 1))];
 }
@@ -545,17 +580,6 @@ function makeRecruitLead(
 	};
 }
 
-/**
- * Spatially uniform POI picker.
- *
- * Divides the bounding box into a COLS×ROWS grid, shuffles the cells, then
- * walks them until it finds one containing at least one POI — and returns a
- * random POI from that cell. Every cell has equal probability of being chosen
- * first, so incidents spread evenly across the map regardless of how densely
- * OSM has tagged any given neighbourhood.
- *
- * Falls back to a plain random pick if somehow all cells are empty.
- */
 const SPAWN_GRID_COLS = 8;
 const SPAWN_GRID_ROWS = 5;
 
@@ -573,7 +597,6 @@ function pickSpatiallyUniformPoi(
 	const w = bounds.getWest();
 	const e = bounds.getEast();
 
-	// Shuffle cell indices so every spawn picks a fresh random cell order
 	const cellCount = SPAWN_GRID_COLS * SPAWN_GRID_ROWS;
 	const cellOrder = Array.from({ length: cellCount }, (_, i) => i);
 	for (let i = cellOrder.length - 1; i > 0; i--) {
@@ -599,7 +622,49 @@ function pickSpatiallyUniformPoi(
 		if (inCell.length > 0) return randomFrom(inCell);
 	}
 
-	return randomFrom(pool); // fallback: all cells were empty
+	return randomFrom(pool);
+}
+
+function applyTheftRewardToPool(
+	pool: Record<string, ResourcePoolEntry>,
+	site: TheftSite,
+	bundleCount: number,
+) {
+	const next: Record<string, ResourcePoolEntry> = { ...pool };
+
+	for (let i = 0; i < bundleCount; i += 1) {
+		for (const id of site.rewardIds) {
+			const entry = next[id] ?? { qty: 0, deployed: 0 };
+			next[id] = {
+				...entry,
+				qty: entry.qty + 1,
+			};
+		}
+	}
+
+	return next;
+}
+
+function makeTheftIncident(site: TheftSite): Incident {
+	const now = Date.now();
+	const lifetimeMs = 45_000;
+	const pos = nudgeNearPoint(site.lat, site.lng, 0.00035);
+
+	return {
+		id: `theft_incident_${site.id}_${now.toString(16)}`,
+		category: "crime",
+		typeLabel: "Police call",
+		status: "active",
+		lat: pos.lat,
+		lng: pos.lng,
+		title: `Theft reported — ${site.name}`,
+		summary:
+			`A break-in at ${site.name} triggered witnesses, noise, or alarms. ` +
+			`The scene is heating up and police attention is likely.`,
+		createdAt: now,
+		expiresAt: now + lifetimeMs,
+		successChance: computeSuccessChance("crime", lifetimeMs),
+	};
 }
 
 // ── Icon factories ────────────────────────────────────────────────────────────
@@ -640,15 +705,15 @@ function makeCharacterIcon(initial: string, kind: CharacterKind) {
 			? { border: "#1d4ed8", bg: "rgba(30,64,175,0.78)", text: "#dbeafe" }
 			: kind === "vigilante"
 				? {
-					border: "#b45309",
-					bg: "rgba(120,53,15,0.82)",
-					text: "#fde68a",
-				}
+						border: "#b45309",
+						bg: "rgba(120,53,15,0.82)",
+						text: "#fde68a",
+				  }
 				: {
-					border: "#4b5563",
-					bg: "rgba(55,65,81,0.8)",
-					text: "#f3f4f6",
-				};
+						border: "#4b5563",
+						bg: "rgba(55,65,81,0.8)",
+						text: "#f3f4f6",
+				  };
 
 	const html = `<div style="
 		width:44px;
@@ -702,6 +767,32 @@ function makeRecruitIcon(initial: string) {
 		className: "vigilante-recruit-icon",
 		iconSize: [34, 34],
 		iconAnchor: [17, 17],
+	});
+}
+
+function makeTheftSiteIcon() {
+	const html = `<div style="
+		width:36px;
+		height:36px;
+		border-radius:12px;
+		border:2px solid #7c3aed;
+		background:rgba(76,29,149,0.9);
+		display:flex;
+		align-items:center;
+		justify-content:center;
+		color:#f5d0fe;
+		font-weight:800;
+		font-size:17px;
+		text-shadow:0 0 4px rgba(0,0,0,0.85);
+		box-shadow:0 0 18px rgba(124,58,237,0.45);
+		cursor:pointer;
+	">▣</div>`;
+
+	return L.divIcon({
+		html,
+		className: "vigilante-theftsite-icon",
+		iconSize: [36, 36],
+		iconAnchor: [18, 18],
 	});
 }
 
@@ -831,6 +922,7 @@ function CharacterMarkerItem({
 		/>
 	);
 }
+
 function CharacterMarkers({
 	pins,
 	onSelect,
@@ -875,6 +967,32 @@ function RecruitMarkers({
 					/>
 				);
 			})}
+		</Pane>
+	);
+}
+
+function TheftSiteMarkers({
+	sites,
+	onSelect,
+}: {
+	sites: TheftSite[];
+	onSelect: (site: TheftSite) => void;
+}) {
+	return (
+		<Pane name="theftSitePane" style={{ zIndex: 900 }}>
+			{sites.map((site) => (
+				<Marker
+					key={site.id}
+					position={[site.lat, site.lng]}
+					icon={makeTheftSiteIcon()}
+					zIndexOffset={13000}
+					interactive
+					riseOnHover
+					eventHandlers={{
+						click: () => onSelect(site),
+					}}
+				/>
+			))}
 		</Pane>
 	);
 }
@@ -1033,13 +1151,13 @@ function parseStoredIncident(raw: unknown): Incident | null {
 			: fallbackTypeLabel(category);
 	const deployedResourceIds = Array.isArray(o.deployedResourceIds)
 		? (o.deployedResourceIds as unknown[]).filter(
-			(x): x is string => typeof x === "string",
-		)
+				(x): x is string => typeof x === "string",
+		  )
 		: undefined;
 	const deployedVigilanteIds = Array.isArray(o.deployedVigilanteIds)
 		? (o.deployedVigilanteIds as unknown[]).filter(
-			(x): x is string => typeof x === "string",
-		)
+				(x): x is string => typeof x === "string",
+		  )
 		: undefined;
 	const resolution = parseIncidentResolution(o.resolution);
 	return {
@@ -1064,6 +1182,18 @@ function parseStoredIncident(raw: unknown): Incident | null {
 				: undefined,
 		resolution: resolution ?? undefined,
 	};
+}
+
+function pruneExpiredInjuries(
+	map: Record<string, number> | undefined,
+	now: number,
+): Record<string, number> {
+	if (!map) return {};
+	const next: Record<string, number> = {};
+	for (const [id, until] of Object.entries(map)) {
+		if (typeof until === "number" && until > now) next[id] = until;
+	}
+	return next;
 }
 
 function mergeResourcePool(
@@ -1124,8 +1254,8 @@ function loadState(saveKey: string): GameState {
 					: null,
 			incidents: Array.isArray(p.incidents)
 				? p.incidents
-					.map(parseStoredIncident)
-					.filter((x): x is Incident => x !== null)
+						.map(parseStoredIncident)
+						.filter((x): x is Incident => x !== null)
 				: [],
 			showIncidentPanel:
 				typeof p.showIncidentPanel === "boolean"
@@ -1166,28 +1296,28 @@ function saveState(saveKey: string, state: GameState) {
 	localStorage.setItem(saveKey, JSON.stringify(state));
 }
 
-/** Cloud slot: Supabase upsert while playing (plus `pagehide` / unmount). */
 const CLOUD_SAVE_INTERVAL_MS = 60_000;
 
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) {
-	// Must hydrate from localStorage synchronously; otherwise the save effect below
-	// runs once with `initialState()` and overwrites the real save before load runs.
 	const [state, setState] = useState<GameState>(() => loadState(saveKey));
 	const stateRef = useRef(state);
 	stateRef.current = state;
 	const cloudPushInFlightRef = useRef(false);
+
 	const [selectedRecruitLeadId, setSelectedRecruitLeadId] = useState<
 		string | null
 	>(null);
 	const [selectedOwnedVigilanteId, setSelectedOwnedVigilanteId] = useState<
 		string | null
 	>(null);
-	const [inventorySorterOpen, setInventorySorterOpen] = useState(false);
-	/** r1–r10 counts staged for deploy to selected incident */
+
+	const [inventorySorterMode, setInventorySorterMode] =
+		useState<InventorySorterMode>(null);
+	const inventorySorterOpen = inventorySorterMode !== null;
+
 	const [deployModalOpen, setDeployModalOpen] = useState(false);
-	/** Full-screen 3D + strip while a dispatch resolves (predetermined roll). */
 	const [chanceRollOverlay, setChanceRollOverlay] = useState<{
 		incidentId: string;
 		rolled: number;
@@ -1201,9 +1331,13 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 	} | null>(null);
 	const resolveIncidentTimeoutRef =
 		useRef<ReturnType<typeof setTimeout> | null>(null);
+
 	const [overlayMode, setOverlayMode] = useState<OverlayMode>("recruit");
 	const [dialogue, setDialogue] = useState<DialogueState>(null);
 	const [showVettingModal, setShowVettingModal] = useState(false);
+	const [selectedTheftSiteId, setSelectedTheftSiteId] = useState<string | null>(
+		null,
+	);
 
 	const helperBase =
 		STATIC_CHARACTER_BASES.find((p) => p.id === "cit-helper") ??
@@ -1213,6 +1347,7 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 		lat: helperBase.lat,
 		lng: helperBase.lng,
 	});
+
 	const [policeRenderItems, setPoliceRenderItems] = useState<PoliceRenderItem[]>(
 		() =>
 			STATIC_CHARACTER_BASES.filter(
@@ -1228,11 +1363,11 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 				assignedIncidentId: null,
 			})),
 	);
+
 	const [policeEtaItems, setPoliceEtaItems] = useState<PoliceEtaItem[]>([]);
 
 	const levelBoundsRef = useRef<Map<number, LatLngBounds>>(new Map());
 	const spawnPlacesByLevelRef = useRef<Map<number, OsmPlace[]>>(new Map());
-	/** Incremented per level on each new bounds+fetch so stale responses are ignored. */
 	const placesFetchGenRef = useRef<Map<number, number>>(new Map());
 	const placesAbortByLevelRef = useRef<Map<number, AbortController>>(
 		new Map(),
@@ -1241,9 +1376,9 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 	useEffect(() => {
 		setState(loadState(saveKey));
 	}, [saveKey]);
+
 	useEffect(() => {
 		saveState(saveKey, state);
-		// Game JSON lives at `saveKey`; slot meta (incl. menu "last updated") lives at `keyForSlot(saveSlot)`.
 		if (saveSlot) touchSave(saveSlot);
 	}, [saveKey, saveSlot, state]);
 
@@ -1307,8 +1442,6 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 		};
 	}, []);
 
-	// Called by ZoomController each time the active level settles.
-	// Aborts any in-flight fetch for that tier and only applies the latest result.
 	const handleBoundsReady = useCallback(
 		(level: number, bounds: LatLngBounds) => {
 			levelBoundsRef.current.set(level, bounds);
@@ -1362,8 +1495,6 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 		[],
 	);
 
-	// ── Incident helpers ──────────────────────────────────────────────────────
-
 	const expireIncident = (id: string) => {
 		setState((s) => ({
 			...s,
@@ -1382,6 +1513,7 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 		setSelectedOwnedVigilanteId(null);
 		setDialogue(null);
 		setShowVettingModal(false);
+		setSelectedTheftSiteId(null);
 		setState((s) => {
 			if (s.selectedIncidentId === id && s.showIncidentPanel) {
 				return {
@@ -1408,6 +1540,7 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 	const handleRecruitSelect = (lead: RecruitLead) => {
 		setDialogue(null);
 		setShowVettingModal(false);
+		setSelectedTheftSiteId(null);
 		setState((s) => ({ ...s, selectedIncidentId: null }));
 		setOverlayMode("recruit");
 		setSelectedOwnedVigilanteId(null);
@@ -1417,6 +1550,7 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 	const handleOwnedVigilanteSelect = (vigilanteId: string) => {
 		setDialogue(null);
 		setShowVettingModal(false);
+		setSelectedTheftSiteId(null);
 		setState((s) => ({ ...s, selectedIncidentId: null }));
 		setOverlayMode("owned");
 		setSelectedRecruitLeadId(null);
@@ -1428,6 +1562,7 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 		setSelectedRecruitLeadId(null);
 		setSelectedOwnedVigilanteId(null);
 		setShowVettingModal(false);
+		setSelectedTheftSiteId(null);
 
 		if (pin.kind === "vigilante") {
 			handleOwnedVigilanteSelect(pin.id);
@@ -1468,6 +1603,44 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 		});
 	};
 
+	const handleTheftSiteSelect = (site: TheftSite) => {
+		setDialogue(null);
+		setSelectedRecruitLeadId(null);
+		setSelectedOwnedVigilanteId(null);
+		setShowVettingModal(false);
+		setState((s) => ({ ...s, selectedIncidentId: null }));
+		setSelectedTheftSiteId(site.id);
+	};
+
+	const handleStartTheft = () => {
+		if (!selectedTheftSite) return;
+		setInventorySorterMode("resource-theft");
+	};
+
+	const handleTheftSuccess = (
+		site: TheftSite,
+		reward: { credits: number; items: Array<{ type: string; quantity: number }> },
+	) => {
+		const bundleCount = reward.items.reduce((sum, item) => {
+			if (item.type === "supply_pack") return sum + item.quantity;
+			return sum;
+		}, 0);
+
+		const bundles = Math.max(1, bundleCount);
+		const theftIncident = makeTheftIncident(site);
+
+		setState((s) => ({
+			...s,
+			resourcePool: applyTheftRewardToPool(s.resourcePool, site, bundles),
+			incidents: [theftIncident, ...s.incidents],
+			selectedIncidentId: theftIncident.id,
+			showIncidentPanel: true,
+		}));
+
+		setInventorySorterMode(null);
+		setSelectedTheftSiteId(null);
+	};
+
 	const handleHireSelected = () => {
 		const lead = state.recruitLeads.find(
 			(r) => r.id === selectedRecruitLeadId,
@@ -1487,7 +1660,7 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 							...s.careerStats,
 							vigilantesRecruited:
 								s.careerStats.vigilantesRecruited + 1,
-						},
+					  },
 			};
 		});
 		setSelectedRecruitLeadId(null);
@@ -1558,11 +1731,11 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 				incidents: s.incidents.map((x) =>
 					x.id === id
 						? {
-							...x,
-							status: "resolving" as const,
-							deployedResourceIds: [...payload.resourceIds],
-							deployedVigilanteIds: [...payload.vigilanteIds],
-						}
+								...x,
+								status: "resolving" as const,
+								deployedResourceIds: [...payload.resourceIds],
+								deployedVigilanteIds: [...payload.vigilanteIds],
+						  }
 						: x,
 				),
 			};
@@ -1598,34 +1771,34 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 					incidents: s.incidents.map((x) =>
 						x.id === id
 							? {
-								...x,
-								status: "resolved" as const,
-								deployedResourceIds: [],
-								resolution: {
-									success: rollOutcome.success,
-									adjustedPercent:
-										rollOutcome.adjustedPercent,
-									beforeLuckPercent:
-										rollOutcome.beforeLuckPercent,
-									rolled: rollOutcome.rolled,
-									baseChancePercent:
-										rollOutcome.baseChancePercent,
-									resourceMultiplier:
-										rollOutcome.resourceMultiplier,
-									buffMultiplier:
-										rollOutcome.buffMultiplier,
-									vigilanteMultiplier:
-										rollOutcome.vigilanteMultiplier,
-									avgArchetypeFit:
-										rollOutcome.avgArchetypeFit,
-									staffingSupportMultiplier:
-										rollOutcome.staffingSupportMultiplier,
-									gearPresenceMultiplier:
-										rollOutcome.gearPresenceMultiplier,
-									luckDeltaPercent:
-										rollOutcome.luckDeltaPercent,
-								},
-							}
+									...x,
+									status: "resolved" as const,
+									deployedResourceIds: [],
+									resolution: {
+										success: rollOutcome.success,
+										adjustedPercent:
+											rollOutcome.adjustedPercent,
+										beforeLuckPercent:
+											rollOutcome.beforeLuckPercent,
+										rolled: rollOutcome.rolled,
+										baseChancePercent:
+											rollOutcome.baseChancePercent,
+										resourceMultiplier:
+											rollOutcome.resourceMultiplier,
+										buffMultiplier:
+											rollOutcome.buffMultiplier,
+										vigilanteMultiplier:
+											rollOutcome.vigilanteMultiplier,
+										avgArchetypeFit:
+											rollOutcome.avgArchetypeFit,
+										staffingSupportMultiplier:
+											rollOutcome.staffingSupportMultiplier,
+										gearPresenceMultiplier:
+											rollOutcome.gearPresenceMultiplier,
+										luckDeltaPercent:
+											rollOutcome.luckDeltaPercent,
+									},
+							  }
 							: x,
 					),
 				};
@@ -1657,7 +1830,6 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 		});
 	};
 
-	// ── Incident spawner — random POI, no grid ────────────────────────────────
 	useEffect(() => {
 		if (inventorySorterOpen) return;
 
@@ -1722,7 +1894,6 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 		};
 	}, [inventorySorterOpen]);
 
-	// ── Recruit lead spawner ──────────────────────────────────────────────────
 	useEffect(() => {
 		let alive = true;
 		const MAX_RECRUITS = 3;
@@ -1771,10 +1942,10 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 							Math.random() < 0.45
 								? randomFrom(undercoverAvailable)
 								: randomFrom(
-									normalAvailable.length > 0
-										? normalAvailable
-										: available,
-								);
+										normalAvailable.length > 0
+											? normalAvailable
+											: available,
+								  );
 					} else {
 						chosen = randomFrom(
 							normalAvailable.length > 0
@@ -1801,7 +1972,6 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 		};
 	}, []);
 
-	// ── Expiry ticker ─────────────────────────────────────────────────────────
 	useEffect(() => {
 		if (inventorySorterOpen) return;
 
@@ -1850,7 +2020,6 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 		return () => window.clearInterval(id);
 	}, [inventorySorterOpen, selectedRecruitLeadId, state.recruitLeads]);
 
-	// ── NPC movement ──────────────────────────────────────────────────────────
 	useEffect(() => {
 		const id = window.setInterval(() => {
 			setHelperPos(() => {
@@ -1885,12 +2054,8 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 			};
 		});
 	}, [state.incidents]);
-	// ── Derived pin list ──────────────────────────────────────────────────────
-	const visibleDynamicPins = useMemo(() => {
-		const evanAvailable = state.recruitLeads.some(
-			(lead) => lead.vigilanteId === "familiar-face",
-		);
 
+	const visibleDynamicPins = useMemo(() => {
 		const helperPin: CharacterPin = {
 			id: "cit-helper",
 			name: "Helper",
@@ -1927,7 +2092,6 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 
 		return [helperPin, ...incidentCitizenPins, ...policePins, ...ownedPins];
 	}, [
-		state.recruitLeads,
 		state.ownedVigilanteIds,
 		helperPos,
 		incidentCitizenPins,
@@ -1954,8 +2118,8 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 		() =>
 			selectedRecruitLead
 				? (vigilantes.find(
-					(v) => v.id === selectedRecruitLead.vigilanteId,
-				) ?? null)
+						(v) => v.id === selectedRecruitLead.vigilanteId,
+				  ) ?? null)
 				: null,
 		[selectedRecruitLead],
 	);
@@ -1964,7 +2128,7 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 		() =>
 			selectedOwnedVigilanteId
 				? (vigilantes.find((v) => v.id === selectedOwnedVigilanteId) ??
-					null)
+				  null)
 				: null,
 		[selectedOwnedVigilanteId],
 	);
@@ -1987,6 +2151,11 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 		[state.incidents, state.selectedIncidentId],
 	);
 
+	const selectedTheftSite = useMemo(
+		() => THEFT_SITES.find((site) => site.id === selectedTheftSiteId) ?? null,
+		[selectedTheftSiteId],
+	);
+
 	const incidentPanelRows = useMemo(() => {
 		return [...state.incidents].sort((a, b) => {
 			const rk = (i: Incident) =>
@@ -1999,7 +2168,6 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 		});
 	}, [state.incidents, state.selectedIncidentId]);
 
-	// ── Render ────────────────────────────────────────────────────────────────
 	return (
 		<div className="fixed inset-0">
 			<style>{`
@@ -2015,19 +2183,22 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 				.vigilante-leaflet { background: #05070a !important; }
 				.vigilante-incident-icon,
 				.vigilante-character-icon,
-				.vigilante-recruit-icon { background: none; border: none; }
+				.vigilante-recruit-icon,
+				.vigilante-theftsite-icon { background: none; border: none; }
 				.vigilante-hide-scrollbar::-webkit-scrollbar { display: none; }
 				.vigilante-hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 				.leaflet-pane.characterPane { z-index: 930 !important; }
 				.leaflet-pane.incidentPane { z-index: 820 !important; }
 				.leaflet-pane.recruitPane { z-index: 960 !important; }
+				.leaflet-pane.theftSitePane { z-index: 900 !important; }
 				.leaflet-marker-icon.vigilante-character-icon,
-				.leaflet-marker-icon.vigilante-recruit-icon {
+				.leaflet-marker-icon.vigilante-recruit-icon,
+				.leaflet-marker-icon.vigilante-theftsite-icon {
 					pointer-events: auto !important;
 				}
-
 				.vigilante-character-icon > div,
-				.vigilante-recruit-icon > div {
+				.vigilante-recruit-icon > div,
+				.vigilante-theftsite-icon > div {
 					cursor: pointer !important;
 					pointer-events: auto !important;
 				}
@@ -2096,6 +2267,10 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 					pins={visibleDynamicPins}
 					onSelect={handleCharacterSelect}
 				/>
+				<TheftSiteMarkers
+					sites={THEFT_SITES}
+					onSelect={handleTheftSiteSelect}
+				/>
 				<RecruitMarkers
 					leads={state.recruitLeads}
 					onSelect={handleRecruitSelect}
@@ -2107,7 +2282,6 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 				/>
 			</MapContainer>
 
-			{/* ── Dossier overlay ── */}
 			<AnimatePresence>
 				{activeDossier ? (
 					<>
@@ -2178,7 +2352,7 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 													</span>
 												) : null}
 												{typeof activeDossier.heat ===
-													"number" ? (
+												"number" ? (
 													<span className="rounded-full border border-red-900/35 bg-red-950/20 px-3 py-1 text-[11px] uppercase tracking-[0.15em] text-red-300/75">
 														Heat{" "}
 														{activeDossier.heat}
@@ -2262,7 +2436,6 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 				) : null}
 			</AnimatePresence>
 
-			{/* ── NPC dialogue ── */}
 			<AnimatePresence>
 				{dialogue ? (
 					<motion.div
@@ -2313,6 +2486,99 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 				) : null}
 			</AnimatePresence>
 
+			<AnimatePresence>
+				{selectedTheftSite ? (
+					<>
+						<motion.div
+							className="absolute inset-0 z-[2025] bg-black/25"
+							initial={{ opacity: 0 }}
+							animate={{ opacity: 1 }}
+							exit={{ opacity: 0 }}
+							onClick={() => setSelectedTheftSiteId(null)}
+						/>
+
+						<motion.aside
+							initial={{ opacity: 0, y: 16, scale: 0.98 }}
+							animate={{ opacity: 1, y: 0, scale: 1 }}
+							exit={{ opacity: 0, y: 10, scale: 0.98 }}
+							transition={{ duration: 0.2, ease: "easeOut" }}
+							className="absolute right-6 top-24 z-[2030] w-[min(32vw,420px)] min-w-[320px] overflow-hidden rounded-2xl border border-amber-900/40 bg-black/75 text-amber-100 shadow-[0_18px_70px_rgba(0,0,0,0.55)] backdrop-blur-md"
+						>
+							<div className="border-b border-amber-900/30 px-5 py-4">
+								<div className="flex items-start justify-between gap-4">
+									<div>
+										<div className="text-[11px] uppercase tracking-[0.28em] text-amber-400/70">
+											Resource Theft
+										</div>
+										<h2 className="mt-2 text-2xl font-bold text-amber-100">
+											{selectedTheftSite.name}
+										</h2>
+									</div>
+
+									<button
+										type="button"
+										onClick={() => setSelectedTheftSiteId(null)}
+										className="rounded-lg border border-amber-900/35 bg-black/30 p-2 text-amber-200/70 hover:bg-amber-950/20 hover:text-amber-100 transition"
+									>
+										<X className="h-4 w-4" />
+									</button>
+								</div>
+							</div>
+
+							<div className="px-5 py-4 space-y-4">
+								<p className="text-sm leading-6 text-amber-100/75">
+									{selectedTheftSite.description}
+								</p>
+
+								<div className="rounded-xl border border-amber-900/30 bg-black/25 p-4">
+									<div className="text-[11px] uppercase tracking-[0.24em] text-amber-400/70">
+										Potential haul
+									</div>
+									<div className="mt-3 flex flex-wrap gap-2">
+										{selectedTheftSite.rewardIds.map((id, idx) => (
+											<span
+												key={`${id}-${idx}`}
+												className="rounded-full border border-amber-900/30 bg-black/30 px-3 py-1 text-xs text-amber-100/80"
+											>
+												{id.toUpperCase()}
+											</span>
+										))}
+									</div>
+								</div>
+
+								<div className="rounded-xl border border-red-900/30 bg-red-950/10 p-4">
+									<div className="text-[11px] uppercase tracking-[0.24em] text-red-300/70">
+										Risk
+									</div>
+									<p className="mt-2 text-sm leading-6 text-amber-100/70">
+										If the theft succeeds, it still creates a fresh incident on
+										the map and can draw police attention to the area.
+									</p>
+								</div>
+							</div>
+
+							<div className="flex items-center justify-between gap-3 border-t border-amber-900/30 px-5 py-4">
+								<button
+									type="button"
+									onClick={() => setSelectedTheftSiteId(null)}
+									className="rounded-xl border border-amber-900/35 bg-black/30 px-4 py-3 text-sm text-amber-200/80 hover:bg-amber-950/20 transition"
+								>
+									Back
+								</button>
+
+								<button
+									type="button"
+									onClick={handleStartTheft}
+									className="rounded-xl border border-amber-700/40 bg-amber-950/30 px-5 py-3 text-sm font-semibold text-amber-100 hover:bg-amber-900/35 transition"
+								>
+									Start Theft
+								</button>
+							</div>
+						</motion.aside>
+					</>
+				) : null}
+			</AnimatePresence>
+
 			<VettingMinigameModal
 				open={
 					showVettingModal &&
@@ -2331,7 +2597,6 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 				}}
 			/>
 
-			{/* ── Top bar ── */}
 			<div className="pointer-events-none absolute inset-x-0 top-0 z-[1000] flex justify-center pt-4">
 				<div className="pointer-events-auto inline-flex items-center gap-3 rounded-xl border border-amber-900/40 bg-black/40 backdrop-blur-md px-4 py-3 text-amber-200/70">
 					<div className="text-[11px] uppercase tracking-[0.22em] text-amber-400/70">
@@ -2357,7 +2622,6 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 				</div>
 			</div>
 
-			{/* ── Left incident panel ── */}
 			<div className="pointer-events-none absolute inset-y-16 left-0 z-[950] flex items-start">
 				<div className="pointer-events-auto mt-4">
 					<button
@@ -2547,7 +2811,6 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 				</AnimatePresence>
 			</div>
 
-			{/* ── Left minigame panel + toggle ── */}
 			<div className="fixed left-0 flex items-start" style={{ top: 160, zIndex: 2000 }}>
 				<div className="pointer-events-auto">
 					<button
@@ -2598,7 +2861,7 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 										type="button"
 										onClick={() => {
 											if (game.id === "inventory-sorter") {
-												setInventorySorterOpen(true);
+												setInventorySorterMode("supply-recovery");
 											}
 										}}
 										className="w-full text-left rounded-lg border border-amber-900/50 bg-black/40 px-3 py-3 text-xs text-amber-200/70 hover:border-amber-700/70 hover:text-amber-100 transition-colors cursor-pointer"
@@ -2750,15 +3013,15 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 				}
 				incident={
 					selectedIncident &&
-						selectedIncident.status === "active"
+					selectedIncident.status === "active"
 						? {
-							id: selectedIncident.id,
-							category: selectedIncident.category,
-							typeLabel: selectedIncident.typeLabel,
-							summary: selectedIncident.summary,
-							createdAt: selectedIncident.createdAt,
-							expiresAt: selectedIncident.expiresAt,
-						}
+								id: selectedIncident.id,
+								category: selectedIncident.category,
+								typeLabel: selectedIncident.typeLabel,
+								summary: selectedIncident.summary,
+								createdAt: selectedIncident.createdAt,
+								expiresAt: selectedIncident.expiresAt,
+						  }
 						: null
 				}
 				ownedVigilanteIds={state.ownedVigilanteIds}
@@ -2776,13 +3039,26 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 
 			<InventorySorterModal
 				open={inventorySorterOpen}
-				onClose={() => setInventorySorterOpen(false)}
-				onWin={() => {
-					setInventorySorterOpen(false);
+				onClose={() => setInventorySorterMode(null)}
+				onWin={(reward) => {
+					if (inventorySorterMode === "resource-theft" && selectedTheftSite) {
+						handleTheftSuccess(selectedTheftSite, reward);
+						return;
+					}
+					setInventorySorterMode(null);
 				}}
+				title={
+					inventorySorterMode === "resource-theft"
+						? "Resource Theft"
+						: "Inventory Sorter"
+				}
+				subtitle={
+					inventorySorterMode === "resource-theft"
+						? "Move the stolen goods fast, keep the layout clean, and get out before the area locks down."
+						: "Organize the emergency locker to recover extra supplies before time runs out."
+				}
 			/>
 
-			{/* ── Bottom inventory panel ── */}
 			<div className="pointer-events-none absolute inset-x-0 bottom-0 z-[980] max-h-[min(92vh,100%)] overflow-hidden">
 				<AnimatePresence initial={false} mode="wait">
 					{state.showInventoryPanel ? (
