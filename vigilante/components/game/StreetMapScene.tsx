@@ -9,25 +9,21 @@ import React, {
 } from "react";
 import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
-import {
-	ChevronLeft,
-	ChevronRight,
-	ChevronUp,
-	Home,
-	Package2,
-	X,
-} from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronUp, Home, Package2, X } from "lucide-react";
 import InventorySorterModal from "../minigames/InventorySorterModal";
 import type { LatLngBounds, LatLngTuple } from "leaflet";
 import { MapContainer, Marker, Pane, TileLayer, useMap } from "react-leaflet";
 import * as L from "leaflet";
-import { useSfx } from "@/lib/sfx";
 import Inventory from "./Inventory";
+import PoliceSystem from "./police/policeSystem";
+import type {
+	PoliceEtaItem,
+	PoliceRenderItem,
+} from "./police/policeTypes";
 import IncidentChanceRollOverlay from "./IncidentChanceRollOverlay";
 import IncidentDeployModal from "./IncidentDeployModal";
 import { IncidentTimerBar } from "./IncidentTimerBar";
 import { vigilantes } from "@/app/components/data/vigilante";
-import { NPC_PORTRAIT } from "@/lib/characterPortraitUrls";
 import {
 	DEFAULT_RESOURCE_POOL,
 	applyDeployment,
@@ -48,11 +44,6 @@ import {
 	computeIncidentRollOutcome,
 	type DispatchRollBreakdown,
 } from "@/lib/incidentRoll";
-import {
-	isVigilanteRecovering,
-	pruneExpiredInjuries,
-	rollInjuryUpdatesAfterResolve,
-} from "@/lib/vigilanteInjury";
 import VettingMinigameModal from "@/components/game/VettingMinigameModal";
 import { formatIncidentTypeLabel } from "@/lib/formatIncidentTitle";
 import {
@@ -61,14 +52,6 @@ import {
 	type IncidentArchetype,
 	type IncidentTemplate,
 } from "@/lib/incidentTemplates";
-import { useElevenLabsTTS } from "@/hooks/useElevenLabsTTS";
-import {
-	pickIncidentDialogueLine,
-	pickRecruitDialogueLine,
-	INCIDENT_SELECT_DIALOGUE_CHANCE,
-	type IncidentDialogueLine,
-} from "@/lib/incidentDialogue";
-import NPCDialogueBox from "@/components/game/NPCDialogueBox";
 
 // ── Inlined helpers (not exported by incidentTemplates) ───────────────────────
 
@@ -211,11 +194,13 @@ type GameState = {
 	incidents: Incident[];
 	showIncidentPanel: boolean;
 	showMinigamePanel: boolean;
+	showPolicePanel: boolean;
 	showInventoryPanel: boolean;
 	ownedVigilanteIds: string[];
 	recruitLeads: RecruitLead[];
 	/** r1–r10 + b1–b3: total owned vs out on incidents */
 	resourcePool: Record<string, ResourcePoolEntry>;
+
 	/** Vigilante id → timestamp (ms) when injury recovery completes */
 	vigilanteInjuryUntil: Record<string, number>;
 	/** Lifetime counters (persisted with save). */
@@ -235,9 +220,6 @@ const OWNED_VIG_MARKER_OFFSETS: { dLat: number; dLng: number }[] = [
 	{ dLat: 0.0021, dLng: 0.001 },
 	{ dLat: -0.0012, dLng: -0.0028 },
 ];
-
-/** Owned roster also shown in inventory — omit duplicate map markers */
-const VIGILANTE_IDS_HIDDEN_ON_MAP = new Set(["bruce", "parya"]);
 
 const LEVELS = [
 	{ id: 1, label: "L1", zoomOut: 15, zoomIn: 15 },
@@ -332,8 +314,6 @@ type DialogueState = {
 	role: DialogueRole;
 	portrait: string;
 	text: string;
-	/** TTS / voice map key — matches `CharacterPin.id` */
-	speakerId: string;
 } | null;
 
 const NPC_DIALOGUE = {
@@ -341,57 +321,41 @@ const NPC_DIALOGUE = {
 		{
 			name: "Old Man",
 			role: "Citizen" as const,
-			portrait: NPC_PORTRAIT.citizenOldMan,
+			portrait: "/npcs/OldMan.png",
 			lines: [
 				"I've lived on this block thirty years. Something's wrong tonight.",
 				"I heard boots in the alley and then everything went quiet.",
 				"You vigilantes are the only ones keeping this city together.",
-				"Back in my day the beat cop knew every stoop. Now it's radios and cameras — and still the trouble finds us.",
-				"I don't trust half what I read online. I trust what I hear through these walls — and it isn't good.",
-				"If your crew needs a witness who actually shows up, you come find me before the reporters do.",
-				"The kids play closer to home lately. That tells you everything about how safe they feel.",
 			],
 		},
 		{
 			name: "Girl",
 			role: "Citizen" as const,
-			portrait: NPC_PORTRAIT.citizenGirl,
+			portrait: "/npcs/Girl.png",
 			lines: [
 				"I saw them run past the subway entrance. They looked armed.",
 				"If your crew is taking this job, don't be late.",
 				"People are scared. Nobody's waiting for the cops anymore.",
-				"My phone's full of videos nobody should have to film. Somebody has to actually do something.",
-				"I heard the sirens before I saw the lights — same pattern as last week. That's not random.",
-				"If you're recruiting, fine — just don't treat the block like a backdrop for your recruitment video.",
-				"Tell whoever's dispatching that we need fewer speeches and more people on the ground.",
 			],
 		},
 		{
 			name: "Woman",
 			role: "Citizen" as const,
-			portrait: NPC_PORTRAIT.citizenWoman,
+			portrait: "/npcs/Woman.png",
 			lines: [
 				"The whole street feels wrong tonight. Like everyone's waiting for something.",
 				"I'm not asking questions. I just need this handled.",
 				"They moved fast. Professional fast.",
-				"I don't care about politics — I care that my kid gets home from school in one piece.",
-				"The bodega owner says he's paying 'protection' twice — to the city and to whoever knocks after dark.",
-				"If your vigilantes are going to be loud, be loud where it helps — not outside my window at three a.m.",
-				"I've got no love for grandstanding. I have love for results.",
 			],
 		},
 		{
 			name: "Helper",
 			role: "Citizen" as const,
-			portrait: NPC_PORTRAIT.citizenHelper,
+			portrait: "/npcs/Helper.png",
 			lines: [
 				"I can point your people to the exact building if they move now.",
 				"I've got eyes on the block. Tell me where you want me.",
 				"Your vigilantes aren't subtle, but they're faster than dispatch.",
-				"I coordinate the block chat — we share groceries, babysitting, and who's sketchy on which corner.",
-				"If you need someone to calm a crowd before it turns into a riot, I've done it before.",
-				"Don't ask me to lie for you. I will not burn trust with my neighbors for your optics.",
-				"Bad information spreads faster than a fire. Check your sources before you send someone running.",
 			],
 		},
 	],
@@ -399,47 +363,32 @@ const NPC_DIALOGUE = {
 		{
 			name: "Officer Diaz",
 			role: "Police" as const,
-			portrait: NPC_PORTRAIT.officerDiaz,
+			portrait: "/npcs/OfficerDiaz.png",
 			lines: [
 				"You better hope I don't catch any of your people at my crime scenes.",
 				"Civilian intervention is punishable, don't test me.",
 				"HEY! STOP RIGHT THERE!",
-				"I don't have time for cosplay — if you're on scene, you're in my line of sight and my report.",
-				"Your vigilantes aren't sworn, aren't insured, and aren't walking away when I say freeze.",
-				"Paperwork doesn't care how noble you felt when you threw that punch.",
-				"Next time you 'help,' try not to trample evidence I need to convict someone.",
-				"I sleep four hours and answer for every call on this block — don't lecture me about dedication.",
 			],
 		},
 		{
 			name: "Detective Kim",
 			role: "Police" as const,
-			portrait: NPC_PORTRAIT.detectiveKim,
+			portrait: "/npcs/DetectiveKim.png",
 			lines: [
 				"This city makes vigilantes out of everyone eventually.",
 				"When your people make messes for us to clean up, we don't get the chance to focus on what's really important...",
 				"There's a pattern here. I know what you've been up to… I just need to prove it.",
-				"I follow threads — money, phones, witnesses. If your crew crosses a line, I'll find the knot.",
-				"Don't mistake my patience for approval. I'm building a file, not a fan club.",
-				"Some nights I agree with you more than I admit. Other nights you make my job impossible.",
-				"If you have real intel, bring it through proper channels. I can't act on rumors in a group chat.",
-				"The badge isn't a halo — but neither is a mask. We're all accountable eventually.",
 			],
 		},
 	],
 	chief: {
 		name: "Chief Williams",
 		role: "Chief" as const,
-		portrait: NPC_PORTRAIT.chiefWilliams,
+		portrait: "/npcs/ChiefWilliams.png",
 		lines: [
 			"The city is slipping faster than my officers can hold it together.",
 			"Damn vigilantes running around the city thinking they're helping us. We don't need them.",
 			"If you're going to play guardian, then act like professionals.",
-			"I don't run a theater — I run a department. Keep your stunts off the evening news.",
-			"Every headline about you is a headline that isn't about the victims we failed to reach in time.",
-			"Coordination isn't optional. Chaos gets people killed — uniform or not.",
-			"You want respect? Show up when the cameras are off and the paperwork is brutal.",
-			"If you cross from helper to vigilante justice, you'll meet me across a table with lawyers.",
 		],
 	},
 };
@@ -468,11 +417,39 @@ function sampleInBounds(bounds: LatLngBounds): { lat: number; lng: number } {
 	};
 }
 
+function nudgeNearby(lat: number, lng: number) {
+	const maxOffset = 0.0014;
+	return {
+		lat: lat + (Math.random() - 0.5) * maxOffset,
+		lng: lng + (Math.random() - 0.5) * maxOffset,
+	};
+}
+
 function nudgeNearPoint(lat: number, lng: number, maxOffset = 0.00085) {
 	return {
 		lat: lat + (Math.random() - 0.5) * maxOffset,
 		lng: lng + (Math.random() - 0.5) * maxOffset,
 	};
+}
+
+function moveToward(
+	from: { lat: number; lng: number },
+	to: { lat: number; lng: number },
+	factor: number,
+) {
+	return {
+		lat: from.lat + (to.lat - from.lat) * factor,
+		lng: from.lng + (to.lng - from.lng) * factor,
+	};
+}
+
+function distanceSq(
+	a: { lat: number; lng: number },
+	b: { lat: number; lng: number },
+) {
+	const dLat = a.lat - b.lat;
+	const dLng = a.lng - b.lng;
+	return dLat * dLat + dLng * dLng;
 }
 
 function pushAwayFromPoint(
@@ -489,6 +466,25 @@ function pushAwayFromPoint(
 	return {
 		lat: center.lat + dLat * scale,
 		lng: center.lng + dLng * scale,
+	};
+}
+
+function stableCitizenPositionAroundIncident(
+	incidentId: string,
+	center: { lat: number; lng: number },
+	slot: number,
+) {
+	let seed = slot * 97;
+	for (let i = 0; i < incidentId.length; i += 1) {
+		seed = (seed * 31 + incidentId.charCodeAt(i)) % 100000;
+	}
+
+	const angle = ((seed % 360) * Math.PI) / 180;
+	const radius = 0.00105 + ((seed % 5) * 0.00012);
+
+	return {
+		lat: center.lat + Math.cos(angle) * radius,
+		lng: center.lng + Math.sin(angle) * radius,
 	};
 }
 
@@ -644,56 +640,102 @@ function makeCharacterIcon(initial: string, kind: CharacterKind) {
 			? { border: "#1d4ed8", bg: "rgba(30,64,175,0.78)", text: "#dbeafe" }
 			: kind === "vigilante"
 				? {
-						border: "#b45309",
-						bg: "rgba(120,53,15,0.82)",
-						text: "#fde68a",
-					}
+					border: "#b45309",
+					bg: "rgba(120,53,15,0.82)",
+					text: "#fde68a",
+				}
 				: {
-						border: "#4b5563",
-						bg: "rgba(55,65,81,0.8)",
-						text: "#f3f4f6",
-					};
+					border: "#4b5563",
+					bg: "rgba(55,65,81,0.8)",
+					text: "#f3f4f6",
+				};
 
 	const html = `<div style="
-		width:30px;height:30px;border-radius:999px;
-		border:2px solid ${palette.border};background:${palette.bg};
-		display:flex;align-items:center;justify-content:center;
-		color:${palette.text};font-weight:800;font-size:14px;
-		text-shadow:0 0 4px rgba(0,0,0,0.8);
-		box-shadow:0 0 14px rgba(0,0,0,0.85);cursor:pointer;
-	">${initial}</div>`;
+		width:44px;
+		height:44px;
+		display:flex;
+		align-items:center;
+		justify-content:center;
+		border-radius:999px;
+		background:transparent;
+		cursor:pointer;
+		pointer-events:auto;
+	">
+		<div style="
+			width:30px;
+			height:30px;
+			border-radius:999px;
+			border:2px solid ${palette.border};
+			background:${palette.bg};
+			display:flex;
+			align-items:center;
+			justify-content:center;
+			color:${palette.text};
+			font-weight:800;
+			font-size:14px;
+			text-shadow:0 0 4px rgba(0,0,0,0.8);
+			box-shadow:0 0 14px rgba(0,0,0,0.85);
+			pointer-events:none;
+		">${initial}</div>
+	</div>`;
 
 	return L.divIcon({
 		html,
 		className: "vigilante-character-icon",
-		iconSize: [30, 30],
-		iconAnchor: [15, 15],
+		iconSize: [44, 44],
+		iconAnchor: [22, 22],
 	});
 }
 
-/** Same layout as `makeIncidentIcon` (28px circle + !), amber/yellow recruit styling */
-function makeRecruitIcon(isSelected: boolean) {
-	const border = isSelected ? "#f59e0b" : "#92400e";
-	const baseColor = "#fde68a";
-	const bg = "rgba(120,53,15,0.6)";
-	const pulse = isSelected;
-
+function makeRecruitIcon(initial: string) {
 	const html = `<div style="
-		width:28px;height:28px;border-radius:999px;
-		border:2px solid ${border};background:${bg};
+		width:34px;height:34px;border-radius:999px;
+		border:2px solid #b45309;background:rgba(120,53,15,0.86);
 		display:flex;align-items:center;justify-content:center;
-		color:${baseColor};font-weight:800;font-size:16px;
-		text-shadow:0 0 4px rgba(0,0,0,0.9);
-		box-shadow:0 0 16px rgba(0,0,0,0.9);">!</div>`;
+		color:#fde68a;font-weight:800;font-size:15px;
+		text-shadow:0 0 4px rgba(0,0,0,0.85);
+		box-shadow:0 0 18px rgba(120,53,15,0.55);cursor:pointer;
+	">${initial}</div>`;
 
 	return L.divIcon({
 		html,
-		className: pulse
-			? "vigilante-recruit-icon vigilante-recruit-icon-pulse"
-			: "vigilante-recruit-icon",
-		iconSize: [28, 28],
-		iconAnchor: [14, 14],
+		className: "vigilante-recruit-icon",
+		iconSize: [34, 34],
+		iconAnchor: [17, 17],
 	});
+}
+
+function formatEta(ms: number) {
+	const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+	const minutes = Math.floor(totalSeconds / 60);
+	const seconds = totalSeconds % 60;
+
+	if (minutes > 0) {
+		return `${minutes}m ${seconds}s`;
+	}
+	return `${seconds}s`;
+}
+
+const POLICE_BAR_MAX_MS = 60_000;
+
+function PoliceEtaBar({ etaMs }: { etaMs: number }) {
+	const ratio = Math.max(0, Math.min(1, etaMs / POLICE_BAR_MAX_MS));
+	const visibleWidth = etaMs > 0 ? Math.max(ratio * 100, 6) : 0;
+
+	return (
+		<div className="mt-2">
+			<div className="h-[5px] w-full rounded-full bg-amber-950/70 overflow-hidden border border-amber-900/40">
+				<div
+					className="h-full rounded-full transition-[width] duration-300 ease-linear shadow-[0_0_10px_rgba(251,191,36,0.55)]"
+					style={{
+						width: `${visibleWidth}%`,
+						background:
+							"linear-gradient(90deg, rgba(251,191,36,0.95) 0%, rgba(245,158,11,0.9) 100%)",
+					}}
+				/>
+			</div>
+		</div>
+	);
 }
 
 // ── Map sub-components ────────────────────────────────────────────────────────
@@ -709,69 +751,86 @@ function ZoomController({
 
 	useEffect(() => {
 		const lvl = levelConfig(level);
-		let cancelled = false;
-		let layoutTries = 0;
-		const MAX_LAYOUT_TRIES = 30;
+		const pane = map.getPane("mapPane");
+		if (!pane) return;
 
-		const finishWhenReady = () => {
-			if (cancelled) return;
-			const pane = map.getPane("mapPane");
-			if (!pane) {
-				if (layoutTries >= MAX_LAYOUT_TRIES) return;
-				layoutTries++;
-				map.invalidateSize({ animate: false });
-				window.setTimeout(finishWhenReady, 100);
-				return;
-			}
-			layoutTries = 0;
+		map.setMinZoom(lvl.zoomOut);
+		map.setMaxZoom(lvl.zoomIn);
+		map.setMaxBounds(undefined as unknown as LatLngBounds);
+		map.invalidateSize({ animate: false });
 
-			map.setMinZoom(lvl.zoomOut);
-			map.setMaxZoom(lvl.zoomIn);
-			map.setMaxBounds(undefined as unknown as LatLngBounds);
-			map.invalidateSize({ animate: false });
+		requestAnimationFrame(() => {
+			const safePane = map.getPane("mapPane");
+			if (!safePane) return;
+			map.setView(BASE, lvl.zoomOut, { animate: false });
 
 			requestAnimationFrame(() => {
-				if (cancelled) return;
-				const safePane = map.getPane("mapPane");
-				if (!safePane) {
-					if (layoutTries < MAX_LAYOUT_TRIES) {
-						layoutTries++;
-						window.setTimeout(finishWhenReady, 100);
-					}
-					return;
+				const finalPane = map.getPane("mapPane");
+				if (!finalPane) return;
+				try {
+					const b = map.getBounds();
+					map.setMaxBounds(b);
+					onBoundsReady(lvl.id, b);
+				} catch {
+					//
 				}
-				map.setView(BASE, lvl.zoomOut, { animate: false });
-
-				requestAnimationFrame(() => {
-					if (cancelled) return;
-					const finalPane = map.getPane("mapPane");
-					if (!finalPane) {
-						if (layoutTries < MAX_LAYOUT_TRIES) {
-							layoutTries++;
-							window.setTimeout(finishWhenReady, 100);
-						}
-						return;
-					}
-					try {
-						const b = map.getBounds();
-						map.setMaxBounds(b);
-						onBoundsReady(lvl.id, b);
-					} catch {
-						//
-					}
-				});
 			});
-		};
-
-		finishWhenReady();
-		return () => {
-			cancelled = true;
-		};
+		});
 	}, [level, map, onBoundsReady]);
 
 	return null;
 }
 
+function CharacterMarkerItem({
+	pin,
+	onSelect,
+}: {
+	pin: CharacterPin;
+	onSelect: (pin: CharacterPin) => void;
+}) {
+	const markerRef = useRef<L.Marker | null>(null);
+
+	const icon = useMemo(
+		() => makeCharacterIcon(pin.initial, pin.kind),
+		[pin.initial, pin.kind],
+	);
+
+	useEffect(() => {
+		if (!markerRef.current) return;
+		markerRef.current.setLatLng([pin.lat, pin.lng]);
+	}, [pin.lat, pin.lng]);
+
+	return (
+		<Marker
+			ref={(instance) => {
+				markerRef.current = instance;
+			}}
+			position={[pin.lat, pin.lng]}
+			icon={icon}
+			zIndexOffset={
+				pin.kind === "vigilante"
+					? 11000
+					: pin.kind === "police"
+						? 9000
+						: 4000
+			}
+			interactive
+			bubblingMouseEvents={false}
+			riseOnHover
+			eventHandlers={{
+				mousedown: (e) => {
+					e.originalEvent?.preventDefault?.();
+					e.originalEvent?.stopPropagation?.();
+				},
+				click: (e) => {
+					e.originalEvent?.preventDefault?.();
+					e.originalEvent?.stopPropagation?.();
+					onSelect(pin);
+				},
+			}}
+		/>
+	);
+}
 function CharacterMarkers({
 	pins,
 	onSelect,
@@ -780,32 +839,23 @@ function CharacterMarkers({
 	onSelect: (pin: CharacterPin) => void;
 }) {
 	return (
-		<Pane name="characterPane" style={{ zIndex: 700 }}>
-			{pins.map((pin) => {
-				const key = `${pin.id}-${pin.lat.toFixed(5)}-${pin.lng.toFixed(5)}`;
-				return (
-					<Marker
-						key={key}
-						position={[pin.lat, pin.lng]}
-						icon={makeCharacterIcon(pin.initial, pin.kind)}
-						zIndexOffset={pin.kind === "vigilante" ? 11000 : 0}
-						interactive
-						riseOnHover
-						eventHandlers={{ click: () => onSelect(pin) }}
-					/>
-				);
-			})}
+		<Pane name="characterPane" style={{ zIndex: 930 }}>
+			{pins.map((pin) => (
+				<CharacterMarkerItem
+					key={pin.id}
+					pin={pin}
+					onSelect={onSelect}
+				/>
+			))}
 		</Pane>
 	);
 }
 
 function RecruitMarkers({
 	leads,
-	selectedLeadId,
 	onSelect,
 }: {
 	leads: RecruitLead[];
-	selectedLeadId: string | null;
 	onSelect: (lead: RecruitLead) => void;
 }) {
 	return (
@@ -813,12 +863,11 @@ function RecruitMarkers({
 			{leads.map((lead) => {
 				const v = vigilantes.find((vv) => vv.id === lead.vigilanteId);
 				if (!v) return null;
-				const isSelected = lead.id === selectedLeadId;
 				return (
 					<Marker
 						key={lead.id}
 						position={[lead.lat, lead.lng]}
-						icon={makeRecruitIcon(isSelected)}
+						icon={makeRecruitIcon(v.name[0]?.toUpperCase() ?? "V")}
 						zIndexOffset={15000}
 						interactive
 						riseOnHover
@@ -955,6 +1004,10 @@ function parseIncidentResolution(raw: unknown): IncidentResolution | null {
 		base.vigilanteMultiplier = o.vigilanteMultiplier;
 	if (typeof o.avgArchetypeFit === "number")
 		base.avgArchetypeFit = o.avgArchetypeFit;
+	if (typeof o.staffingSupportMultiplier === "number")
+		base.staffingSupportMultiplier = o.staffingSupportMultiplier;
+	if (typeof o.gearPresenceMultiplier === "number")
+		base.gearPresenceMultiplier = o.gearPresenceMultiplier;
 	if (typeof o.luckDeltaPercent === "number")
 		base.luckDeltaPercent = o.luckDeltaPercent;
 	return base;
@@ -980,13 +1033,13 @@ function parseStoredIncident(raw: unknown): Incident | null {
 			: fallbackTypeLabel(category);
 	const deployedResourceIds = Array.isArray(o.deployedResourceIds)
 		? (o.deployedResourceIds as unknown[]).filter(
-				(x): x is string => typeof x === "string",
-			)
+			(x): x is string => typeof x === "string",
+		)
 		: undefined;
 	const deployedVigilanteIds = Array.isArray(o.deployedVigilanteIds)
 		? (o.deployedVigilanteIds as unknown[]).filter(
-				(x): x is string => typeof x === "string",
-			)
+			(x): x is string => typeof x === "string",
+		)
 		: undefined;
 	const resolution = parseIncidentResolution(o.resolution);
 	return {
@@ -1023,8 +1076,7 @@ function mergeResourcePool(
 	for (const [k, v] of Object.entries(partial)) {
 		if (!v || typeof v !== "object") continue;
 		const e = v as Record<string, unknown>;
-		if (typeof e.qty !== "number" || typeof e.deployed !== "number")
-			continue;
+		if (typeof e.qty !== "number" || typeof e.deployed !== "number") continue;
 		const qty = Math.max(0, e.qty);
 		merged[k] = {
 			qty,
@@ -1045,6 +1097,7 @@ function initialState(): GameState {
 		incidents: [],
 		showIncidentPanel: true,
 		showMinigamePanel: false,
+		showPolicePanel: true,
 		showInventoryPanel: true,
 		ownedVigilanteIds: ["bruce", "parya"],
 		recruitLeads: [],
@@ -1071,8 +1124,8 @@ function loadState(saveKey: string): GameState {
 					: null,
 			incidents: Array.isArray(p.incidents)
 				? p.incidents
-						.map(parseStoredIncident)
-						.filter((x): x is Incident => x !== null)
+					.map(parseStoredIncident)
+					.filter((x): x is Incident => x !== null)
 				: [],
 			showIncidentPanel:
 				typeof p.showIncidentPanel === "boolean"
@@ -1082,6 +1135,10 @@ function loadState(saveKey: string): GameState {
 				typeof p.showMinigamePanel === "boolean"
 					? p.showMinigamePanel
 					: false,
+			showPolicePanel:
+				typeof p.showPolicePanel === "boolean"
+					? p.showPolicePanel
+					: true,
 			showInventoryPanel:
 				typeof p.showInventoryPanel === "boolean"
 					? p.showInventoryPanel
@@ -1142,20 +1199,36 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 		breakdown: DispatchRollBreakdown;
 		contextLabel: string;
 	} | null>(null);
-	const resolveIncidentTimeoutRef = useRef<ReturnType<
-		typeof setTimeout
-	> | null>(null);
+	const resolveIncidentTimeoutRef =
+		useRef<ReturnType<typeof setTimeout> | null>(null);
 	const [overlayMode, setOverlayMode] = useState<OverlayMode>("recruit");
 	const [dialogue, setDialogue] = useState<DialogueState>(null);
 	const [showVettingModal, setShowVettingModal] = useState(false);
-	const { play } = useSfx();
-	const playSfxRef = useRef(play);
-	playSfxRef.current = play;
 
-	// ── TTS + incident dialogue ───────────────────────────────────────────────
-	const { speak, stop: stopTTS, isBusy } = useElevenLabsTTS();
-	const [incidentDialogue, setIncidentDialogue] =
-		useState<IncidentDialogueLine | null>(null);
+	const helperBase =
+		STATIC_CHARACTER_BASES.find((p) => p.id === "cit-helper") ??
+		STATIC_CHARACTER_BASES[0];
+
+	const [helperPos, setHelperPos] = useState({
+		lat: helperBase.lat,
+		lng: helperBase.lng,
+	});
+	const [policeRenderItems, setPoliceRenderItems] = useState<PoliceRenderItem[]>(
+		() =>
+			STATIC_CHARACTER_BASES.filter(
+				(pin) => pin.kind === "police",
+			).map((pin) => ({
+				pinId: pin.id as PoliceRenderItem["pinId"],
+				name: pin.name,
+				initial: pin.initial,
+				lat: pin.lat,
+				lng: pin.lng,
+				mode: "patrolling",
+				visiblePath: [],
+				assignedIncidentId: null,
+			})),
+	);
+	const [policeEtaItems, setPoliceEtaItems] = useState<PoliceEtaItem[]>([]);
 
 	const levelBoundsRef = useRef<Map<number, LatLngBounds>>(new Map());
 	const spawnPlacesByLevelRef = useRef<Map<number, OsmPlace[]>>(new Map());
@@ -1224,8 +1297,6 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 	useEffect(() => {
 		setDeployModalOpen(false);
 		setChanceRollOverlay(null);
-		// Clear any pending incident dialogue when selection changes
-		setIncidentDialogue(null);
 	}, [state.selectedIncidentId]);
 
 	useEffect(() => {
@@ -1294,7 +1365,6 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 	// ── Incident helpers ──────────────────────────────────────────────────────
 
 	const expireIncident = (id: string) => {
-		play("incidentExpire");
 		setState((s) => ({
 			...s,
 			careerStats: {
@@ -1308,7 +1378,6 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 	};
 
 	const handleIncidentSelect = (id: string) => {
-		play("incidentSelect");
 		setSelectedRecruitLeadId(null);
 		setSelectedOwnedVigilanteId(null);
 		setDialogue(null);
@@ -1320,18 +1389,6 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 					selectedIncidentId: null,
 					showIncidentPanel: false,
 				};
-			}
-			const incident = s.incidents.find((i) => i.id === id);
-			if (incident) {
-				queueMicrotask(() => {
-					const line = pickIncidentDialogueLine(incident.category, {
-						chance: INCIDENT_SELECT_DIALOGUE_CHANCE,
-					});
-					if (line) {
-						setDialogue(null);
-						setIncidentDialogue(line);
-					}
-				});
 			}
 			const incidents = [...s.incidents];
 			const idx = incidents.findIndex((i) => i.id === id);
@@ -1386,7 +1443,6 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 				role: citizen.role,
 				portrait: citizen.portrait,
 				text: randomFrom(citizen.lines),
-				speakerId: pin.id,
 			});
 			return;
 		}
@@ -1397,7 +1453,6 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 				role: NPC_DIALOGUE.chief.role,
 				portrait: NPC_DIALOGUE.chief.portrait,
 				text: randomFrom(NPC_DIALOGUE.chief.lines),
-				speakerId: pin.id,
 			});
 			return;
 		}
@@ -1410,7 +1465,6 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 			role: officer.role,
 			portrait: officer.portrait,
 			text: randomFrom(officer.lines),
-			speakerId: pin.id,
 		});
 	};
 
@@ -1440,24 +1494,6 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 		setShowVettingModal(false);
 	};
 
-	// ── TTS handlers ─────────────────────────────────────────────────────────
-
-	const handleDialogueSpeak = useCallback(
-		(text: string, speakerId: string) => {
-			void speak(text, speakerId);
-		},
-		[speak],
-	);
-
-	const handleDialogueStopSpeak = useCallback(() => {
-		stopTTS();
-	}, [stopTTS]);
-
-	const handleDialogueClose = useCallback(() => {
-		stopTTS();
-		setIncidentDialogue(null);
-	}, [stopTTS]);
-
 	const handleDeployConfirm = (payload: {
 		vigilanteIds: string[];
 		resourceIds: string[];
@@ -1476,20 +1512,6 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 		}
 		if (!canStageDeployment(state.resourcePool, payload.resourceIds))
 			return;
-
-		const nowCheck = Date.now();
-		if (
-			!payload.vigilanteIds.every(
-				(vid) =>
-					!isVigilanteRecovering(
-						nowCheck,
-						state.vigilanteInjuryUntil,
-						vid,
-					),
-			)
-		) {
-			return;
-		}
 
 		const assignedVigs = vigilantes.filter((v) =>
 			payload.vigilanteIds.includes(v.id),
@@ -1520,8 +1542,7 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 				buffMultiplier: rollOutcome.buffMultiplier,
 				vigilanteMultiplier: rollOutcome.vigilanteMultiplier,
 				avgArchetypeFit: rollOutcome.avgArchetypeFit,
-				staffingSupportMultiplier:
-					rollOutcome.staffingSupportMultiplier,
+				staffingSupportMultiplier: rollOutcome.staffingSupportMultiplier,
 				gearPresenceMultiplier: rollOutcome.gearPresenceMultiplier,
 				luckDeltaPercent: rollOutcome.luckDeltaPercent,
 			},
@@ -1537,11 +1558,11 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 				incidents: s.incidents.map((x) =>
 					x.id === id
 						? {
-								...x,
-								status: "resolving" as const,
-								deployedResourceIds: [...payload.resourceIds],
-								deployedVigilanteIds: [...payload.vigilanteIds],
-							}
+							...x,
+							status: "resolving" as const,
+							deployedResourceIds: [...payload.resourceIds],
+							deployedVigilanteIds: [...payload.vigilanteIds],
+						}
 						: x,
 				),
 			};
@@ -1552,13 +1573,6 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 				const cur = s.incidents.find((x) => x.id === id);
 				if (!cur || cur.status !== "resolving") return s;
 				const deployed = cur.deployedResourceIds ?? [];
-				const deployedVigs = cur.deployedVigilanteIds ?? [];
-				const now = Date.now();
-				const vigilanteInjuryUntil = rollInjuryUpdatesAfterResolve(
-					now,
-					deployedVigs,
-					s.vigilanteInjuryUntil,
-				);
 				let pool = s.resourcePool;
 				if (deployed.length > 0) {
 					if (rollOutcome.success) {
@@ -1569,7 +1583,6 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 				}
 				return {
 					...s,
-					vigilanteInjuryUntil,
 					resourcePool: pool,
 					careerStats: {
 						...s.careerStats,
@@ -1585,30 +1598,34 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 					incidents: s.incidents.map((x) =>
 						x.id === id
 							? {
-									...x,
-									status: "resolved" as const,
-									deployedResourceIds: [],
-									resolution: {
-										success: rollOutcome.success,
-										adjustedPercent:
-											rollOutcome.adjustedPercent,
-										beforeLuckPercent:
-											rollOutcome.beforeLuckPercent,
-										rolled: rollOutcome.rolled,
-										baseChancePercent:
-											rollOutcome.baseChancePercent,
-										resourceMultiplier:
-											rollOutcome.resourceMultiplier,
-										buffMultiplier:
-											rollOutcome.buffMultiplier,
-										vigilanteMultiplier:
-											rollOutcome.vigilanteMultiplier,
-										avgArchetypeFit:
-											rollOutcome.avgArchetypeFit,
-										luckDeltaPercent:
-											rollOutcome.luckDeltaPercent,
-									},
-								}
+								...x,
+								status: "resolved" as const,
+								deployedResourceIds: [],
+								resolution: {
+									success: rollOutcome.success,
+									adjustedPercent:
+										rollOutcome.adjustedPercent,
+									beforeLuckPercent:
+										rollOutcome.beforeLuckPercent,
+									rolled: rollOutcome.rolled,
+									baseChancePercent:
+										rollOutcome.baseChancePercent,
+									resourceMultiplier:
+										rollOutcome.resourceMultiplier,
+									buffMultiplier:
+										rollOutcome.buffMultiplier,
+									vigilanteMultiplier:
+										rollOutcome.vigilanteMultiplier,
+									avgArchetypeFit:
+										rollOutcome.avgArchetypeFit,
+									staffingSupportMultiplier:
+										rollOutcome.staffingSupportMultiplier,
+									gearPresenceMultiplier:
+										rollOutcome.gearPresenceMultiplier,
+									luckDeltaPercent:
+										rollOutcome.luckDeltaPercent,
+								},
+							}
 							: x,
 					),
 				};
@@ -1646,7 +1663,7 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 
 		let alive = true;
 		const MAX_ACTIVE = 100;
-		const SPAWN_INTERVAL_MS = 20_000;
+		const SPAWN_INTERVAL_MS = 5_000;
 
 		const scheduleNext = () => {
 			if (!alive) return;
@@ -1664,31 +1681,35 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 					const places =
 						spawnPlacesByLevelRef.current.get(s.level) ?? [];
 					const place = pickSpatiallyUniformPoi(places, bounds);
-					if (!place) return s;
 
-					const newIncident = makeIncident(
-						place.lat,
-						place.lng,
-						place,
-					);
-
-					// 20% chance to trigger a voiced dialogue line for this incident.
-					// Delay slightly so the map marker renders first.
-					const dialogueLine = pickIncidentDialogueLine(
-						newIncident.category,
-					);
-					if (dialogueLine) {
-						setTimeout(() => {
-							setDialogue(null);
-							setIncidentDialogue(dialogueLine);
-						}, 600);
+					if (place) {
+						return {
+							...s,
+							incidents: [
+								...s.incidents,
+								makeIncident(place.lat, place.lng, place),
+							],
+						};
 					}
 
-					queueMicrotask(() => playSfxRef.current("incidentAlert"));
+					const fallbackPoint = sampleInBounds(bounds);
+					const fallbackPlace: OsmPlace = {
+						name: "Unknown location",
+						lat: fallbackPoint.lat,
+						lng: fallbackPoint.lng,
+						kind: "fallback",
+					};
 
 					return {
 						...s,
-						incidents: [...s.incidents, newIncident],
+						incidents: [
+							...s.incidents,
+							makeIncident(
+								fallbackPlace.lat,
+								fallbackPlace.lng,
+								fallbackPlace,
+							),
+						],
 					};
 				});
 				scheduleNext();
@@ -1705,8 +1726,7 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 	useEffect(() => {
 		let alive = true;
 		const MAX_RECRUITS = 3;
-		/** ~1 recruit lead per minute */
-		const SPAWN_INTERVAL_MS = 60_000;
+		const SPAWN_INTERVAL_MS = 18_000;
 
 		const scheduleNext = () => {
 			if (!alive) return;
@@ -1751,10 +1771,10 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 							Math.random() < 0.45
 								? randomFrom(undercoverAvailable)
 								: randomFrom(
-										normalAvailable.length > 0
-											? normalAvailable
-											: available,
-									);
+									normalAvailable.length > 0
+										? normalAvailable
+										: available,
+								);
 					} else {
 						chosen = randomFrom(
 							normalAvailable.length > 0
@@ -1763,13 +1783,6 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 						);
 					}
 
-					queueMicrotask(() => {
-						const line = pickRecruitDialogueLine(chosen.id);
-						if (line) {
-							setDialogue(null);
-							setIncidentDialogue(line);
-						}
-					});
 					return {
 						...s,
 						recruitLeads: [
@@ -1837,8 +1850,18 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 		return () => window.clearInterval(id);
 	}, [inventorySorterOpen, selectedRecruitLeadId, state.recruitLeads]);
 
-	// ── Derived pin list ──────────────────────────────────────────────────────
-	const visibleDynamicPins = useMemo(() => {
+	// ── NPC movement ──────────────────────────────────────────────────────────
+	useEffect(() => {
+		const id = window.setInterval(() => {
+			setHelperPos(() => {
+				const moved = nudgeNearby(helperBase.lat, helperBase.lng);
+				return { lat: moved.lat, lng: moved.lng };
+			});
+		}, 9000);
+		return () => window.clearInterval(id);
+	}, [helperBase.lat, helperBase.lng]);
+
+	const incidentCitizenPins = useMemo(() => {
 		const activeIncidents = state.incidents.filter(isOngoingIncident);
 
 		const citizenTemplates = [
@@ -1847,23 +1870,47 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 			STATIC_CHARACTER_BASES.find((p) => p.id === "cit-woman"),
 		].filter(Boolean) as CharacterPin[];
 
-		const incidentCitizens: CharacterPin[] = activeIncidents
-			.slice(0, citizenTemplates.length)
-			.map((incident, idx) => {
-				const tpl = citizenTemplates[idx];
-				const near = nudgeNearPoint(incident.lat, incident.lng, 0.0018);
-				const safe = pushAwayFromPoint(
-					near,
-					{ lat: incident.lat, lng: incident.lng },
-					0.00095,
-				);
-				return { ...tpl, lat: safe.lat, lng: safe.lng };
-			});
+		return activeIncidents.slice(0, citizenTemplates.length).map((incident, idx) => {
+			const tpl = citizenTemplates[idx];
+			const stable = stableCitizenPositionAroundIncident(
+				incident.id,
+				{ lat: incident.lat, lng: incident.lng },
+				idx,
+			);
 
-		const ownedRoster = vigilantes.filter(
-			(v) =>
-				state.ownedVigilanteIds.includes(v.id) &&
-				!VIGILANTE_IDS_HIDDEN_ON_MAP.has(v.id),
+			return {
+				...tpl,
+				lat: stable.lat,
+				lng: stable.lng,
+			};
+		});
+	}, [state.incidents]);
+	// ── Derived pin list ──────────────────────────────────────────────────────
+	const visibleDynamicPins = useMemo(() => {
+		const evanAvailable = state.recruitLeads.some(
+			(lead) => lead.vigilanteId === "familiar-face",
+		);
+
+		const helperPin: CharacterPin = {
+			id: "cit-helper",
+			name: "Helper",
+			initial: "H",
+			kind: "citizen",
+			lat: helperPos.lat,
+			lng: helperPos.lng,
+		};
+
+		const policePins: CharacterPin[] = policeRenderItems.map((item) => ({
+			id: item.pinId,
+			name: item.name,
+			initial: item.initial,
+			kind: "police",
+			lat: item.lat,
+			lng: item.lng,
+		}));
+
+		const ownedRoster = vigilantes.filter((v) =>
+			state.ownedVigilanteIds.includes(v.id),
 		);
 		const ownedPins: CharacterPin[] = ownedRoster.map((v, i) => {
 			const off =
@@ -1878,8 +1925,14 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 			};
 		});
 
-		return [...incidentCitizens, ...ownedPins];
-	}, [state.incidents, state.ownedVigilanteIds]);
+		return [helperPin, ...incidentCitizenPins, ...policePins, ...ownedPins];
+	}, [
+		state.recruitLeads,
+		state.ownedVigilanteIds,
+		helperPos,
+		incidentCitizenPins,
+		policeRenderItems,
+	]);
 
 	const zoomConfig = useMemo(
 		() => ({
@@ -1901,8 +1954,8 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 		() =>
 			selectedRecruitLead
 				? (vigilantes.find(
-						(v) => v.id === selectedRecruitLead.vigilanteId,
-					) ?? null)
+					(v) => v.id === selectedRecruitLead.vigilanteId,
+				) ?? null)
 				: null,
 		[selectedRecruitLead],
 	);
@@ -1965,9 +2018,14 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 				.vigilante-recruit-icon { background: none; border: none; }
 				.vigilante-hide-scrollbar::-webkit-scrollbar { display: none; }
 				.vigilante-hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-				.leaflet-pane.characterPane { z-index: 700 !important; }
+				.leaflet-pane.characterPane { z-index: 930 !important; }
 				.leaflet-pane.incidentPane { z-index: 820 !important; }
-				.leaflet-pane.recruitPane { z-index: 860 !important; }
+				.leaflet-pane.recruitPane { z-index: 960 !important; }
+				.leaflet-marker-icon.vigilante-character-icon,
+				.leaflet-marker-icon.vigilante-recruit-icon {
+					pointer-events: auto !important;
+				}
+
 				.vigilante-character-icon > div,
 				.vigilante-recruit-icon > div {
 					cursor: pointer !important;
@@ -1980,18 +2038,6 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 				}
 				.vigilante-incident-icon-pulse > div {
 					animation-name: vigilante-pulse-soft;
-					animation-duration: 2.2s;
-					animation-timing-function: cubic-bezier(0.25, 0.1, 0.25, 1);
-					animation-iteration-count: infinite;
-					will-change: box-shadow;
-				}
-				@keyframes vigilante-pulse-recruit {
-					0%   { box-shadow: 0 0 0 0 rgba(245,158,11,0.4); }
-					60%  { box-shadow: 0 0 0 10px rgba(245,158,11,0); }
-					100% { box-shadow: 0 0 0 12px rgba(245,158,11,0); }
-				}
-				.vigilante-recruit-icon-pulse > div {
-					animation-name: vigilante-pulse-recruit;
 					animation-duration: 2.2s;
 					animation-timing-function: cubic-bezier(0.25, 0.1, 0.25, 1);
 					animation-iteration-count: infinite;
@@ -2030,13 +2076,28 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 					updateWhenZooming
 					updateWhenIdle={false}
 				/>
+				<PoliceSystem
+					incidents={state.incidents.map((incident) => ({
+						id: incident.id,
+						lat: incident.lat,
+						lng: incident.lng,
+						status:
+							incident.status === "active"
+								? "active"
+								: incident.status === "resolved"
+									? "resolved"
+									: "resolving",
+						expiresAt: incident.expiresAt,
+					}))}
+					onPoliceRenderUpdate={setPoliceRenderItems}
+					onPoliceEtaUpdate={setPoliceEtaItems}
+				/>
 				<CharacterMarkers
 					pins={visibleDynamicPins}
 					onSelect={handleCharacterSelect}
 				/>
 				<RecruitMarkers
 					leads={state.recruitLeads}
-					selectedLeadId={selectedRecruitLeadId}
 					onSelect={handleRecruitSelect}
 				/>
 				<IncidentMarkers
@@ -2070,9 +2131,8 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 								scale: 0.98,
 							}}
 							transition={{ duration: 0.2, ease: "easeOut" }}
-							className={`absolute top-6 bottom-6 z-[2010] w-[min(34vw,460px)] min-w-[340px] overflow-hidden rounded-2xl border border-amber-900/40 bg-black/75 text-amber-100 shadow-[0_18px_70px_rgba(0,0,0,0.55)] backdrop-blur-md ${
-								overlayMode === "owned" ? "right-6" : "left-6"
-							}`}
+							className={`absolute top-6 bottom-6 z-[2010] w-[min(34vw,460px)] min-w-[340px] overflow-hidden rounded-2xl border border-amber-900/40 bg-black/75 text-amber-100 shadow-[0_18px_70px_rgba(0,0,0,0.55)] backdrop-blur-md ${overlayMode === "owned" ? "right-6" : "left-6"
+								}`}
 						>
 							<div className="flex h-full flex-col">
 								<div className="flex items-start justify-between border-b border-amber-900/30 px-5 py-4">
@@ -2118,7 +2178,7 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 													</span>
 												) : null}
 												{typeof activeDossier.heat ===
-												"number" ? (
+													"number" ? (
 													<span className="rounded-full border border-red-900/35 bg-red-950/20 px-3 py-1 text-[11px] uppercase tracking-[0.15em] text-red-300/75">
 														Heat{" "}
 														{activeDossier.heat}
@@ -2202,6 +2262,57 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 				) : null}
 			</AnimatePresence>
 
+			{/* ── NPC dialogue ── */}
+			<AnimatePresence>
+				{dialogue ? (
+					<motion.div
+						initial={{ opacity: 0, y: 16 }}
+						animate={{ opacity: 1, y: 0 }}
+						exit={{ opacity: 0, y: 10 }}
+						transition={{ duration: 0.2, ease: "easeOut" }}
+						className="absolute bottom-6 left-6 z-[2020] w-[min(52vw,720px)] min-w-[320px]"
+					>
+						<div className="overflow-hidden rounded-2xl border border-amber-900/40 bg-black/75 shadow-[0_18px_70px_rgba(0,0,0,0.55)] backdrop-blur-md">
+							<div className="flex items-start">
+								<div className="shrink-0 border-r border-amber-900/30 bg-black/30 p-4">
+									<div className="relative h-[170px] w-[132px] overflow-hidden rounded-md">
+										<Image
+											src={dialogue.portrait}
+											alt={dialogue.name}
+											fill
+											className="object-cover object-center"
+											sizes="132px"
+										/>
+									</div>
+								</div>
+								<div className="flex min-h-[202px] flex-1 flex-col justify-between px-5 py-4">
+									<div>
+										<div className="text-[11px] uppercase tracking-[0.24em] text-amber-400/70">
+											{dialogue.role}
+										</div>
+										<div className="mt-1 text-xl font-bold text-amber-100">
+											{dialogue.name}
+										</div>
+										<p className="mt-4 text-sm leading-7 text-amber-100/80">
+											{dialogue.text}
+										</p>
+									</div>
+									<div className="mt-4 flex items-center justify-end gap-3">
+										<button
+											type="button"
+											onClick={() => setDialogue(null)}
+											className="rounded-xl border border-amber-700/40 bg-amber-950/30 px-4 py-2.5 text-sm font-semibold text-amber-100 hover:bg-amber-900/35 transition"
+										>
+											Continue
+										</button>
+									</div>
+								</div>
+							</div>
+						</div>
+					</motion.div>
+				) : null}
+			</AnimatePresence>
+
 			<VettingMinigameModal
 				open={
 					showVettingModal &&
@@ -2231,15 +2342,13 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 							<button
 								key={lvl.id}
 								type="button"
-								onClick={() => {
-									play("zoomTier");
-									setState((s) => ({ ...s, level: lvl.id }));
-								}}
-								className={`px-3 py-1 rounded-md border cursor-pointer ${
-									state.level === lvl.id
-										? "border-amber-500/70 bg-amber-900/40 text-amber-100"
-										: "border-amber-900/50 bg-black/30 text-amber-200/60 hover:border-amber-700/60 hover:text-amber-100"
-								}`}
+								onClick={() =>
+									setState((s) => ({ ...s, level: lvl.id }))
+								}
+								className={`px-3 py-1 rounded-md border cursor-pointer ${state.level === lvl.id
+									? "border-amber-500/70 bg-amber-900/40 text-amber-100"
+									: "border-amber-900/50 bg-black/30 text-amber-200/60 hover:border-amber-700/60 hover:text-amber-100"
+									}`}
 							>
 								{lvl.label}
 							</button>
@@ -2253,13 +2362,12 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 				<div className="pointer-events-auto mt-4">
 					<button
 						type="button"
-						onClick={() => {
-							play("panelToggle");
+						onClick={() =>
 							setState((s) => ({
 								...s,
 								showIncidentPanel: !s.showIncidentPanel,
-							}));
-						}}
+							}))
+						}
 						className="cursor-pointer rounded-r-full rounded-l-none border border-amber-900/60 bg-black/75 px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-amber-200/80 hover:border-amber-500/80 hover:text-amber-100 transition-colors flex items-center gap-1"
 					>
 						<span>Incidents</span>
@@ -2310,28 +2418,25 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 											onClick={() =>
 												handleIncidentSelect(inc.id)
 											}
-											className={`w-full text-left rounded-lg border px-3 py-2 text-xs transition-colors cursor-pointer ${
-												isSelected
-													? "border-amber-500/80 bg-amber-900/50 text-amber-100"
-													: "border-amber-900/50 bg-black/40 text-amber-200/70 hover:border-amber-700/70 hover:text-amber-100"
-											}`}
+											className={`w-full text-left rounded-lg border px-3 py-2 text-xs transition-colors cursor-pointer ${isSelected
+												? "border-amber-500/80 bg-amber-900/50 text-amber-100"
+												: "border-amber-900/50 bg-black/40 text-amber-200/70 hover:border-amber-700/70 hover:text-amber-100"
+												}`}
 										>
 											<div className="flex items-start gap-3">
 												<div
-													className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] ${
-														inc.status ===
-														"resolved"
-															? "border-amber-800/50 bg-amber-950/35 text-amber-200/70"
-															: inc.status ===
-																  "resolving"
-																? "border-amber-700/60 bg-amber-950/40 text-amber-200"
-																: "border-red-900 bg-red-900/30 text-red-300"
-													}`}
+													className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] ${inc.status === "resolved"
+														? "border-amber-800/50 bg-amber-950/35 text-amber-200/70"
+														: inc.status ===
+															"resolving"
+															? "border-amber-700/60 bg-amber-950/40 text-amber-200"
+															: "border-red-900 bg-red-900/30 text-red-300"
+														}`}
 												>
 													{inc.status === "active"
 														? "!"
 														: inc.status ===
-															  "resolving"
+															"resolving"
 															? "…"
 															: "·"}
 												</div>
@@ -2342,8 +2447,7 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 																inc.typeLabel,
 															)}
 														</div>
-														{statusBadge !=
-															null && (
+														{statusBadge != null && (
 															<span className="shrink-0 text-[9px] uppercase tracking-[0.12em] text-amber-400/70">
 																{statusBadge}
 															</span>
@@ -2352,8 +2456,7 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 													<div className="mt-1 text-[11px] text-amber-200/70 leading-snug">
 														{inc.summary}
 													</div>
-													{inc.status ===
-														"active" && (
+													{inc.status === "active" && (
 														<IncidentTimerBar
 															createdAt={
 																inc.createdAt
@@ -2376,8 +2479,7 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 
 								{state.incidents.length === 0 && (
 									<div className="text-[11px] text-amber-200/40 px-1 py-2">
-										No incidents. The city is quiet… for
-										now.
+										No incidents. The city is quiet… for now.
 									</div>
 								)}
 
@@ -2446,10 +2548,7 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 			</div>
 
 			{/* ── Left minigame panel + toggle ── */}
-			<div
-				className="fixed left-0 flex items-start"
-				style={{ top: 160, zIndex: 2000 }}
-			>
+			<div className="fixed left-0 flex items-start" style={{ top: 160, zIndex: 2000 }}>
 				<div className="pointer-events-auto">
 					<button
 						type="button"
@@ -2498,9 +2597,7 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 										key={game.id}
 										type="button"
 										onClick={() => {
-											if (
-												game.id === "inventory-sorter"
-											) {
+											if (game.id === "inventory-sorter") {
 												setInventorySorterOpen(true);
 											}
 										}}
@@ -2508,10 +2605,7 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 									>
 										<div className="flex items-start gap-3">
 											<div className="mt-0.5 h-8 w-8 rounded-lg border border-amber-800/60 bg-amber-950/30 flex items-center justify-center text-amber-300">
-												<Package2
-													className="w-4 h-4"
-													aria-hidden
-												/>
+												<Package2 className="w-4 h-4" aria-hidden />
 											</div>
 											<div className="flex-1">
 												<div className="flex items-center justify-between gap-2">
@@ -2541,6 +2635,99 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 				</AnimatePresence>
 			</div>
 
+			<div
+				className="fixed left-0 flex items-start"
+				style={{ top: 270, zIndex: 2000 }}
+			>
+				<div className="pointer-events-auto">
+					<button
+						type="button"
+						onClick={() =>
+							setState((s) => ({
+								...s,
+								showPolicePanel: !s.showPolicePanel,
+							}))
+						}
+						className="cursor-pointer rounded-r-full rounded-l-none border border-amber-900/60 bg-black/75 px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-amber-200/80 hover:border-amber-500/80 hover:text-amber-100 transition-colors flex items-center gap-1 shadow-[0_0_18px_rgba(120,53,15,0.18)]"
+					>
+						<span>Police</span>
+						<span className="text-[11px] flex items-center">
+							{state.showPolicePanel ? (
+								<ChevronLeft className="w-3 h-3" aria-hidden />
+							) : (
+								<ChevronRight className="w-3 h-3" aria-hidden />
+							)}
+						</span>
+					</button>
+				</div>
+
+				<AnimatePresence initial={false}>
+					{state.showPolicePanel && (
+						<motion.div
+							key="police-panel"
+							initial={{ x: -320, opacity: 0 }}
+							animate={{ x: 0, opacity: 1 }}
+							exit={{ x: -320, opacity: 0 }}
+							transition={{
+								type: "tween",
+								duration: 0.22,
+								ease: "easeOut",
+							}}
+							className="pointer-events-auto ml-2 w-80 max-w-[80vw] rounded-xl border border-amber-900/40 bg-black/55 backdrop-blur-md shadow-xl shadow-black/60 flex flex-col"
+						>
+							<div className="flex items-center justify-between px-4 py-3 border-b border-amber-900/40">
+								<div className="text-xs font-semibold tracking-[0.18em] uppercase text-amber-300/80">
+									Police
+								</div>
+							</div>
+
+							<div className="relative flex-1 max-h-72 overflow-y-auto px-3 py-2 space-y-2 vigilante-hide-scrollbar">
+								{[...policeEtaItems]
+									.sort((a, b) => a.etaMs - b.etaMs)
+									.map((item) => (
+										<div
+											key={`${item.unitId}_${item.incidentId}`}
+											className="w-full text-left rounded-lg border px-3 py-2 text-xs border-amber-900/50 bg-black/40 text-amber-200/80 shadow-[inset_0_1px_0_rgba(251,191,36,0.03)]"
+										>
+											<div className="flex items-start gap-3">
+												<div className="mt-0.5 h-5 w-5 rounded-full border border-red-900 bg-red-900/30 flex items-center justify-center text-[11px] text-red-300">
+													P
+												</div>
+												<div className="flex-1">
+													<div className="font-semibold text-[11px] uppercase tracking-[0.16em] text-amber-100/95">
+														{item.name}
+													</div>
+													<div className="mt-1 text-[11px] text-amber-200/70 line-clamp-2">
+														Responding to {item.incidentId.slice(0, 12)}...
+													</div>
+													<div className="mt-1 text-[11px] text-amber-100/90">
+														ETA: {formatEta(item.etaMs)}
+													</div>
+													<PoliceEtaBar etaMs={item.etaMs} />
+												</div>
+											</div>
+										</div>
+									))}
+
+								{policeEtaItems.length === 0 && (
+									<div className="text-[11px] text-amber-200/50 px-1 py-2">
+										No police currently en route.
+									</div>
+								)}
+
+								<div className="pointer-events-none absolute inset-x-0 bottom-0 h-4 bg-linear-to-t from-black/70 to-transparent" />
+							</div>
+
+							{policeEtaItems.length > 3 && (
+								<div className="px-3 pt-2 pb-3 text-[10px] text-amber-200/50">
+									More police responses below – scroll to view.
+								</div>
+							)}
+						</motion.div>
+					)}
+				</AnimatePresence>
+			</div>
+
 			{chanceRollOverlay && (
 				<IncidentChanceRollOverlay
 					rolled={chanceRollOverlay.rolled}
@@ -2562,19 +2749,19 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 					selectedIncident.status === "active"
 				}
 				incident={
-					selectedIncident && selectedIncident.status === "active"
+					selectedIncident &&
+						selectedIncident.status === "active"
 						? {
-								id: selectedIncident.id,
-								category: selectedIncident.category,
-								typeLabel: selectedIncident.typeLabel,
-								summary: selectedIncident.summary,
-								createdAt: selectedIncident.createdAt,
-								expiresAt: selectedIncident.expiresAt,
-							}
+							id: selectedIncident.id,
+							category: selectedIncident.category,
+							typeLabel: selectedIncident.typeLabel,
+							summary: selectedIncident.summary,
+							createdAt: selectedIncident.createdAt,
+							expiresAt: selectedIncident.expiresAt,
+						}
 						: null
 				}
 				ownedVigilanteIds={state.ownedVigilanteIds}
-				vigilanteInjuryUntil={state.vigilanteInjuryUntil}
 				vigilanteSheets={vigilantes}
 				resourcePool={state.resourcePool}
 				onClose={() => setDeployModalOpen(false)}
@@ -2661,49 +2848,6 @@ export default function StreetMapScene({ saveKey, saveSlot, cloudSync }: Props) 
 						</motion.div>
 					)}
 				</AnimatePresence>
-			</div>
-
-			{/* ── Dialogue: viewport bottom-right (may overlap inventory strip) ── */}
-			<div className="pointer-events-none absolute bottom-2 left-4 z-[2500] w-[min(92vw,720px)] min-w-[300px]">
-				<div className="pointer-events-auto">
-					<NPCDialogueBox
-						docked
-						open={!!dialogue && !incidentDialogue}
-						speaker={
-							dialogue
-								? {
-										id: dialogue.speakerId,
-										name: dialogue.name,
-										role: dialogue.role,
-										portrait: dialogue.portrait,
-									}
-								: null
-						}
-						text={dialogue?.text ?? ""}
-						onClose={() => setDialogue(null)}
-						onNext={() => setDialogue(null)}
-					/>
-					<NPCDialogueBox
-						docked
-						open={!!incidentDialogue}
-						speaker={
-							incidentDialogue
-								? {
-										id: incidentDialogue.speakerId,
-										name: incidentDialogue.speakerName,
-										role: incidentDialogue.speakerRole,
-										portrait: incidentDialogue.portrait,
-									}
-								: null
-						}
-						text={incidentDialogue?.text ?? ""}
-						onClose={handleDialogueClose}
-						onNext={handleDialogueClose}
-						onSpeak={handleDialogueSpeak}
-						onStopSpeak={handleDialogueStopSpeak}
-						isSpeaking={isBusy}
-					/>
-				</div>
 			</div>
 		</div>
 	);
