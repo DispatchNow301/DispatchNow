@@ -70,6 +70,7 @@ function MultiplayerPlayInner() {
 				if (playerData.length >= 2) {
 					if (sessionData.status !== "active") {
 						await updateSessionStatus(sessionId, "active");
+						if (!active) return;
 					}
 					if (active) {
 						setGameStarted(true);
@@ -158,7 +159,7 @@ function MultiplayerPlayInner() {
 						<>
 							<div className="text-sm space-y-1">
 								<div>Session ID: {session?.id}</div>
-								<div>Join Code: {session?.join_code ?? code || "—"}</div>
+								<div>Join Code: {(session?.join_code ?? code) || "—"}</div>
 								<div>Status: {session?.status ?? "—"}</div>
 								<div>Players Joined: {players.length}/2</div>
 							</div>

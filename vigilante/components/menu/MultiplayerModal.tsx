@@ -108,7 +108,7 @@ export default function MultiplayerModal({ open, onClose, isSignedIn }: Multipla
     };
 
     const createGame = async () => {
-      if (isSignedIn || !selectedSlot || !user) return;
+      if (!isSignedIn || !selectedSlot || !user) return;
 
       if (!generatedCode) {
         setErrorMessage("Generate a join code first.");
@@ -118,7 +118,7 @@ export default function MultiplayerModal({ open, onClose, isSignedIn }: Multipla
       try {
         setLoading(true);
         setErrorMessage("");
-        play?.("click");
+        play?.("uiClick");
         ensureSlot(selectedSlot);
 
         const session = await createMultiplayerSession({
@@ -143,12 +143,12 @@ export default function MultiplayerModal({ open, onClose, isSignedIn }: Multipla
     };
 
     const joinGame = async () => {
-      if (isSignedIn || joinCode.length !== 6 || !user) return;
+      if (!isSignedIn || joinCode.length !== 6 || !user) return;
 
       try {
         setLoading(true);
         setErrorMessage("");
-        play?.("click");
+        play?.("uiClick");
 
         const session = await getSessionByJoinCode(joinCode);
         if (!session) {
@@ -217,7 +217,7 @@ export default function MultiplayerModal({ open, onClose, isSignedIn }: Multipla
 							onClick={() => {
 								setTab(t);
 								setErrorMessage("");
-								play("Click");
+								play("uiClick");
 							}}
 							className={`flex-1 py-3 text-sm font-medium capitalize transition-colors ${
 								tab === t

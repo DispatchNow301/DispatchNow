@@ -147,7 +147,7 @@ if (typeof window !== "undefined") {
 }
 
 type Props = {
-  saveKey: string;
+  saveKey?: string;
   /** slot identity for menu `updatedAt` / titles (`vigilante:save:*`), separate from `saveKey` game blob. */
   saveSlot?: SaveSlotId;
   /** When set, game state is upserted to Supabase once per minute while you play, plus on tab close. */
@@ -671,19 +671,18 @@ function makeTheftIncident(site: TheftSite): Incident {
 	const pos = nudgeNearPoint(site.lat, site.lng, 0.00035);
 
 	return {
-		id: `theft_incident_${site.id}_${now.toString(16)}`,
+		id: `theft-${site.id}-${now}`,
 		category: "crime",
-		typeLabel: "Police call",
+		typeLabel: site.name,
 		status: "active",
 		lat: pos.lat,
 		lng: pos.lng,
-		title: `Theft reported — ${site.name}`,
-		summary:
-			`A break-in at ${site.name} triggered witnesses, noise, or alarms. ` +
-			`The scene is heating up and police attention is likely.`,
+		title: `${site.name} Theft`,
+		summary: `Theft opportunity at ${site.name}.`,
 		createdAt: now,
 		expiresAt: now + lifetimeMs,
-		successChance: computeSuccessChance("crime", lifetimeMs),
+		successChance: 75,
+		assignedResources: [],
 	};
 }
 
@@ -1192,6 +1191,9 @@ function parseStoredIncident(raw: unknown): Incident | null {
 		createdAt: o.createdAt,
 		expiresAt: o.expiresAt,
 		successChance: o.successChance,
+		assignedResources: Array.isArray(o.assignedResources)
+			? o.assignedResources
+			: [],
 		deployedResourceIds:
 			deployedResourceIds && deployedResourceIds.length > 0
 				? deployedResourceIds
@@ -1316,44 +1318,65 @@ function saveState(saveKey: string, state: GameState) {
 	localStorage.setItem(saveKey, JSON.stringify(state));
 }
 
+function formatIncidentTypeLabel(type: string) {
+	switch (type) {
+		case "crime":
+			return "Crime";
+		case "fire_rescue":
+			return "Fire / Rescue";
+		case "medical":
+			return "Medical";
+		default:
+			return "Incident";
+	}
+}
+
 export default function StreetMapScene({
-  saveKey,
-  saveSlot,
-  cloudSync,
-  mode = "singleplayer",
-  sessionId,
+	saveKey,
+	saveSlot,
+	cloudSync,
+	mode = "singleplayer",
+	sessionId,
 }: Props) {
-  const [state, setState] = useState<GameState>(() => loadState(saveKey));
-  const stateRef = useRef(state);
-  stateRef.current = state;
+	const [state, setState] = useState<GameState>(() =>
+		mode === "singleplayer" && saveKey ? loadState(saveKey) : initialState()
+	);
+	const stateRef = useRef(state);
+	stateRef.current = state;
 
-  const [inventorySorterOpen, setInventorySorterOpen] = useState(false);
-  const [isHost, setIsHost] = useState(false);
+	const [isHost, setIsHost] = useState(false);
 
-  const [selectedRecruitId, setSelectedRecruitId] = useState<string | null>(null);
-  const [selectedOwnedVigilanteId, setSelectedOwnedVigilanteId] = useState<string | null>(null);
+	const [selectedOwnedVigilanteId, setSelectedOwnedVigilanteId] = useState<string | null>(null);
+	const [selectedRecruitLeadId, setSelectedRecruitLeadId] = useState<string | null>(null);
+	const [selectedTheftSiteId, setSelectedTheftSiteId] = useState<string | null>(null);
 
-  const [showExitingModal, setShowExitingModal] = useState(false);
-  const [dialogue, setDialogue] = useState<DialogueState>(null);
-  const [overlayMode, setOverlayMode] = useState<OverlayMode>("recruit");
+	const [inventorySorterOpen, setInventorySorterOpen] = useState(false);
+	const [inventorySorterMode, setInventorySorterMode] = useState<InventorySorterMode>(null);
 
-  const [chanceRollOverlay, setChanceRollOverlay] = useState<{
-    incidentId: string;
-    rolled: number;
-    adjustedPercent: number;
-    beforeLuckPercent: number;
-    success: boolean;
-    phase: "rolling" | "outcome";
-    hadDeployedGear: boolean;
-    breakdown: DispatchRollBreakdown;
-    contextLabel: string;
-  } | null>(null);
+	const [showExitingModal, setShowExitingModal] = useState(false);
+	const [deployModalOpen, setDeployModalOpen] = useState(false);
+	const [showVettingModal, setShowVettingModal] = useState(false);
+	const [dialogue, setDialogue] = useState<DialogueState>(null);
+	const [overlayMode, setOverlayMode] = useState<OverlayMode>("recruit");
 
-  const resolveIncidentTimeoutRef =
-    useRef<ReturnType<typeof setTimeout> | null>(null);
+	const [chanceRollOverlay, setChanceRollOverlay] = useState<{
+		incidentId: string;
+		rolled: number;
+		adjustedPercent: number;
+		beforeLuckPercent: number;
+		success: boolean;
+		phase: "rolling" | "outcome";
+		hadDeployedGear: boolean;
+		breakdown: DispatchRollBreakdown;
+		contextLabel: string;
+	} | null>(null);
 
-  // Cloud sync: Supabase upsert while playing (plus pagehide / unmount).
-  const CLOUD_SYNC_INTERVAL_MS = 60_000;
+	const resolveIncidentTimeoutRef =
+		useRef<ReturnType<typeof setTimeout> | null>(null);
+	const cloudPushInFlightRef = useRef(false);
+
+	// Cloud sync: Supabase upsert while playing (plus pagehide / unmount).
+	const CLOUD_SYNC_INTERVAL_MS = 60_000;
 
 	const helperBase =
 		STATIC_CHARACTER_BASES.find((p) => p.id === "cit-helper") ??
@@ -1389,138 +1412,129 @@ export default function StreetMapScene({
 		new Map(),
 	);
 
-  useEffect(() => {
-    if (mode !== "multiplayer" || !sessionId) return;
+useEffect(() => {
+	if (mode !== "multiplayer" || !sessionId) return;
 
-    let active = true;
+	let active = true;
 
-    const loadMarkers = async () => {
-      try {
-        const rows = await getSessionMarkers(sessionId);
-        if (!active) return;
+	const loadMarkers = async () => {
+		try {
+			const rows = await getSessionMarkers(sessionId);
+			if (!active) return;
 
-        const incidents = rows.map((row) => ({
-          id: row.marker_id,
-          category: row.kind === "theft" ? "robbery" : row.kind === "hire" ? "medical" : "fire",
-          status: row.status === "active" ? "active" : "resolved",
-          lat: row.x,
-          lng: row.y,
-          title: row.title,
-          summary: row.details,
-          createdAt: new Date(row.created_at).getTime(),
-          expiresAt: row.expires_at ? new Date(row.expires_at).getTime() : Date.now() + 30000,
-          successChance: 75,
-          assignedResources: row.assigned_resources ?? [],
-        }));
+			const incidents = rows.map((row): Incident => ({
+				id: row.marker_id,
+				category:
+					row.kind === "theft"
+						? "crime"
+						: row.kind === "hire"
+							? "medical"
+							: "fire_rescue",
+				typeLabel: row.title,
+				status: row.status === "active" ? "active" : "resolved",
+				lat: row.x,
+				lng: row.y,
+				title: row.title,
+				summary: row.details,
+				createdAt: new Date(row.created_at).getTime(),
+				expiresAt: row.expires_at
+					? new Date(row.expires_at).getTime()
+					: Date.now() + 30000,
+				successChance: 75,
+				assignedResources: row.assigned_resources ?? [],
+			}));
 
-        setState((prev) => ({
-          ...prev,
-          incidents,
-        }));
-      } catch (error) {
-        console.error("Failed to load multiplayer markers:", error);
-      }
-    };
+			setState((prev) => ({
+				...prev,
+				incidents,
+			}));
+		}
+		catch (error) {
+			console.error("Failed to load multiplayer markers:", error);
+		}
+	};
 
-    loadMarkers();
+	loadMarkers();
 
-    return () => {
-      active = false;
-    };
-  }, [mode, sessionId]);
+	const unsubscribe = subscribeToSessionMarkers(
+		sessionId,
+		loadMarkers
+	);
 
-  useEffect(() => {
-    setState(loadState(saveKey));
-  }, [saveKey]);
+	return () => {
+		active = false;
+		unsubscribe();
+	};
+}, [mode, sessionId]);
 
-  useEffect(() => {
-    saveState(saveKey, state);
-    if (saveSlot) touchSave(saveSlot);
-  }, [saveKey, saveSlot, state]);
+useEffect(() => {
+	if (mode !== "multiplayer" || !sessionId) return;
 
-		// Initial load
-		loadMarkers();
+	const checkHost = async () => {
+		try {
+			const session = await getSessionById(sessionId);
+			const supabase = getSupabaseBrowserClient();
+			const { data } = await supabase.auth.getUser();
+			const user = data?.user;
 
-		// Subscribe to realtime marker updates
-		const unsubscribe = subscribeToSessionMarkers(
-			sessionId,
-			loadMarkers
-		);
-
-		return () => {
-			active = false;
-			unsubscribe();
-		};
-	}, [mode, sessionId]);
-
-	useEffect(() => {
-		if (mode !== "multiplayer" || !sessionId) return;
-
-		const checkHost = async () => {
-			try {
-				const session = await getSessionById(sessionId);
-				const supabase = getSupabaseBrowserClient();
-				const { data } = await supabase.auth.getUser();
-				const user = data?.user;
-
-				if (session && user && session.host_user_id === user.id) {
-					setIsHost(true);
-				} else {
-					setIsHost(false);
-				}
-			} catch (error) {
-				console.error("Failed to determine host:", error);
+			if (session && user && session.host_user_id === user.id) {
+				setIsHost(true);
+			} else {
 				setIsHost(false);
 			}
-		};
+		} catch (error) {
+			console.error("Failed to determine host:", error);
+			setIsHost(false);
+		}
+	};
 
-		void checkHost();
-	}, [mode, sessionId]);
+	void checkHost();
+}, [mode, sessionId]);
 
-	useEffect(() => {
-  if (mode !== "singleplayer" || !saveKey) return;
-  setState(loadState(saveKey));
+useEffect(() => {
+	if (mode !== "singleplayer" || !saveKey) return;
+	setState(loadState(saveKey));
 }, [mode, saveKey]);
 
 useEffect(() => {
-  if (mode !== "singleplayer" || !saveKey) return;
-  saveState(saveKey, state);
-  // Game JSON lives at `saveKey`; slot meta (incl. menu "last updated") lives at `keyForSlot(saveSlot)`.
-  if (saveSlot) touchSave(saveSlot);
+	if (mode !== "singleplayer" || !saveKey) return;
+	saveState(saveKey, state);
+	// Game JSON lives at `saveKey`; slot meta (incl. menu "last updated") lives at `keyForSlot(saveSlot)`.
+	if (saveSlot) touchSave(saveSlot);
 }, [mode, saveKey, saveSlot, state]);
 
 const pushCloudToServer = useCallback(async () => {
-  if (!cloudSync) return;
-  if (cloudPushInFlightRef.current) return;
-  cloudPushInFlightRef.current = true;
-  const slot: SaveSlotId = {
-    scope: "cloud",
-    index: cloudSync.slotIndex,
-    userId: cloudSync.userId,
-  };
-  try {
-    const meta = readSave(slot);
-    const title = meta?.meta.title ?? `Cloud Slot ${cloudSync.slotIndex}`;
-    const ok = await upsertGameSave({
-      userId: cloudSync.userId,
-      slotIndex: cloudSync.slotIndex,
-      title,
-      state: stateRef.current as unknown as Record<string, unknown>,
-    });
-    if (ok) {
-      markCloudFlush(cloudSync.userId, cloudSync.slotIndex);
-      touchSave(slot);
-    }
-  } finally {
-    cloudPushInFlightRef.current = false;
-  }
+	if (!cloudSync) return;
+	if (cloudPushInFlightRef.current) return;
+	cloudPushInFlightRef.current = true;
+	const slot: SaveSlotId = {
+	scope: "cloud",
+	index: cloudSync.slotIndex,
+	userId: cloudSync.userId,
+	};
+	try {
+	const meta = readSave(slot);
+	const title = meta?.meta.title ?? `Cloud Slot ${cloudSync.slotIndex}`;
+	const ok = await upsertGameSave({
+		userId: cloudSync.userId,
+		slotIndex: cloudSync.slotIndex,
+		title,
+		state: stateRef.current as unknown as Record<string, unknown>,
+	});
+	if (ok) {
+		markCloudFlush(cloudSync.userId, cloudSync.slotIndex);
+		touchSave(slot);
+	}
+	} finally {
+	cloudPushInFlightRef.current = false;
+	}
 }, [cloudSync]);
 
 	useEffect(() => {
 		if (!cloudSync) return;
 		const id = window.setInterval(() => {
 			void pushCloudToServer();
-		}, CLOUD_SAVE_INTERVAL_MS);
+		}, CLOUD_SYNC_INTERVAL_MS);
 		return () => clearInterval(id);
 	}, [cloudSync, pushCloudToServer]);
 
@@ -1787,11 +1801,29 @@ const pushCloudToServer = useCallback(async () => {
 		setState((s) => ({
 			...s,
 			resourcePool: applyTheftRewardToPool(s.resourcePool, site, bundles),
-			incidents: [theftIncident, ...s.incidents],
-			selectedIncidentId: theftIncident.id,
-			showIncidentPanel: true,
 		}));
 
+		if (mode === "multiplayer" && sessionId) {
+			void insertSessionMarker({
+				sessionId,
+				markerId: theftIncident.id,
+				kind: "theft",
+				x: theftIncident.lat,
+				y: theftIncident.lng,
+				title: theftIncident.title,
+				details: theftIncident.summary,
+				createdAt: new Date(theftIncident.createdAt).toISOString(),
+				expiresAt: new Date(theftIncident.expiresAt).toISOString(),
+				status: "active",
+			});
+		} else {
+			setState((s) => ({
+				...s,
+				incidents: [theftIncident, ...s.incidents],
+				selectedIncidentId: theftIncident.id,
+				showIncidentPanel: true,
+			}));
+		}
 		setInventorySorterMode(null);
 		setSelectedTheftSiteId(null);
 	};
@@ -1897,6 +1929,11 @@ const pushCloudToServer = useCallback(async () => {
 		});
 		const RESOLVE_MS = 2600;
 		resolveIncidentTimeoutRef.current = setTimeout(() => {
+			if (mode === "multiplayer" && sessionId) {
+				void deleteSessionMarkerByMarkerId(sessionId, id);
+				return;
+			}
+
 			setState((s) => {
 				const cur = s.incidents.find((x) => x.id === id);
 				if (!cur || cur.status !== "resolving") return s;
@@ -1996,6 +2033,12 @@ const pushCloudToServer = useCallback(async () => {
 			if (!alive) return;
 			window.setTimeout(() => {
 				if (!alive) return;
+
+				if (mode === "multiplayer" && !isHost) {
+					scheduleNext();
+					return;
+				}
+
 				setState((s) => {
 					const activeCount = s.incidents.filter(
 						(i) => i.status === "active",
@@ -2005,75 +2048,72 @@ const pushCloudToServer = useCallback(async () => {
 					const bounds = levelBoundsRef.current.get(s.level);
 					if (!bounds) return s;
 
-          const places =
-            spawnPlacesByLevelRef.current.get(s.level) ?? [];
-          const place = pickSpatiallyUniformPoi(places, bounds);
+			const places = spawnPlacesByLevelRef.current.get(s.level) ?? [];
+			const place = pickSpatiallyUniformPoi(places, bounds);
 
-          if (place) {
-            const newIncident = makeIncident(place.lat, place.lng, place);
+			if (place) {
+			const newIncident = makeIncident(place.lat, place.lng, place);
 
-            if (mode === "multiplayer" && sessionId) {
-              void insertSessionMarker({
-                sessionId,
-                markerId: newIncident.id,
-                kind: "incident",
-                x: newIncident.lat,
-                y: newIncident.lng,
-                title: newIncident.title,
-                details: newIncident.summary,
-                createdAt: new Date(newIncident.createdAt).toISOString(),
-                expiresAt: new Date(newIncident.expiresAt).toISOString(),
-                status: "active",
-              });
-              return s;
-            }
+			if (mode === "multiplayer" && sessionId) {
+				void insertSessionMarker({
+					sessionId,
+					markerId: newIncident.id,
+					kind: "incident",
+					x: newIncident.lat,
+					y: newIncident.lng,
+					title: newIncident.title,
+					details: newIncident.summary,
+					createdAt: new Date(newIncident.createdAt).toISOString(),
+					expiresAt: new Date(newIncident.expiresAt).toISOString(),
+					status: "active",
+			  	});
+			  return s;
+			}
 
-            return {
-              ...s,
-              incidents: [...s.incidents, newIncident],
-            };
-          }
+			return {
+			  ...s,
+			  incidents: [...s.incidents, newIncident],
+			};
+			}
 
-          const fallbackPoint = sampleInBounds(bounds);
-          const fallbackPlace: OSMPlace = {
-            name: "Unknown location",
-            lat: fallbackPoint.lat,
-            lng: fallbackPoint.lng,
-            kind: "fallback",
-          };
+			const fallbackPoint = sampleInBounds(bounds);
+			const fallbackPlace: OsmPlace = {
+			name: "Unknown location",
+			lat: fallbackPoint.lat,
+			lng: fallbackPoint.lng,
+			kind: "fallback",
+			};
 
-          const newIncident = makeIncident(
-            fallbackPlace.lat,
-            fallbackPlace.lng,
-            fallbackPlace,
-          );
+			const newIncident = makeIncident(
+			fallbackPlace.lat,
+			fallbackPlace.lng,
+			fallbackPlace,
+			);
 
-          if (mode === "multiplayer" && sessionId) {
-            void insertSessionMarker({
-              sessionId,
-              markerId: newIncident.id,
-              kind: "incident",
-              x: newIncident.lat,
-              y: newIncident.lng,
-              title: newIncident.title,
-              details: newIncident.summary,
-              createdAt: new Date(newIncident.createdAt).toISOString(),
-              expiresAt: new Date(newIncident.expiresAt).toISOString(),
-              status: "active",
-            });
-            return s;
-          }
+			if (mode === "multiplayer" && sessionId) {
+			void insertSessionMarker({
+				sessionId,
+				markerId: newIncident.id,
+				kind: "incident",
+				x: newIncident.lat,
+				y: newIncident.lng,
+				title: newIncident.title,
+				details: newIncident.summary,
+				createdAt: new Date(newIncident.createdAt).toISOString(),
+				expiresAt: new Date(newIncident.expiresAt).toISOString(),
+				status: "active",
+			});
+			return s;
+			}
 
-          return {
-            ...s,
-            incidents: [...s.incidents, newIncident],
-          };  
-        
-					};
-				});
-				scheduleNext();
-			}, SPAWN_INTERVAL_MS);
-		};
+			return {
+			...s,
+			incidents: [...s.incidents, newIncident],
+			};
+		});
+		scheduleNext();
+	}, SPAWN_INTERVAL_MS);
+};
 
 		scheduleNext();
 		return () => {
@@ -2166,27 +2206,26 @@ const pushCloudToServer = useCallback(async () => {
 
 			const now = Date.now();
 
-      if (mode === "multiplayer" && sessionId) {
-        const expiredIds = state.incidents
-          .filter((i) => i.status === "active" && now >= i.expiresAt)
-          .map((i) => i.id);
+		if (mode === "multiplayer" && sessionId) {
+		const expiredIds = state.incidents
+		  .filter((i) => i.status === "active" && now >= i.expiresAt)
+		  .map((i) => i.id);
 
-        expiredIds.forEach((incidentId) => {
-          void deleteSessionMarkerByMarkerId(sessionId, incidentId);
-        });
+		expiredIds.forEach((incidentId) => {
+		  void deleteSessionMarkerByMarkerId(sessionId, incidentId);
+		});
 
-        if (
-          selectedRecruitId &&
-          !state.recruitLeads.some((r) => r.id === selectedRecruitId)
-        ) {
-          setSelectedRecruitId(null);
-        }
+		if (
+		  	selectedRecruitLeadId &&
+		  	!state.recruitLeads.some((r) => r.id === selectedRecruitLeadId)
+		) {
+		  	setSelectedRecruitLeadId(null);
+		}
+		return;
+	}
 
-        return;
-      }
-
-      setState((s) => {
-        const now = Date.now();
+	setState((s) => {
+		const now = Date.now();
 				const expiredIncidentIds = new Set(
 					s.incidents
 						.filter(
@@ -2891,106 +2930,112 @@ const pushCloudToServer = useCallback(async () => {
 											onClick={() =>
 												handleIncidentSelect(inc.id)
 											}
-											className={`w-full text-left rounded-lg border px-3 py-2 text-xs transition-colors cursor-pointer ${isSelected
-												? "border-amber-500/80 bg-amber-900/50 text-amber-100"
-												: "border-amber-900/50 bg-black/40 text-amber-200/70 hover:border-amber-700/70 hover:text-amber-100"
-												}`}
+											className={`w-full text-left rounded-lg border px-3 py-2 text-xs transition-colors cursor-pointer ${
+												isSelected
+													? "border-amber-500/80 bg-amber-900/50 text-amber-100"
+													: "border-amber-900/50 bg-black/40 text-amber-200/70 hover:border-amber-700/70 hover:text-amber-100"
+											}`}
 										>
 											<div className="flex items-start gap-3">
 												<div
-													className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] ${inc.status === "resolved"
-														? "border-amber-800/50 bg-amber-950/35 text-amber-200/70"
-														: inc.status ===
-															"resolving"
-															? "border-amber-700/60 bg-amber-950/40 text-amber-200"
-															: "border-red-900 bg-red-900/30 text-red-300"
-														}`}
+													className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] ${
+														inc.status === "resolved"
+															? "border-amber-800/50 bg-amber-950/35 text-amber-200/70"
+															: inc.status === "resolving"
+																? "border-amber-700/60 bg-amber-950/40 text-amber-200"
+																: "border-red-900 bg-red-900/30 text-red-300"
+													}`}
 												>
 													{inc.status === "active"
 														? "!"
-														: inc.status ===
-															"resolving"
+														: inc.status === "resolving"
 															? "…"
 															: "·"}
 												</div>
+
 												<div className="min-w-0 flex-1">
 													<div className="flex items-center justify-between gap-2">
-														<div className="font-semibold text-[12px] leading-snug tracking-tight text-amber-50/95">
+														<div
+															className="font-semibold text-[12px] leading-snug tracking-tight text-amber-50/95">
 															{formatIncidentTypeLabel(
 																inc.typeLabel,
 															)}
 														</div>
 
-														<TimerBar
-                              createdAt={inc.createdAt}
-                              expiresAt={inc.expiresAt}
-                              onExpire={() => expireIncident(inc.id)}
-                            />
+														{statusBadge != null && (
+															<span
+																className="shrink-0 text-[9px] uppercase tracking-[0.12em] text-amber-400/70">
+																{statusBadge}
+															</span>
+														)}
+													</div>
 
-                            {isSelected && (
-                              <div className="mt-3 space-y-2">
-                                <div className="text-[10px] uppercase tracking-[0.16em] text-amber-400/70">
-                                  Assigned Resources
-                                </div>
+													<div className="mt-1 text-[11px] text-amber-200/70 leading-snug">
+														{inc.summary}
+													</div>
 
-                                <div className="flex flex-wrap gap-2">
-                                  {inc.assignedResources.length === 0 ? (
-                                    <span className="text-[10px] text-amber-200/45">
-                                      No resources assigned yet.
-                                    </span>
-                                  ) : (
-                                    inc.assignedResources.map((assignment, idx) => (
-                                      <span
-                                        key={`${assignment.playerId}-${assignment.resource}-${assignment.assignedAt}-${idx}`}
-                                        className="rounded-full border border-amber-900/35 bg-black/30 px-2 py-1 text-[10px] text-amber-100/90"
-                                      >
-                                        {assignment.resource}
-                                      </span>
-                                    ))
-                                  )}
-                                </div>
-
-                                <div className="grid grid-cols-1 gap-2">
-                                  {RESOURCE_OPTIONS.map((resource) => (
-                                    <button
-                                      key={resource}
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        void handleSendResource(inc.id, resource);
-                                      }}
-                                      className="rounded-md border border-amber-700/50 bg-amber-950/25 px-2 py-1.5 text-[10px] uppercase tracking-[0.14em] text-amber-100 hover:bg-amber-900/35 transition-colors"
-                                    >
-                                      Send {resource}
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-
-                            {statusBadge != null && (
-                              <span className="shrink-0 text-[9px] uppercase tracking-[0.12em] text-amber-400/70">
-                                {statusBadge}
-                              </span>
-                            )}
-
-                            <div className="mt-1 text-[11px] text-amber-200/70 leading-snug">
-                              {inc.summary}
-                            </div>
 													{inc.status === "active" && (
 														<IncidentTimerBar
-															createdAt={
-																inc.createdAt
-															}
-															expiresAt={
-																inc.expiresAt
-															}
+															createdAt={inc.createdAt}
+															expiresAt={inc.expiresAt}
 															onExpire={() =>
 																expireIncident(
 																	inc.id,
 																)
 															}
 														/>
+													)}
+
+													{isSelected && (
+														<div className="mt-3 space-y-2">
+															<div
+																className="text-[10px] uppercase tracking-[0.16em] text-amber-400/70">
+																Assigned Resources
+															</div>
+
+															<div className="flex flex-wrap gap-2">
+																{inc.assignedResources.length === 0 ? (
+																	<span className="text-[10px] text-amber-200/45">
+																		No resources assigned yet.
+																	</span>
+																) : (
+																	inc.assignedResources.map(
+																		(
+																			assignment,
+																			idx,
+																		) => (
+																			<span
+																				key={`${assignment.playerId}-${assignment.resource}-${assignment.assignedAt}-${idx}`}
+																				className="rounded-full border border-amber-900/35 bg-black/30 px-2 py-1 text-[10px] text-amber-100/90"
+																			>
+																				{assignment.resource}
+																			</span>
+																		),
+																	)
+																)}
+															</div>
+
+															<div className="grid grid-cols-1 gap-2">
+																{RESOURCE_OPTIONS.map(
+																	(resource) => (
+																		<button
+																			key={resource}
+																			type="button"
+																			onClick={(e) => {
+																				e.stopPropagation();
+																				void handleSendResource(
+																					inc.id,
+																					resource,
+																				);
+																			}}
+																			className="rounded-md border border-amber-700/50 bg-amber-950/25 px-2 py-1.5 text-[10px] uppercase tracking-[0.14em] text-amber-100 hover:bg-amber-900/35 transition-colors"
+																		>
+																			Send {resource}
+																		</button>
+																	),
+																)}
+															</div>
+														</div>
 													)}
 												</div>
 											</div>
@@ -3004,7 +3049,8 @@ const pushCloudToServer = useCallback(async () => {
 									</div>
 								)}
 
-								<div className="pointer-events-none absolute inset-x-0 bottom-0 h-4 bg-linear-to-t from-black/70 to-transparent" />
+								<div
+									className="pointer-events-none absolute inset-x-0 bottom-0 h-4 bg-linear-to-t from-black/70 to-transparent"/>
 							</div>
 
 							<div className="shrink-0 border-t border-amber-900/40 px-3 py-2">
@@ -3043,7 +3089,8 @@ const pushCloudToServer = useCallback(async () => {
 							)}
 
 							{selectedIncident?.status === "resolving" && (
-								<div className="shrink-0 border-t border-amber-900/40 px-3 py-3 text-center text-[11px] text-amber-200/75">
+								<div
+									className="shrink-0 border-t border-amber-900/40 px-3 py-3 text-center text-[11px] text-amber-200/75">
 									Resolving…
 								</div>
 							)}
@@ -3068,7 +3115,7 @@ const pushCloudToServer = useCallback(async () => {
 				</AnimatePresence>
 			</div>
 
-			<div className="fixed left-0 flex items-start" style={{ top: 160, zIndex: 2000 }}>
+			<div className="fixed left-0 flex items-start" style={{top: 160, zIndex: 2000}}>
 				<div className="pointer-events-auto">
 					<button
 						type="button"
@@ -3083,9 +3130,9 @@ const pushCloudToServer = useCallback(async () => {
 						<span>Minigames</span>
 						<span className="text-[11px] flex items-center">
 							{state.showMinigamePanel ? (
-								<ChevronLeft className="w-3 h-3" aria-hidden />
+								<ChevronLeft className="w-3 h-3" aria-hidden/>
 							) : (
-								<ChevronRight className="w-3 h-3" aria-hidden />
+								<ChevronRight className="w-3 h-3" aria-hidden/>
 							)}
 						</span>
 					</button>
@@ -3095,9 +3142,9 @@ const pushCloudToServer = useCallback(async () => {
 					{state.showMinigamePanel && (
 						<motion.div
 							key="minigame-panel"
-							initial={{ x: -320, opacity: 0 }}
-							animate={{ x: 0, opacity: 1 }}
-							exit={{ x: -320, opacity: 0 }}
+							initial={{x: -320, opacity: 0}}
+							animate={{x: 0, opacity: 1}}
+							exit={{x: -320, opacity: 0}}
 							transition={{
 								type: "tween",
 								duration: 0.22,
@@ -3295,7 +3342,7 @@ const pushCloudToServer = useCallback(async () => {
 			/>
 
 			<InventorySorterModal
-				open={inventorySorterOpen}
+				open={inventorySorterMode !== null}
 				onClose={() => setInventorySorterMode(null)}
 				onWin={(reward) => {
 					if (inventorySorterMode === "resource-theft" && selectedTheftSite) {
