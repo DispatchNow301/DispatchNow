@@ -23,10 +23,7 @@ import { MapContainer, Marker, Pane, TileLayer, useMap } from "react-leaflet";
 import * as L from "leaflet";
 import Inventory from "./Inventory";
 import PoliceSystem from "./police/policeSystem";
-import type {
-	PoliceEtaItem,
-	PoliceRenderItem,
-} from "./police/policeTypes";
+import type { PoliceEtaItem, PoliceRenderItem } from "./police/policeTypes";
 import IncidentChanceRollOverlay from "./IncidentChanceRollOverlay";
 import IncidentDeployModal from "./IncidentDeployModal";
 import { IncidentTimerBar } from "./IncidentTimerBar";
@@ -58,7 +55,6 @@ import {
 	deleteSessionMarkerByMarkerId,
 	subscribeToSessionMarkers,
 	getSessionById,
-	addAssignedResourceToMarker,
 } from "../../lib/multiplayer";
 import type { AssignedResource } from "../../lib/gameTypes";
 import { getSupabaseBrowserClient } from "../../lib/supabaseClient";
@@ -69,6 +65,7 @@ import {
 	type IncidentArchetype,
 	type IncidentTemplate,
 } from "@/lib/incidentTemplates";
+import { formatIncidentTypeLabel } from "@/lib/formatIncidentTitle";
 
 // ── Inline helpers (not exported by incidentTemplates) ───────────────────────
 function archetypeSuccessBase(archetype: IncidentArchetype): number {
@@ -100,6 +97,14 @@ function pickIncidentTemplate(): IncidentTemplate {
 	return INCIDENT_TEMPLATES[INCIDENT_TEMPLATES.length - 1];
 }
 
+/** Player-facing incident blurbs: no semicolons or em dashes (periods instead). */
+function normalizeIncidentDescription(text: string): string {
+	return text
+		.replace(/\s*;\s*/g, ". ")
+		.replace(/\u2014/g, ". ")
+		.trim();
+}
+
 function fillIncidentTemplate(
 	template: IncidentTemplate,
 	placeName: string,
@@ -109,19 +114,20 @@ function fillIncidentTemplate(
 	title: string;
 	summary: string;
 } {
-	const filled = template.summary.replace(/\{place\}/g, placeName);
+	const filled = normalizeIncidentDescription(
+		template.summary.replace(/\{place\}/g, placeName),
+	);
 	const typeLabel = formatIncidentTypeLabel(template.typeLabel);
 	return {
 		archetype: template.archetype,
 		typeLabel,
-		title: `${typeLabel} — ${placeName}`,
+		title: `${typeLabel} at ${placeName}`,
 		summary: filled,
 	};
 }
 
 type OsmPlace = { name: string; lat: number; lng: number; kind?: string };
 
-    
 if (typeof window !== "undefined") {
 	// eslint-disable-next-line @typescript-eslint/no-require-imports
 	const Lf = require("leaflet");
@@ -147,16 +153,16 @@ if (typeof window !== "undefined") {
 }
 
 type Props = {
-  saveKey?: string;
-  /** slot identity for menu `updatedAt` / titles (`vigilante:save:*`), separate from `saveKey` game blob. */
-  saveSlot?: SaveSlotId;
-  /** When set, game state is upserted to Supabase once per minute while you play, plus on tab close. */
-  cloudSync?: {
-    userId: string;
-    slotIndex: 1 | 2 | 3;
-  };
-  mode?: "singleplayer" | "multiplayer";
-  sessionId?: number;
+	saveKey?: string;
+	/** slot identity for menu `updatedAt` / titles (`vigilante:save:*`), separate from `saveKey` game blob. */
+	saveSlot?: SaveSlotId;
+	/** When set, game state is upserted to Supabase once per minute while you play, plus on tab close. */
+	cloudSync?: {
+		userId: string;
+		slotIndex: 1 | 2 | 3;
+	};
+	mode?: "singleplayer" | "multiplayer";
+	sessionId?: number;
 };
 
 type IncidentStatus = "active" | "resolving" | "resolved";
@@ -260,7 +266,6 @@ const MINIGAME_OPTIONS: MinigameOption[] = [
 		status: "Available",
 	},
 ];
-const RESOURCE_OPTIONS = ["Fire Truck", "Medic Kit", "Vigilante"];
 
 type TheftSite = {
 	id: string;
@@ -534,7 +539,7 @@ function stableCitizenPositionAroundIncident(
 	}
 
 	const angle = ((seed % 360) * Math.PI) / 180;
-	const radius = 0.00105 + ((seed % 5) * 0.00012);
+	const radius = 0.00105 + (seed % 5) * 0.00012;
 
 	return {
 		lat: center.lat + Math.cos(angle) * radius,
@@ -670,6 +675,8 @@ function makeTheftIncident(site: TheftSite): Incident {
 	const lifetimeMs = 45_000;
 	const pos = nudgeNearPoint(site.lat, site.lng, 0.00035);
 
+	const placeShort = shortenPlaceName(site.name);
+	const theftSummary = `Theft opportunity at ${site.name}. Move fast before the window closes.`;
 	return {
 		id: `theft-${site.id}-${now}`,
 		category: "crime",
@@ -677,8 +684,8 @@ function makeTheftIncident(site: TheftSite): Incident {
 		status: "active",
 		lat: pos.lat,
 		lng: pos.lng,
-		title: `${site.name} Theft`,
-		summary: `Theft opportunity at ${site.name}.`,
+		title: `Theft at ${placeShort}`,
+		summary: theftSummary,
 		createdAt: now,
 		expiresAt: now + lifetimeMs,
 		successChance: 75,
@@ -688,33 +695,66 @@ function makeTheftIncident(site: TheftSite): Incident {
 
 // ── Icon factories ────────────────────────────────────────────────────────────
 
+/** Fade-in / fade-out duration for map incident markers (JS timeout + CSS). */
+const INCIDENT_MAP_FADE_MS = 500;
+const INCIDENT_MAP_FADE_S = `${INCIDENT_MAP_FADE_MS / 1000}s`;
+
+/** Wait for map bounds to settle before fetching OSM POIs (avoids abort churn). */
+const PLACES_FETCH_DEBOUNCE_MS = 400;
+
 function makeIncidentIcon(
 	_category: IncidentArchetype,
 	isSelected: boolean,
 	isResolved: boolean,
+	animateEntrance = false,
+	fadeOut = false,
 ) {
-	const border = isSelected ? "#b91c1c" : "#7f1d1d";
-	const baseColor = "#f97373";
-	const bg = "rgba(127,29,29,0.6)";
 	const resolvedBg = "rgba(24,24,27,0.9)";
 	const resolvedBorder = "#52525b";
-	const pulse = !isResolved && isSelected;
+	const pulse = !fadeOut && !isResolved && isSelected;
+
+	const size = isResolved ? 28 : isSelected ? 36 : 28;
+	const half = size / 2;
+	const border = isResolved
+		? resolvedBorder
+		: isSelected
+			? "#9a3232"
+			: "#7f1d1d";
+	const borderW = 2;
+	const baseColor = isResolved
+		? "#a1a1aa"
+		: isSelected
+			? "#fca3a6"
+			: "#f97373";
+	const bg = isResolved
+		? resolvedBg
+		: isSelected
+			? "rgba(158,58,58,0.64)"
+			: "rgba(127,29,29,0.6)";
+	const glow = "0 0 16px rgba(0,0,0,0.9)";
+	/** Match unselected 16px @ 28px; scale with diameter so the bang stays balanced. */
+	const fontSize = isResolved ? 16 : Math.round((16 * size) / 28);
 
 	const html = `<div style="
-		width:28px;height:28px;border-radius:999px;
-		border:2px solid ${isResolved ? resolvedBorder : border};background:${isResolved ? resolvedBg : bg};
+		width:${size}px;height:${size}px;border-radius:999px;
+		border:${borderW}px solid ${border};background:${bg};
 		display:flex;align-items:center;justify-content:center;
-		color:${isResolved ? "#a1a1aa" : baseColor};font-weight:800;font-size:16px;
+		color:${baseColor};font-weight:800;font-size:${fontSize}px;
 		text-shadow:0 0 4px rgba(0,0,0,0.9);
-		box-shadow:0 0 16px rgba(0,0,0,0.9);">!</div>`;
+		box-shadow:${glow};">!</div>`;
+
+	const classes = ["vigilante-incident-icon"];
+	if (pulse) classes.push("vigilante-incident-icon-pulse");
+	if (isSelected && !isResolved)
+		classes.push("vigilante-incident-icon-selected");
+	if (animateEntrance) classes.push("vigilante-incident-icon-fade-in");
+	if (fadeOut) classes.push("vigilante-incident-icon-fade-out");
 
 	return L.divIcon({
 		html,
-		className: pulse
-			? "vigilante-incident-icon vigilante-incident-icon-pulse"
-			: "vigilante-incident-icon",
-		iconSize: [28, 28],
-		iconAnchor: [14, 14],
+		className: classes.join(" "),
+		iconSize: [size, size],
+		iconAnchor: [half, half],
 	});
 }
 
@@ -727,12 +767,12 @@ function makeCharacterIcon(initial: string, kind: CharacterKind) {
 						border: "#b45309",
 						bg: "rgba(120,53,15,0.82)",
 						text: "#fde68a",
-				  }
+					}
 				: {
 						border: "#4b5563",
 						bg: "rgba(55,65,81,0.8)",
 						text: "#f3f4f6",
-				  };
+					};
 
 	const html = `<div style="
 		width:44px;
@@ -1026,48 +1066,121 @@ function IncidentMarkers({
 	onSelect: (id: string) => void;
 }) {
 	const iconCacheRef = useRef<
-		Map<string, { selected: boolean; icon: L.DivIcon }>
+		Map<string, { selected: boolean; fadeOut: boolean; icon: L.DivIcon }>
 	>(new Map());
+	const incidentFadeSeenIdsRef = useRef<Set<string>>(new Set());
+	const [fadingOut, setFadingOut] = useState<Map<string, Incident>>(
+		() => new Map(),
+	);
+	const prevIncidentsRef = useRef<Incident[]>([]);
+	const fadeOutTimeoutsRef = useRef<Map<string, number>>(new Map());
 
 	useEffect(() => {
-		const activeIds = new Set(
+		const prev = prevIncidentsRef.current;
+		const prevOngoing = prev.filter(isOngoingIncident);
+		const currOngoingIds = new Set(
+			incidents.filter(isOngoingIncident).map((i) => i.id),
+		);
+		for (const p of prevOngoing) {
+			if (!currOngoingIds.has(p.id)) {
+				setFadingOut((prevMap) => {
+					const next = new Map(prevMap);
+					next.set(p.id, p);
+					return next;
+				});
+				const existing = fadeOutTimeoutsRef.current.get(p.id);
+				if (existing) clearTimeout(existing);
+				const tid = window.setTimeout(() => {
+					fadeOutTimeoutsRef.current.delete(p.id);
+					setFadingOut((prevMap) => {
+						const next = new Map(prevMap);
+						next.delete(p.id);
+						return next;
+					});
+					iconCacheRef.current.delete(p.id);
+					incidentFadeSeenIdsRef.current.delete(p.id);
+				}, INCIDENT_MAP_FADE_MS);
+				fadeOutTimeoutsRef.current.set(p.id, tid);
+			}
+		}
+		prevIncidentsRef.current = incidents;
+	}, [incidents]);
+
+	useEffect(() => {
+		return () => {
+			for (const t of fadeOutTimeoutsRef.current.values()) {
+				clearTimeout(t);
+			}
+			fadeOutTimeoutsRef.current.clear();
+		};
+	}, []);
+
+	useEffect(() => {
+		const ongoingIds = new Set(
 			incidents.filter(isOngoingIncident).map((i) => i.id),
 		);
 		for (const key of iconCacheRef.current.keys()) {
-			if (!activeIds.has(key)) iconCacheRef.current.delete(key);
+			if (!ongoingIds.has(key) && !fadingOut.has(key)) {
+				iconCacheRef.current.delete(key);
+			}
 		}
-	}, [incidents]);
+	}, [incidents, fadingOut]);
+
+	const ongoingList = incidents.filter(isOngoingIncident);
+	const ongoingIds = new Set(ongoingList.map((i) => i.id));
+	const fadeRows = [...fadingOut.entries()]
+		.filter(([id]) => !ongoingIds.has(id))
+		.map(([, snap]) => snap);
+	const rows: { inc: Incident; fadingOut: boolean }[] = [
+		...ongoingList.map((inc) => ({ inc, fadingOut: false })),
+		...fadeRows.map((inc) => ({ inc, fadingOut: true })),
+	];
 
 	return (
 		<Pane name="incidentPane" style={{ zIndex: 820 }}>
-			{incidents
-				.filter((inc) => isOngoingIncident(inc))
-				.map((inc) => (
+			{rows.map(({ inc, fadingOut: isFadingOut }) => {
+				const isSelected = inc.id === selectedId;
+				const isFirstMapAppearance =
+					!isFadingOut && !incidentFadeSeenIdsRef.current.has(inc.id);
+				if (isFirstMapAppearance) {
+					incidentFadeSeenIdsRef.current.add(inc.id);
+				}
+				return (
 					<Marker
 						key={inc.id}
 						position={[inc.lat, inc.lng]}
 						icon={(() => {
-							const isSelected = inc.id === selectedId;
 							const cached = iconCacheRef.current.get(inc.id);
-							if (cached && cached.selected === isSelected)
+							if (
+								cached &&
+								cached.selected === isSelected &&
+								cached.fadeOut === isFadingOut
+							) {
 								return cached.icon;
+							}
 							const icon = makeIncidentIcon(
 								inc.category,
 								isSelected,
 								false,
+								isFirstMapAppearance,
+								isFadingOut,
 							);
 							iconCacheRef.current.set(inc.id, {
 								selected: isSelected,
+								fadeOut: isFadingOut,
 								icon,
 							});
 							return icon;
 						})()}
-						zIndexOffset={10000}
-						interactive
-						riseOnHover
-						eventHandlers={{ click: () => onSelect(inc.id) }}
+						zIndexOffset={isSelected ? 15000 : 10000}
+						interactive={!isFadingOut}
+						riseOnHover={!isFadingOut}
+						eventHandlers={
+							isFadingOut ? {} : { click: () => onSelect(inc.id) }
+						}
 					/>
-				))}
+				);
+			})}
 		</Pane>
 	);
 }
@@ -1171,12 +1284,12 @@ function parseStoredIncident(raw: unknown): Incident | null {
 	const deployedResourceIds = Array.isArray(o.deployedResourceIds)
 		? (o.deployedResourceIds as unknown[]).filter(
 				(x): x is string => typeof x === "string",
-		  )
+			)
 		: undefined;
 	const deployedVigilanteIds = Array.isArray(o.deployedVigilanteIds)
 		? (o.deployedVigilanteIds as unknown[]).filter(
 				(x): x is string => typeof x === "string",
-		  )
+			)
 		: undefined;
 	const resolution = parseIncidentResolution(o.resolution);
 	return {
@@ -1187,7 +1300,7 @@ function parseStoredIncident(raw: unknown): Incident | null {
 		lat: o.lat,
 		lng: o.lng,
 		title: o.title,
-		summary: o.summary,
+		summary: normalizeIncidentDescription(o.summary),
 		createdAt: o.createdAt,
 		expiresAt: o.expiresAt,
 		successChance: o.successChance,
@@ -1228,7 +1341,8 @@ function mergeResourcePool(
 	for (const [k, v] of Object.entries(partial)) {
 		if (!v || typeof v !== "object") continue;
 		const e = v as Record<string, unknown>;
-		if (typeof e.qty !== "number" || typeof e.deployed !== "number") continue;
+		if (typeof e.qty !== "number" || typeof e.deployed !== "number")
+			continue;
 		const qty = Math.max(0, e.qty);
 		merged[k] = {
 			qty,
@@ -1265,24 +1379,26 @@ function loadState(saveKey: string): GameState {
 		const raw = localStorage.getItem(saveKey);
 		if (!raw) return initialState();
 		const p = JSON.parse(raw) as Partial<GameState>;
+		const showIncidentPanel =
+			typeof p.showIncidentPanel === "boolean"
+				? p.showIncidentPanel
+				: true;
+		const selectedFromSave =
+			typeof p.selectedIncidentId === "string"
+				? p.selectedIncidentId
+				: null;
 		return {
 			level:
 				typeof p.level === "number" && p.level >= 1 && p.level <= 3
 					? p.level
 					: 1,
-			selectedIncidentId:
-				typeof p.selectedIncidentId === "string"
-					? p.selectedIncidentId
-					: null,
+			selectedIncidentId: showIncidentPanel ? selectedFromSave : null,
 			incidents: Array.isArray(p.incidents)
 				? p.incidents
 						.map(parseStoredIncident)
 						.filter((x): x is Incident => x !== null)
 				: [],
-			showIncidentPanel:
-				typeof p.showIncidentPanel === "boolean"
-					? p.showIncidentPanel
-					: true,
+			showIncidentPanel,
 			showMinigamePanel:
 				typeof p.showMinigamePanel === "boolean"
 					? p.showMinigamePanel
@@ -1318,19 +1434,6 @@ function saveState(saveKey: string, state: GameState) {
 	localStorage.setItem(saveKey, JSON.stringify(state));
 }
 
-function formatIncidentTypeLabel(type: string) {
-	switch (type) {
-		case "crime":
-			return "Crime";
-		case "fire_rescue":
-			return "Fire / Rescue";
-		case "medical":
-			return "Medical";
-		default:
-			return "Incident";
-	}
-}
-
 export default function StreetMapScene({
 	saveKey,
 	saveSlot,
@@ -1339,19 +1442,28 @@ export default function StreetMapScene({
 	sessionId,
 }: Props) {
 	const [state, setState] = useState<GameState>(() =>
-		mode === "singleplayer" && saveKey ? loadState(saveKey) : initialState()
+		mode === "singleplayer" && saveKey
+			? loadState(saveKey)
+			: initialState(),
 	);
 	const stateRef = useRef(state);
 	stateRef.current = state;
 
 	const [isHost, setIsHost] = useState(false);
 
-	const [selectedOwnedVigilanteId, setSelectedOwnedVigilanteId] = useState<string | null>(null);
-	const [selectedRecruitLeadId, setSelectedRecruitLeadId] = useState<string | null>(null);
-	const [selectedTheftSiteId, setSelectedTheftSiteId] = useState<string | null>(null);
+	const [selectedOwnedVigilanteId, setSelectedOwnedVigilanteId] = useState<
+		string | null
+	>(null);
+	const [selectedRecruitLeadId, setSelectedRecruitLeadId] = useState<
+		string | null
+	>(null);
+	const [selectedTheftSiteId, setSelectedTheftSiteId] = useState<
+		string | null
+	>(null);
 
 	const [inventorySorterOpen, setInventorySorterOpen] = useState(false);
-	const [inventorySorterMode, setInventorySorterMode] = useState<InventorySorterMode>(null);
+	const [inventorySorterMode, setInventorySorterMode] =
+		useState<InventorySorterMode>(null);
 
 	const [showExitingModal, setShowExitingModal] = useState(false);
 	const [deployModalOpen, setDeployModalOpen] = useState(false);
@@ -1371,8 +1483,9 @@ export default function StreetMapScene({
 		contextLabel: string;
 	} | null>(null);
 
-	const resolveIncidentTimeoutRef =
-		useRef<ReturnType<typeof setTimeout> | null>(null);
+	const resolveIncidentTimeoutRef = useRef<ReturnType<
+		typeof setTimeout
+	> | null>(null);
 	const cloudPushInFlightRef = useRef(false);
 
 	// Cloud sync: Supabase upsert while playing (plus pagehide / unmount).
@@ -1387,11 +1500,11 @@ export default function StreetMapScene({
 		lng: helperBase.lng,
 	});
 
-	const [policeRenderItems, setPoliceRenderItems] = useState<PoliceRenderItem[]>(
-		() =>
-			STATIC_CHARACTER_BASES.filter(
-				(pin) => pin.kind === "police",
-			).map((pin) => ({
+	const [policeRenderItems, setPoliceRenderItems] = useState<
+		PoliceRenderItem[]
+	>(() =>
+		STATIC_CHARACTER_BASES.filter((pin) => pin.kind === "police").map(
+			(pin) => ({
 				pinId: pin.id as PoliceRenderItem["pinId"],
 				name: pin.name,
 				initial: pin.initial,
@@ -1400,7 +1513,8 @@ export default function StreetMapScene({
 				mode: "patrolling",
 				visiblePath: [],
 				assignedIncidentId: null,
-			})),
+			}),
+		),
 	);
 
 	const [policeEtaItems, setPoliceEtaItems] = useState<PoliceEtaItem[]>([]);
@@ -1411,124 +1525,129 @@ export default function StreetMapScene({
 	const placesAbortByLevelRef = useRef<Map<number, AbortController>>(
 		new Map(),
 	);
-
-useEffect(() => {
-	if (mode !== "multiplayer" || !sessionId) return;
-
-	let active = true;
-
-	const loadMarkers = async () => {
-		try {
-			const rows = await getSessionMarkers(sessionId);
-			if (!active) return;
-
-			const incidents = rows.map((row): Incident => ({
-				id: row.marker_id,
-				category:
-					row.kind === "theft"
-						? "crime"
-						: row.kind === "hire"
-							? "medical"
-							: "fire_rescue",
-				typeLabel: row.title,
-				status: row.status === "active" ? "active" : "resolved",
-				lat: row.x,
-				lng: row.y,
-				title: row.title,
-				summary: row.details,
-				createdAt: new Date(row.created_at).getTime(),
-				expiresAt: row.expires_at
-					? new Date(row.expires_at).getTime()
-					: Date.now() + 30000,
-				successChance: 75,
-				assignedResources: row.assigned_resources ?? [],
-			}));
-
-			setState((prev) => ({
-				...prev,
-				incidents,
-			}));
-		}
-		catch (error) {
-			console.error("Failed to load multiplayer markers:", error);
-		}
-	};
-
-	loadMarkers();
-
-	const unsubscribe = subscribeToSessionMarkers(
-		sessionId,
-		loadMarkers
+	/** Debounce so rapid map/bounds updates don't abort every in-flight Overpass fetch. */
+	const placesFetchDebounceByLevelRef = useRef<Map<number, number>>(
+		new Map(),
 	);
+	/** True while a /api/osm/places request is in flight for that level (spawn retries must not abort it). */
+	const placesFetchInFlightRef = useRef<Map<number, boolean>>(new Map());
 
-	return () => {
-		active = false;
-		unsubscribe();
-	};
-}, [mode, sessionId]);
+	useEffect(() => {
+		if (mode !== "multiplayer" || !sessionId) return;
 
-useEffect(() => {
-	if (mode !== "multiplayer" || !sessionId) return;
+		let active = true;
 
-	const checkHost = async () => {
-		try {
-			const session = await getSessionById(sessionId);
-			const supabase = getSupabaseBrowserClient();
-			const { data } = await supabase.auth.getUser();
-			const user = data?.user;
+		const loadMarkers = async () => {
+			try {
+				const rows = await getSessionMarkers(sessionId);
+				if (!active) return;
 
-			if (session && user && session.host_user_id === user.id) {
-				setIsHost(true);
-			} else {
+				const incidents = rows.map(
+					(row): Incident => ({
+						id: row.marker_id,
+						category:
+							row.kind === "theft"
+								? "crime"
+								: row.kind === "hire"
+									? "medical"
+									: "fire_rescue",
+						typeLabel: row.title,
+						status: row.status === "active" ? "active" : "resolved",
+						lat: row.x,
+						lng: row.y,
+						title: row.title,
+						summary: normalizeIncidentDescription(row.details),
+						createdAt: new Date(row.created_at).getTime(),
+						expiresAt: row.expires_at
+							? new Date(row.expires_at).getTime()
+							: Date.now() + 30000,
+						successChance: 75,
+						assignedResources: row.assigned_resources ?? [],
+					}),
+				);
+
+				setState((prev) => ({
+					...prev,
+					incidents,
+				}));
+			} catch (error) {
+				console.error("Failed to load multiplayer markers:", error);
+			}
+		};
+
+		loadMarkers();
+
+		const unsubscribe = subscribeToSessionMarkers(sessionId, loadMarkers);
+
+		return () => {
+			active = false;
+			unsubscribe();
+		};
+	}, [mode, sessionId]);
+
+	useEffect(() => {
+		if (mode !== "multiplayer" || !sessionId) return;
+
+		const checkHost = async () => {
+			try {
+				const session = await getSessionById(sessionId);
+				const supabase = getSupabaseBrowserClient();
+				const { data } = await supabase.auth.getUser();
+				const user = data?.user;
+
+				if (session && user && session.host_user_id === user.id) {
+					setIsHost(true);
+				} else {
+					setIsHost(false);
+				}
+			} catch (error) {
+				console.error("Failed to determine host:", error);
 				setIsHost(false);
 			}
-		} catch (error) {
-			console.error("Failed to determine host:", error);
-			setIsHost(false);
+		};
+
+		void checkHost();
+	}, [mode, sessionId]);
+
+	useEffect(() => {
+		if (mode !== "singleplayer" || !saveKey) return;
+		setState(loadState(saveKey));
+	}, [mode, saveKey]);
+
+	useEffect(() => {
+		if (mode !== "singleplayer" || !saveKey) return;
+		saveState(saveKey, state);
+		// Game JSON lives at `saveKey`; slot meta (incl. menu "last updated") lives at `keyForSlot(saveSlot)`.
+		if (saveSlot) touchSave(saveSlot);
+	}, [mode, saveKey, saveSlot, state]);
+
+	const pushCloudToServer = useCallback(async () => {
+		if (!cloudSync) return;
+		if (cloudPushInFlightRef.current) return;
+		cloudPushInFlightRef.current = true;
+		const slot: SaveSlotId = {
+			scope: "cloud",
+			index: cloudSync.slotIndex,
+			userId: cloudSync.userId,
+		};
+		try {
+			const meta = readSave(slot);
+			const title =
+				meta?.meta.title ?? `Cloud Slot ${cloudSync.slotIndex}`;
+			const ok = await upsertGameSave({
+				userId: cloudSync.userId,
+				slotIndex: cloudSync.slotIndex,
+				title,
+				state: stateRef.current as unknown as Record<string, unknown>,
+			});
+			if (ok) {
+				markCloudFlush(cloudSync.userId, cloudSync.slotIndex);
+				touchSave(slot);
+			}
+		} finally {
+			cloudPushInFlightRef.current = false;
 		}
-	};
-
-	void checkHost();
-}, [mode, sessionId]);
-
-useEffect(() => {
-	if (mode !== "singleplayer" || !saveKey) return;
-	setState(loadState(saveKey));
-}, [mode, saveKey]);
-
-useEffect(() => {
-	if (mode !== "singleplayer" || !saveKey) return;
-	saveState(saveKey, state);
-	// Game JSON lives at `saveKey`; slot meta (incl. menu "last updated") lives at `keyForSlot(saveSlot)`.
-	if (saveSlot) touchSave(saveSlot);
-}, [mode, saveKey, saveSlot, state]);
-
-const pushCloudToServer = useCallback(async () => {
-	if (!cloudSync) return;
-	if (cloudPushInFlightRef.current) return;
-	cloudPushInFlightRef.current = true;
-	const slot: SaveSlotId = {
-	scope: "cloud",
-	index: cloudSync.slotIndex,
-	userId: cloudSync.userId,
-	};
-	try {
-	const meta = readSave(slot);
-	const title = meta?.meta.title ?? `Cloud Slot ${cloudSync.slotIndex}`;
-	const ok = await upsertGameSave({
-		userId: cloudSync.userId,
-		slotIndex: cloudSync.slotIndex,
-		title,
-		state: stateRef.current as unknown as Record<string, unknown>,
-	});
-	if (ok) {
-		markCloudFlush(cloudSync.userId, cloudSync.slotIndex);
-		touchSave(slot);
-	}
-	} finally {
-	cloudPushInFlightRef.current = false;
-	}
-}, [cloudSync]);
+	}, [cloudSync]);
 
 	useEffect(() => {
 		if (!cloudSync) return;
@@ -1563,9 +1682,23 @@ const pushCloudToServer = useCallback(async () => {
 		};
 	}, []);
 
-	const handleBoundsReady = useCallback(
-		(level: number, bounds: LatLngBounds) => {
-			levelBoundsRef.current.set(level, bounds);
+	useEffect(() => {
+		return () => {
+			for (const t of placesFetchDebounceByLevelRef.current.values()) {
+				clearTimeout(t);
+			}
+			placesFetchDebounceByLevelRef.current.clear();
+		};
+	}, []);
+
+	const startPlacesFetchForLevel = useCallback(
+		(level: number, options?: { force?: boolean }) => {
+			const force = options?.force ?? false;
+			// Spawn-driven retries must never abort a slow in-flight fetch (L2 bbox can take ~10s+).
+			if (!force && placesFetchInFlightRef.current.get(level)) return;
+
+			const bounds = levelBoundsRef.current.get(level);
+			if (!bounds) return;
 
 			const prevAbort = placesAbortByLevelRef.current.get(level);
 			prevAbort?.abort();
@@ -1574,6 +1707,8 @@ const pushCloudToServer = useCallback(async () => {
 
 			const gen = (placesFetchGenRef.current.get(level) ?? 0) + 1;
 			placesFetchGenRef.current.set(level, gen);
+
+			placesFetchInFlightRef.current.set(level, true);
 
 			const south = bounds.getSouth();
 			const west = bounds.getWest();
@@ -1588,6 +1723,7 @@ const pushCloudToServer = useCallback(async () => {
 
 			void fetch(`/api/osm/places?${params.toString()}`, {
 				signal: ac.signal,
+				cache: "no-store",
 			})
 				.then(async (r) => {
 					if (placesFetchGenRef.current.get(level) !== gen) return;
@@ -1611,19 +1747,40 @@ const pushCloudToServer = useCallback(async () => {
 					}
 					if (placesFetchGenRef.current.get(level) !== gen) return;
 					spawnPlacesByLevelRef.current.set(level, []);
+				})
+				.finally(() => {
+					if (placesAbortByLevelRef.current.get(level) === ac) {
+						placesFetchInFlightRef.current.set(level, false);
+					}
 				});
 		},
 		[],
 	);
 
+	const handleBoundsReady = useCallback(
+		(level: number, bounds: LatLngBounds) => {
+			levelBoundsRef.current.set(level, bounds);
+
+			const prevTimer = placesFetchDebounceByLevelRef.current.get(level);
+			if (prevTimer !== undefined) clearTimeout(prevTimer);
+
+			const tid = window.setTimeout(() => {
+				placesFetchDebounceByLevelRef.current.delete(level);
+				startPlacesFetchForLevel(level, { force: true });
+			}, PLACES_FETCH_DEBOUNCE_MS);
+
+			placesFetchDebounceByLevelRef.current.set(level, tid);
+		},
+		[startPlacesFetchForLevel],
+	);
 
 	// ── Incident helpers ──────────────────────────────────────────────────────
 
 	const expireIncident = async (id: string) => {
-	if (mode === "multiplayer" && sessionId) {
-		await deleteSessionMarkerByMarkerId(sessionId, id);
-		return;
-	}
+		if (mode === "multiplayer" && sessionId) {
+			await deleteSessionMarkerByMarkerId(sessionId, id);
+			return;
+		}
 		setState((s) => ({
 			...s,
 			careerStats: {
@@ -1634,47 +1791,6 @@ const pushCloudToServer = useCallback(async () => {
 				s.selectedIncidentId === id ? null : s.selectedIncidentId,
 			incidents: s.incidents.filter((i) => i.id !== id),
 		}));
-	};
-
-	const handleSendResource = async (incidentId: string, resource: string) => {
-		try {
-			if (mode === "multiplayer" && sessionId) {
-				const supabase = getSupabaseBrowserClient();
-				const { data } = await supabase.auth.getUser();
-				const user = data?.user;
-
-				if (!user) return;
-
-				await addAssignedResourceToMarker(
-					sessionId,
-					incidentId,
-					resource,
-					user.id,
-				);
-				return;
-			}
-
-			setState((s) => ({
-				...s,
-				incidents: s.incidents.map((incident) =>
-					incident.id === incidentId
-						? {
-							...incident,
-							assignedResources: [
-								...incident.assignedResources,
-								{
-									playerId: "local-player",
-									resource,
-									assignedAt: new Date().toISOString(),
-								},
-							],
-						}
-						: incident,
-				),
-			}));
-		} catch (error) {
-			console.error("Failed to send resource to incident:", error);
-		}
 	};
 
 	const handleIncidentSelect = (id: string) => {
@@ -1691,19 +1807,26 @@ const pushCloudToServer = useCallback(async () => {
 					showIncidentPanel: false,
 				};
 			}
-			const incidents = [...s.incidents];
-			const idx = incidents.findIndex((i) => i.id === id);
-			if (idx > 0) {
-				const [chosen] = incidents.splice(idx, 1);
-				incidents.unshift(chosen);
-			}
 			return {
 				...s,
 				selectedIncidentId: id,
 				showIncidentPanel: true,
-				incidents,
 			};
 		});
+	};
+
+	/** List rows only select and keep the panel open — no toggle-to-close (avoids double-click closing). */
+	const handleIncidentPanelRowClick = (id: string) => {
+		setSelectedRecruitLeadId(null);
+		setSelectedOwnedVigilanteId(null);
+		setDialogue(null);
+		setShowVettingModal(false);
+		setSelectedTheftSiteId(null);
+		setState((s) => ({
+			...s,
+			selectedIncidentId: id,
+			showIncidentPanel: true,
+		}));
 	};
 
 	const handleRecruitSelect = (lead: RecruitLead) => {
@@ -1788,7 +1911,10 @@ const pushCloudToServer = useCallback(async () => {
 
 	const handleTheftSuccess = (
 		site: TheftSite,
-		reward: { credits: number; items: Array<{ type: string; quantity: number }> },
+		reward: {
+			credits: number;
+			items: Array<{ type: string; quantity: number }>;
+		},
 	) => {
 		const bundleCount = reward.items.reduce((sum, item) => {
 			if (item.type === "supply_pack") return sum + item.quantity;
@@ -1847,7 +1973,7 @@ const pushCloudToServer = useCallback(async () => {
 							...s.careerStats,
 							vigilantesRecruited:
 								s.careerStats.vigilantesRecruited + 1,
-					  },
+						},
 			};
 		});
 		setSelectedRecruitLeadId(null);
@@ -1902,7 +2028,8 @@ const pushCloudToServer = useCallback(async () => {
 				buffMultiplier: rollOutcome.buffMultiplier,
 				vigilanteMultiplier: rollOutcome.vigilanteMultiplier,
 				avgArchetypeFit: rollOutcome.avgArchetypeFit,
-				staffingSupportMultiplier: rollOutcome.staffingSupportMultiplier,
+				staffingSupportMultiplier:
+					rollOutcome.staffingSupportMultiplier,
 				gearPresenceMultiplier: rollOutcome.gearPresenceMultiplier,
 				luckDeltaPercent: rollOutcome.luckDeltaPercent,
 			},
@@ -1922,7 +2049,7 @@ const pushCloudToServer = useCallback(async () => {
 								status: "resolving" as const,
 								deployedResourceIds: [...payload.resourceIds],
 								deployedVigilanteIds: [...payload.vigilanteIds],
-						  }
+							}
 						: x,
 				),
 			};
@@ -1990,7 +2117,7 @@ const pushCloudToServer = useCallback(async () => {
 										luckDeltaPercent:
 											rollOutcome.luckDeltaPercent,
 									},
-							  }
+								}
 							: x,
 					),
 				};
@@ -2001,8 +2128,8 @@ const pushCloudToServer = useCallback(async () => {
 					: prev,
 			);
 		}, RESOLVE_MS);
-	};  
-    
+	};
+
 	const dismissResolvedIncident = (incidentId: string) => {
 		setState((s) => {
 			const inc = s.incidents.find((i) => i.id === incidentId);
@@ -2048,78 +2175,70 @@ const pushCloudToServer = useCallback(async () => {
 					const bounds = levelBoundsRef.current.get(s.level);
 					if (!bounds) return s;
 
-			const places = spawnPlacesByLevelRef.current.get(s.level) ?? [];
-			const place = pickSpatiallyUniformPoi(places, bounds);
+					const places =
+						spawnPlacesByLevelRef.current.get(s.level) ?? [];
+					const place = pickSpatiallyUniformPoi(places, bounds);
 
-			if (place) {
-			const newIncident = makeIncident(place.lat, place.lng, place);
+					// No POIs yet (Overpass still loading / failed) or empty bbox:
+					// skip this tick — never random sampleInBounds (water, etc.) or
+					// placeholder names. Soft refetch if idle (never aborts in-flight).
+					if (!place) {
+						if (places.length === 0) {
+							queueMicrotask(() =>
+								startPlacesFetchForLevel(s.level, {
+									force: false,
+								}),
+							);
+						}
+						return s;
+					}
 
-			if (mode === "multiplayer" && sessionId) {
-				void insertSessionMarker({
-					sessionId,
-					markerId: newIncident.id,
-					kind: "incident",
-					x: newIncident.lat,
-					y: newIncident.lng,
-					title: newIncident.title,
-					details: newIncident.summary,
-					createdAt: new Date(newIncident.createdAt).toISOString(),
-					expiresAt: new Date(newIncident.expiresAt).toISOString(),
-					status: "active",
-			  	});
-			  return s;
-			}
+					const newIncident = makeIncident(
+						place.lat,
+						place.lng,
+						place,
+					);
 
-			return {
-			  ...s,
-			  incidents: [...s.incidents, newIncident],
-			};
-			}
+					if (mode === "multiplayer" && sessionId) {
+						void insertSessionMarker({
+							sessionId,
+							markerId: newIncident.id,
+							kind: "incident",
+							x: newIncident.lat,
+							y: newIncident.lng,
+							title: newIncident.title,
+							details: newIncident.summary,
+							createdAt: new Date(
+								newIncident.createdAt,
+							).toISOString(),
+							expiresAt: new Date(
+								newIncident.expiresAt,
+							).toISOString(),
+							status: "active",
+						});
+						return s;
+					}
 
-			const fallbackPoint = sampleInBounds(bounds);
-			const fallbackPlace: OsmPlace = {
-			name: "Unknown location",
-			lat: fallbackPoint.lat,
-			lng: fallbackPoint.lng,
-			kind: "fallback",
-			};
-
-			const newIncident = makeIncident(
-			fallbackPlace.lat,
-			fallbackPlace.lng,
-			fallbackPlace,
-			);
-
-			if (mode === "multiplayer" && sessionId) {
-			void insertSessionMarker({
-				sessionId,
-				markerId: newIncident.id,
-				kind: "incident",
-				x: newIncident.lat,
-				y: newIncident.lng,
-				title: newIncident.title,
-				details: newIncident.summary,
-				createdAt: new Date(newIncident.createdAt).toISOString(),
-				expiresAt: new Date(newIncident.expiresAt).toISOString(),
-				status: "active",
-			});
-			return s;
-			}
-
-			return {
-			...s,
-			incidents: [...s.incidents, newIncident],
-			};
-		});
-		scheduleNext();
-	}, SPAWN_INTERVAL_MS);
-};
+					return {
+						...s,
+						incidents: [...s.incidents, newIncident],
+					};
+				});
+				scheduleNext();
+			}, SPAWN_INTERVAL_MS);
+		};
 
 		scheduleNext();
 		return () => {
 			alive = false;
 		};
-	}, [inventorySorterOpen, mode, isHost, sessionId]);
+	}, [
+		inventorySorterOpen,
+		mode,
+		isHost,
+		sessionId,
+		startPlacesFetchForLevel,
+	]);
 
 	useEffect(() => {
 		let alive = true;
@@ -2172,7 +2291,7 @@ const pushCloudToServer = useCallback(async () => {
 										normalAvailable.length > 0
 											? normalAvailable
 											: available,
-								  );
+									);
 					} else {
 						chosen = randomFrom(
 							normalAvailable.length > 0
@@ -2203,29 +2322,30 @@ const pushCloudToServer = useCallback(async () => {
 		if (inventorySorterOpen) return;
 
 		const id = window.setInterval(() => {
-
 			const now = Date.now();
 
-		if (mode === "multiplayer" && sessionId) {
-		const expiredIds = state.incidents
-		  .filter((i) => i.status === "active" && now >= i.expiresAt)
-		  .map((i) => i.id);
+			if (mode === "multiplayer" && sessionId) {
+				const expiredIds = state.incidents
+					.filter((i) => i.status === "active" && now >= i.expiresAt)
+					.map((i) => i.id);
 
-		expiredIds.forEach((incidentId) => {
-		  void deleteSessionMarkerByMarkerId(sessionId, incidentId);
-		});
+				expiredIds.forEach((incidentId) => {
+					void deleteSessionMarkerByMarkerId(sessionId, incidentId);
+				});
 
-		if (
-		  	selectedRecruitLeadId &&
-		  	!state.recruitLeads.some((r) => r.id === selectedRecruitLeadId)
-		) {
-		  	setSelectedRecruitLeadId(null);
-		}
-		return;
-	}
+				if (
+					selectedRecruitLeadId &&
+					!state.recruitLeads.some(
+						(r) => r.id === selectedRecruitLeadId,
+					)
+				) {
+					setSelectedRecruitLeadId(null);
+				}
+				return;
+			}
 
-	setState((s) => {
-		const now = Date.now();
+			setState((s) => {
+				const now = Date.now();
 				const expiredIncidentIds = new Set(
 					s.incidents
 						.filter(
@@ -2266,7 +2386,14 @@ const pushCloudToServer = useCallback(async () => {
 			}
 		}, 1_000);
 		return () => window.clearInterval(id);
-	}, [inventorySorterOpen, selectedRecruitLeadId, state.recruitLeads, state.incidents, mode, sessionId]);
+	}, [
+		inventorySorterOpen,
+		selectedRecruitLeadId,
+		state.recruitLeads,
+		state.incidents,
+		mode,
+		sessionId,
+	]);
 
 	useEffect(() => {
 		const id = window.setInterval(() => {
@@ -2287,20 +2414,22 @@ const pushCloudToServer = useCallback(async () => {
 			STATIC_CHARACTER_BASES.find((p) => p.id === "cit-woman"),
 		].filter(Boolean) as CharacterPin[];
 
-		return activeIncidents.slice(0, citizenTemplates.length).map((incident, idx) => {
-			const tpl = citizenTemplates[idx];
-			const stable = stableCitizenPositionAroundIncident(
-				incident.id,
-				{ lat: incident.lat, lng: incident.lng },
-				idx,
-			);
+		return activeIncidents
+			.slice(0, citizenTemplates.length)
+			.map((incident, idx) => {
+				const tpl = citizenTemplates[idx];
+				const stable = stableCitizenPositionAroundIncident(
+					incident.id,
+					{ lat: incident.lat, lng: incident.lng },
+					idx,
+				);
 
-			return {
-				...tpl,
-				lat: stable.lat,
-				lng: stable.lng,
-			};
-		});
+				return {
+					...tpl,
+					lat: stable.lat,
+					lng: stable.lng,
+				};
+			});
 	}, [state.incidents]);
 
 	const visibleDynamicPins = useMemo(() => {
@@ -2367,7 +2496,7 @@ const pushCloudToServer = useCallback(async () => {
 			selectedRecruitLead
 				? (vigilantes.find(
 						(v) => v.id === selectedRecruitLead.vigilanteId,
-				  ) ?? null)
+					) ?? null)
 				: null,
 		[selectedRecruitLead],
 	);
@@ -2376,7 +2505,7 @@ const pushCloudToServer = useCallback(async () => {
 		() =>
 			selectedOwnedVigilanteId
 				? (vigilantes.find((v) => v.id === selectedOwnedVigilanteId) ??
-				  null)
+					null)
 				: null,
 		[selectedOwnedVigilanteId],
 	);
@@ -2400,7 +2529,8 @@ const pushCloudToServer = useCallback(async () => {
 	);
 
 	const selectedTheftSite = useMemo(
-		() => THEFT_SITES.find((site) => site.id === selectedTheftSiteId) ?? null,
+		() =>
+			THEFT_SITES.find((site) => site.id === selectedTheftSiteId) ?? null,
 		[selectedTheftSiteId],
 	);
 
@@ -2410,11 +2540,9 @@ const pushCloudToServer = useCallback(async () => {
 				i.status === "active" ? 0 : i.status === "resolving" ? 1 : 2;
 			const d = rk(a) - rk(b);
 			if (d !== 0) return d;
-			if (a.id === state.selectedIncidentId) return -1;
-			if (b.id === state.selectedIncidentId) return 1;
 			return a.expiresAt - b.expiresAt;
 		});
-	}, [state.incidents, state.selectedIncidentId]);
+	}, [state.incidents]);
 
 	return (
 		<div className="fixed inset-0">
@@ -2455,12 +2583,48 @@ const pushCloudToServer = useCallback(async () => {
 					60%  { box-shadow: 0 0 0 10px rgba(185,28,28,0); }
 					100% { box-shadow: 0 0 0 12px rgba(185,28,28,0); }
 				}
+				@keyframes vigilante-pulse-selected {
+					0%   { box-shadow: 0 0 0 0 rgba(185,28,28,0.35), 0 0 16px rgba(0,0,0,0.9); }
+					60%  { box-shadow: 0 0 0 14px rgba(185,28,28,0), 0 0 16px rgba(0,0,0,0.9); }
+					100% { box-shadow: 0 0 0 16px rgba(185,28,28,0), 0 0 16px rgba(0,0,0,0.9); }
+				}
 				.vigilante-incident-icon-pulse > div {
 					animation-name: vigilante-pulse-soft;
 					animation-duration: 2.2s;
 					animation-timing-function: cubic-bezier(0.25, 0.1, 0.25, 1);
 					animation-iteration-count: infinite;
 					will-change: box-shadow;
+				}
+				.vigilante-incident-icon-pulse.vigilante-incident-icon-selected > div {
+					animation-name: vigilante-pulse-selected;
+					animation-duration: 2s;
+					animation-timing-function: cubic-bezier(0.25, 0.1, 0.25, 1);
+					animation-iteration-count: infinite;
+					will-change: box-shadow;
+				}
+				@keyframes vigilante-incident-fade-in {
+					from { opacity: 0; transform: scale(0.88); }
+					to { opacity: 1; transform: scale(1); }
+				}
+				.vigilante-incident-icon-fade-in > div {
+					animation: vigilante-incident-fade-in ${INCIDENT_MAP_FADE_S} cubic-bezier(0.2, 0.85, 0.2, 1) forwards;
+					will-change: opacity, transform;
+				}
+				.vigilante-incident-icon-fade-in.vigilante-incident-icon-pulse.vigilante-incident-icon-selected > div {
+					animation:
+						vigilante-incident-fade-in ${INCIDENT_MAP_FADE_S} cubic-bezier(0.2, 0.85, 0.2, 1) forwards,
+						vigilante-pulse-selected 2s cubic-bezier(0.25, 0.1, 0.25, 1) infinite;
+					animation-delay: 0s, ${INCIDENT_MAP_FADE_S};
+					will-change: opacity, transform, box-shadow;
+				}
+				@keyframes vigilante-incident-fade-out {
+					from { opacity: 1; transform: scale(1); }
+					to { opacity: 0; transform: scale(0.86); }
+				}
+				.vigilante-incident-icon-fade-out > div {
+					animation: vigilante-incident-fade-out ${INCIDENT_MAP_FADE_S} cubic-bezier(0.2, 0.85, 0.2, 1) forwards;
+					pointer-events: none;
+					will-change: opacity, transform;
 				}
 			`}</style>
 
@@ -2553,8 +2717,9 @@ const pushCloudToServer = useCallback(async () => {
 								scale: 0.98,
 							}}
 							transition={{ duration: 0.2, ease: "easeOut" }}
-							className={`absolute top-6 bottom-6 z-[2010] w-[min(34vw,460px)] min-w-[340px] overflow-hidden rounded-2xl border border-amber-900/40 bg-black/75 text-amber-100 shadow-[0_18px_70px_rgba(0,0,0,0.55)] backdrop-blur-md ${overlayMode === "owned" ? "right-6" : "left-6"
-								}`}
+							className={`absolute top-6 bottom-6 z-[2010] w-[min(34vw,460px)] min-w-[340px] overflow-hidden rounded-2xl border border-amber-900/40 bg-black/75 text-amber-100 shadow-[0_18px_70px_rgba(0,0,0,0.55)] backdrop-blur-md ${
+								overlayMode === "owned" ? "right-6" : "left-6"
+							}`}
 						>
 							<div className="flex h-full flex-col">
 								<div className="flex items-start justify-between border-b border-amber-900/30 px-5 py-4">
@@ -2765,7 +2930,9 @@ const pushCloudToServer = useCallback(async () => {
 
 									<button
 										type="button"
-										onClick={() => setSelectedTheftSiteId(null)}
+										onClick={() =>
+											setSelectedTheftSiteId(null)
+										}
 										className="rounded-lg border border-amber-900/35 bg-black/30 p-2 text-amber-200/70 hover:bg-amber-950/20 hover:text-amber-100 transition"
 									>
 										<X className="h-4 w-4" />
@@ -2783,14 +2950,16 @@ const pushCloudToServer = useCallback(async () => {
 										Potential haul
 									</div>
 									<div className="mt-3 flex flex-wrap gap-2">
-										{selectedTheftSite.rewardIds.map((id, idx) => (
-											<span
-												key={`${id}-${idx}`}
-												className="rounded-full border border-amber-900/30 bg-black/30 px-3 py-1 text-xs text-amber-100/80"
-											>
-												{id.toUpperCase()}
-											</span>
-										))}
+										{selectedTheftSite.rewardIds.map(
+											(id, idx) => (
+												<span
+													key={`${id}-${idx}`}
+													className="rounded-full border border-amber-900/30 bg-black/30 px-3 py-1 text-xs text-amber-100/80"
+												>
+													{id.toUpperCase()}
+												</span>
+											),
+										)}
 									</div>
 								</div>
 
@@ -2799,8 +2968,9 @@ const pushCloudToServer = useCallback(async () => {
 										Risk
 									</div>
 									<p className="mt-2 text-sm leading-6 text-amber-100/70">
-										If the theft succeeds, it still creates a fresh incident on
-										the map and can draw police attention to the area.
+										If the theft succeeds, it still creates
+										a fresh incident on the map and can draw
+										police attention to the area.
 									</p>
 								</div>
 							</div>
@@ -2858,10 +3028,11 @@ const pushCloudToServer = useCallback(async () => {
 								onClick={() =>
 									setState((s) => ({ ...s, level: lvl.id }))
 								}
-								className={`px-3 py-1 rounded-md border cursor-pointer ${state.level === lvl.id
-									? "border-amber-500/70 bg-amber-900/40 text-amber-100"
-									: "border-amber-900/50 bg-black/30 text-amber-200/60 hover:border-amber-700/60 hover:text-amber-100"
-									}`}
+								className={`px-3 py-1 rounded-md border cursor-pointer ${
+									state.level === lvl.id
+										? "border-amber-500/70 bg-amber-900/40 text-amber-100"
+										: "border-amber-900/50 bg-black/30 text-amber-200/60 hover:border-amber-700/60 hover:text-amber-100"
+								}`}
 							>
 								{lvl.label}
 							</button>
@@ -2870,16 +3041,21 @@ const pushCloudToServer = useCallback(async () => {
 				</div>
 			</div>
 
-			<div className="pointer-events-none absolute inset-y-16 left-0 z-[950] flex items-start">
-				<div className="pointer-events-auto mt-4">
+			<div className="pointer-events-none absolute inset-y-16 left-0 z-[950] flex items-start pt-4">
+				<div className="pointer-events-auto">
 					<button
 						type="button"
-						onClick={() =>
+						onClick={() => {
+							const wasOpen = state.showIncidentPanel;
 							setState((s) => ({
 								...s,
 								showIncidentPanel: !s.showIncidentPanel,
-							}))
-						}
+								selectedIncidentId: wasOpen
+									? null
+									: s.selectedIncidentId,
+							}));
+							if (wasOpen) setDeployModalOpen(false);
+						}}
 						className="cursor-pointer rounded-r-full rounded-l-none border border-amber-900/60 bg-black/75 px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-amber-200/80 hover:border-amber-500/80 hover:text-amber-100 transition-colors flex items-center gap-1"
 					>
 						<span>Incidents</span>
@@ -2917,163 +3093,80 @@ const pushCloudToServer = useCallback(async () => {
 								{incidentPanelRows.map((inc) => {
 									const isSelected =
 										state.selectedIncidentId === inc.id;
-									const statusBadge =
-										inc.status === "resolving"
-											? "Resolving"
-											: inc.status === "resolved"
-												? "Resolved"
-												: null;
 									return (
 										<button
 											key={inc.id}
 											type="button"
 											onClick={() =>
-												handleIncidentSelect(inc.id)
+												handleIncidentPanelRowClick(
+													inc.id,
+												)
 											}
-											className={`w-full text-left rounded-lg border px-3 py-2 text-xs transition-colors cursor-pointer ${
+											className={`flex h-[92px] flex-col px-3 py-2 text-left text-xs transition-colors cursor-pointer ${
 												isSelected
 													? "border-amber-500/80 bg-amber-900/50 text-amber-100"
 													: "border-amber-900/50 bg-black/40 text-amber-200/70 hover:border-amber-700/70 hover:text-amber-100"
-											}`}
+											} w-full rounded-lg border`}
 										>
-											<div className="flex items-start gap-3">
-												<div
-													className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] ${
-														inc.status === "resolved"
-															? "border-amber-800/50 bg-amber-950/35 text-amber-200/70"
-															: inc.status === "resolving"
-																? "border-amber-700/60 bg-amber-950/40 text-amber-200"
-																: "border-red-900 bg-red-900/30 text-red-300"
-													}`}
-												>
-													{inc.status === "active"
-														? "!"
-														: inc.status === "resolving"
-															? "…"
-															: "·"}
-												</div>
-
-												<div className="min-w-0 flex-1">
-													<div className="flex items-center justify-between gap-2">
+											<div className="flex min-h-0 flex-1 flex-col justify-center">
+												<div className="flex h-[64px] w-full shrink-0 items-center gap-3">
+													<div
+														className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] ${
+															inc.status ===
+															"resolved"
+																? "border-amber-800/50 bg-amber-950/35 text-amber-200/70"
+																: inc.status ===
+																	  "resolving"
+																	? "border-amber-700/60 bg-amber-950/40 text-amber-200"
+																	: "border-red-900 bg-red-900/30 text-red-300"
+														}`}
+													>
+														{inc.status === "active"
+															? "!"
+															: inc.status ===
+																  "resolving"
+																? "…"
+																: "·"}
+													</div>
+													<div className="flex h-[64px] min-w-0 flex-1 flex-col justify-center gap-1 overflow-hidden">
+														<div className="max-h-[26px] overflow-hidden font-semibold text-[12px] leading-[13px] tracking-tight text-amber-50/95">
+															{inc.title}
+														</div>
 														<div
-															className="font-semibold text-[12px] leading-snug tracking-tight text-amber-50/95">
-															{formatIncidentTypeLabel(
-																inc.typeLabel,
-															)}
+															className="max-h-[26px] overflow-hidden text-[11px] leading-[13px] text-amber-200/70"
+															title={inc.summary}
+														>
+															{inc.summary}
 														</div>
-
-														{statusBadge != null && (
-															<span
-																className="shrink-0 text-[9px] uppercase tracking-[0.12em] text-amber-400/70">
-																{statusBadge}
-															</span>
-														)}
 													</div>
-
-													<div className="mt-1 text-[11px] text-amber-200/70 leading-snug">
-														{inc.summary}
-													</div>
-
-													{inc.status === "active" && (
-														<IncidentTimerBar
-															createdAt={inc.createdAt}
-															expiresAt={inc.expiresAt}
-															onExpire={() =>
-																expireIncident(
-																	inc.id,
-																)
-															}
-														/>
-													)}
-
-													{isSelected && (
-														<div className="mt-3 space-y-2">
-															<div
-																className="text-[10px] uppercase tracking-[0.16em] text-amber-400/70">
-																Assigned Resources
-															</div>
-
-															<div className="flex flex-wrap gap-2">
-																{inc.assignedResources.length === 0 ? (
-																	<span className="text-[10px] text-amber-200/45">
-																		No resources assigned yet.
-																	</span>
-																) : (
-																	inc.assignedResources.map(
-																		(
-																			assignment,
-																			idx,
-																		) => (
-																			<span
-																				key={`${assignment.playerId}-${assignment.resource}-${assignment.assignedAt}-${idx}`}
-																				className="rounded-full border border-amber-900/35 bg-black/30 px-2 py-1 text-[10px] text-amber-100/90"
-																			>
-																				{assignment.resource}
-																			</span>
-																		),
-																	)
-																)}
-															</div>
-
-															<div className="grid grid-cols-1 gap-2">
-																{RESOURCE_OPTIONS.map(
-																	(resource) => (
-																		<button
-																			key={resource}
-																			type="button"
-																			onClick={(e) => {
-																				e.stopPropagation();
-																				void handleSendResource(
-																					inc.id,
-																					resource,
-																				);
-																			}}
-																			className="rounded-md border border-amber-700/50 bg-amber-950/25 px-2 py-1.5 text-[10px] uppercase tracking-[0.14em] text-amber-100 hover:bg-amber-900/35 transition-colors"
-																		>
-																			Send {resource}
-																		</button>
-																	),
-																)}
-															</div>
-														</div>
-													)}
 												</div>
 											</div>
+											{inc.status === "active" ? (
+												<IncidentTimerBar
+													createdAt={inc.createdAt}
+													expiresAt={inc.expiresAt}
+													onExpire={() =>
+														expireIncident(inc.id)
+													}
+												/>
+											) : (
+												<div
+													className="mt-2 h-[3px] w-full shrink-0"
+													aria-hidden
+												/>
+											)}
 										</button>
 									);
 								})}
 
 								{state.incidents.length === 0 && (
 									<div className="text-[11px] text-amber-200/40 px-1 py-2">
-										No incidents. The city is quiet… for now.
+										No incidents. The city is quiet… for
+										now.
 									</div>
 								)}
 
-								<div
-									className="pointer-events-none absolute inset-x-0 bottom-0 h-4 bg-linear-to-t from-black/70 to-transparent"/>
-							</div>
-
-							<div className="shrink-0 border-t border-amber-900/40 px-3 py-2">
-								<div className="text-[9px] font-semibold uppercase tracking-[0.16em] text-amber-400/75">
-									Career
-								</div>
-								<div className="mt-1 text-[10px] tabular-nums text-amber-200/70 leading-snug">
-									<span className="text-emerald-400/90">
-										{state.careerStats.incidentsResolvedSuccess}
-										W
-									</span>
-									{" · "}
-									<span className="text-rose-400/90">
-										{state.careerStats.incidentsResolvedFailure}
-										L
-									</span>
-									{" · "}
-									{state.careerStats.incidentsExpired} expired
-									{" · "}
-									{state.careerStats.dispatchesCompleted} dispatches
-									{" · "}
-									{state.careerStats.vigilantesRecruited} recruited
-								</div>
+								<div className="pointer-events-none absolute inset-x-0 bottom-0 h-4 bg-linear-to-t from-black/70 to-transparent" />
 							</div>
 
 							{selectedIncident?.status === "active" && (
@@ -3089,8 +3182,7 @@ const pushCloudToServer = useCallback(async () => {
 							)}
 
 							{selectedIncident?.status === "resolving" && (
-								<div
-									className="shrink-0 border-t border-amber-900/40 px-3 py-3 text-center text-[11px] text-amber-200/75">
+								<div className="shrink-0 border-t border-amber-900/40 px-3 py-3 text-center text-[11px] text-amber-200/75">
 									Resolving…
 								</div>
 							)}
@@ -3115,7 +3207,10 @@ const pushCloudToServer = useCallback(async () => {
 				</AnimatePresence>
 			</div>
 
-			<div className="fixed left-0 flex items-start" style={{top: 160, zIndex: 2000}}>
+			<div
+				className="fixed left-0 flex items-start"
+				style={{ top: 160, zIndex: 2000 }}
+			>
 				<div className="pointer-events-auto">
 					<button
 						type="button"
@@ -3130,9 +3225,9 @@ const pushCloudToServer = useCallback(async () => {
 						<span>Minigames</span>
 						<span className="text-[11px] flex items-center">
 							{state.showMinigamePanel ? (
-								<ChevronLeft className="w-3 h-3" aria-hidden/>
+								<ChevronLeft className="w-3 h-3" aria-hidden />
 							) : (
-								<ChevronRight className="w-3 h-3" aria-hidden/>
+								<ChevronRight className="w-3 h-3" aria-hidden />
 							)}
 						</span>
 					</button>
@@ -3142,9 +3237,9 @@ const pushCloudToServer = useCallback(async () => {
 					{state.showMinigamePanel && (
 						<motion.div
 							key="minigame-panel"
-							initial={{x: -320, opacity: 0}}
-							animate={{x: 0, opacity: 1}}
-							exit={{x: -320, opacity: 0}}
+							initial={{ x: -320, opacity: 0 }}
+							animate={{ x: 0, opacity: 1 }}
+							exit={{ x: -320, opacity: 0 }}
 							transition={{
 								type: "tween",
 								duration: 0.22,
@@ -3164,15 +3259,22 @@ const pushCloudToServer = useCallback(async () => {
 										key={game.id}
 										type="button"
 										onClick={() => {
-											if (game.id === "inventory-sorter") {
-												setInventorySorterMode("supply-recovery");
+											if (
+												game.id === "inventory-sorter"
+											) {
+												setInventorySorterMode(
+													"supply-recovery",
+												);
 											}
 										}}
 										className="w-full text-left rounded-lg border border-amber-900/50 bg-black/40 px-3 py-3 text-xs text-amber-200/70 hover:border-amber-700/70 hover:text-amber-100 transition-colors cursor-pointer"
 									>
 										<div className="flex items-start gap-3">
 											<div className="mt-0.5 h-8 w-8 rounded-lg border border-amber-800/60 bg-amber-950/30 flex items-center justify-center text-amber-300">
-												<Package2 className="w-4 h-4" aria-hidden />
+												<Package2
+													className="w-4 h-4"
+													aria-hidden
+												/>
 											</div>
 											<div className="flex-1">
 												<div className="flex items-center justify-between gap-2">
@@ -3265,12 +3367,20 @@ const pushCloudToServer = useCallback(async () => {
 														{item.name}
 													</div>
 													<div className="mt-1 text-[11px] text-amber-200/70 line-clamp-2">
-														Responding to {item.incidentId.slice(0, 12)}...
+														Responding to{" "}
+														{item.incidentId.slice(
+															0,
+															12,
+														)}
+														...
 													</div>
 													<div className="mt-1 text-[11px] text-amber-100/90">
-														ETA: {formatEta(item.etaMs)}
+														ETA:{" "}
+														{formatEta(item.etaMs)}
 													</div>
-													<PoliceEtaBar etaMs={item.etaMs} />
+													<PoliceEtaBar
+														etaMs={item.etaMs}
+													/>
 												</div>
 											</div>
 										</div>
@@ -3287,7 +3397,8 @@ const pushCloudToServer = useCallback(async () => {
 
 							{policeEtaItems.length > 3 && (
 								<div className="px-3 pt-2 pb-3 text-[10px] text-amber-200/50">
-									More police responses below – scroll to view.
+									More police responses below – scroll to
+									view.
 								</div>
 							)}
 						</motion.div>
@@ -3316,16 +3427,16 @@ const pushCloudToServer = useCallback(async () => {
 					selectedIncident.status === "active"
 				}
 				incident={
-					selectedIncident &&
-					selectedIncident.status === "active"
+					selectedIncident && selectedIncident.status === "active"
 						? {
 								id: selectedIncident.id,
 								category: selectedIncident.category,
 								typeLabel: selectedIncident.typeLabel,
+								title: selectedIncident.title,
 								summary: selectedIncident.summary,
 								createdAt: selectedIncident.createdAt,
 								expiresAt: selectedIncident.expiresAt,
-						  }
+							}
 						: null
 				}
 				ownedVigilanteIds={state.ownedVigilanteIds}
@@ -3345,7 +3456,10 @@ const pushCloudToServer = useCallback(async () => {
 				open={inventorySorterMode !== null}
 				onClose={() => setInventorySorterMode(null)}
 				onWin={(reward) => {
-					if (inventorySorterMode === "resource-theft" && selectedTheftSite) {
+					if (
+						inventorySorterMode === "resource-theft" &&
+						selectedTheftSite
+					) {
 						handleTheftSuccess(selectedTheftSite, reward);
 						return;
 					}
@@ -3382,7 +3496,9 @@ const pushCloudToServer = useCallback(async () => {
 							<Inventory
 								resourcePool={state.resourcePool}
 								ownedVigilanteIds={state.ownedVigilanteIds}
-								vigilanteInjuryUntil={state.vigilanteInjuryUntil}
+								vigilanteInjuryUntil={
+									state.vigilanteInjuryUntil
+								}
 								purchasedBuffIds={state.purchasedBuffIds}
 								onHide={() =>
 									setState((s) => ({

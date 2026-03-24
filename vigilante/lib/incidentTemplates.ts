@@ -14,7 +14,7 @@ export type IncidentTemplate = {
 	archetype: IncidentArchetype;
 	/** Short chip in the incident list */
 	typeLabel: string;
-	/** One line; {place} = venue name (already shortened) */
+	/** One line. `{place}` is the venue name (already shortened). */
 	summary: string;
 	weight: number;
 };
@@ -39,7 +39,7 @@ export const INCIDENT_TEMPLATES: IncidentTemplate[] = [
 	{
 		archetype: "crime",
 		typeLabel: "Shoplifting",
-		summary: "Hostile shoplifter at {place}; crowd at the exits.",
+		summary: "Hostile shoplifter at {place}. Crowd at the exits.",
 		weight: 5,
 	},
 	{
@@ -307,7 +307,7 @@ export const INCIDENT_TEMPLATES: IncidentTemplate[] = [
 	{
 		archetype: "medical",
 		typeLabel: "Multi-vehicle pileup",
-		summary: "Pileup near {place}. Many injured; triage needed.",
+		summary: "Pileup near {place}. Many injured. Triage needed.",
 		weight: 2,
 	},
 	{
@@ -413,13 +413,13 @@ export const INCIDENT_TEMPLATES: IncidentTemplate[] = [
 	{
 		archetype: "traffic",
 		typeLabel: "Bridge damage",
-		summary: "Bridge damage near {place}. Still open—unsafe.",
+		summary: "Bridge damage near {place}. Still open. Unsafe.",
 		weight: 2,
 	},
 	{
 		archetype: "traffic",
 		typeLabel: "Power outage",
-		summary: "Blackout at {place}. Signals dead—gridlock.",
+		summary: "Blackout at {place}. Signals dead. Gridlock.",
 		weight: 4,
 	},
 	{

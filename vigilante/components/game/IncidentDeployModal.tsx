@@ -15,7 +15,6 @@ import { portraitToSrc } from "@/lib/vigilantePortrait";
 import { BASE_RESOURCES } from "@/components/game/Inventory";
 import { ResourceGearIcon } from "@/components/game/ResourceGearIcon";
 import { IncidentTimerBar } from "@/components/game/IncidentTimerBar";
-import { formatIncidentTypeLabel } from "@/lib/formatIncidentTitle";
 import type { IncidentArchetype } from "@/lib/incidentTemplates";
 import {
 	canStageDeployment,
@@ -81,6 +80,7 @@ type Props = {
 		id: string;
 		category: IncidentArchetype;
 		typeLabel: string;
+		title: string;
 		summary: string;
 		createdAt: number;
 		expiresAt: number;
@@ -290,10 +290,10 @@ export default function IncidentDeployModal({
 								>
 									Dispatch
 								</p>
-								<h2 className="mt-1.5 truncate text-lg font-semibold text-amber-50">
-									{formatIncidentTypeLabel(incident.typeLabel)}
+								<h2 className="mt-1.5 max-h-[2.75em] overflow-hidden text-lg font-semibold leading-snug text-amber-50">
+									{incident.title}
 								</h2>
-								<p className="mt-2 line-clamp-3 text-sm leading-relaxed text-amber-200/65">
+								<p className="mt-2 max-h-[4.05em] overflow-hidden text-sm leading-[1.35] text-amber-200/65">
 									{incident.summary}
 								</p>
 								<IncidentTimerBar

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "edge";
+export const dynamic = "force-dynamic";
 
 export type OsmPlace = {
 	name: string;
@@ -39,17 +40,31 @@ export async function GET(req: NextRequest) {
   node["leisure"]["name"];
   node["building"]["name"];
   node["public_transport"]["name"];
+  node["highway"="bus_stop"]["name"];
+  node["railway"="station"]["name"];
+  node["railway"="halt"]["name"];
+  node["historic"]["name"];
+  node["place"]["name"];
 );
 out 400;
 `.trim();
 
 	try {
-		const res = await fetch(OVERPASS_URL, {
-			method: "POST",
-			headers: { "Content-Type": "application/x-www-form-urlencoded" },
-			body: `data=${encodeURIComponent(query)}`,
-			signal: AbortSignal.timeout(22_000),
-		});
+		const fetchOverpass = () =>
+			fetch(OVERPASS_URL, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/x-www-form-urlencoded",
+				},
+				body: `data=${encodeURIComponent(query)}`,
+				signal: AbortSignal.timeout(22_000),
+			});
+
+		let res = await fetchOverpass();
+		if (!res.ok) {
+			await new Promise((r) => setTimeout(r, 900));
+			res = await fetchOverpass();
+		}
 
 		if (!res.ok) {
 			return NextResponse.json({ places: [] }, { status: 200 });
@@ -75,6 +90,10 @@ out 400;
 					el.tags.tourism ??
 					el.tags.office ??
 					el.tags.leisure ??
+					el.tags.railway ??
+					el.tags.highway ??
+					el.tags.historic ??
+					el.tags.place ??
 					undefined,
 			}));
 
