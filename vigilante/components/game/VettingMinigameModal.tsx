@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
+import { IncidentTimerBar } from "./IncidentTimerBar";
 
 type CharacterLike = {
 	id: string;
@@ -22,6 +23,10 @@ type CharacterLike = {
 type Props = {
 	open: boolean;
 	character: CharacterLike | null;
+	createdAt: number | null;
+	expiresAt: number | null;
+	timeLeftMs: number;
+	onExpire: () => void;
 	onClose: () => void;
 	onApprove: () => void;
 	onReject: () => void;
@@ -274,13 +279,28 @@ function PaperField({
 	);
 }
 
+function formatCountdown(ms: number) {
+	const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+	const minutes = Math.floor(totalSeconds / 60);
+	const seconds = totalSeconds % 60;
+
+	if (minutes > 0) {
+		return `${minutes}:${String(seconds).padStart(2, "0")}`;
+	}
+	return `${seconds}s`;
+}
+
 export default function VettingMinigameModal({
-	open,
-	character,
-	onClose,
-	onApprove,
-	onReject,
-}: Props) {
+		 open,
+		 character,
+		 createdAt,
+		 expiresAt,
+		 timeLeftMs,
+		 onExpire,
+		 onClose,
+		 onApprove,
+		 onReject,
+	 }: Props) {
 	const docs = character ? buildDocs(character) : null;
 
 	return (
@@ -323,7 +343,21 @@ export default function VettingMinigameModal({
 								<X className="h-4 w-4" />
 							</button>
 						</div>
-
+						{createdAt && expiresAt ? (
+							<div className="border-b border-amber-900/20 px-6 py-4">
+								<div className="rounded-xl border border-red-900/35 bg-red-950/15 px-4 py-3">
+									<div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.18em] text-red-200/80">
+										<span>Applicant availability</span>
+										<span>{formatCountdown(timeLeftMs)}</span>
+									</div>
+									<IncidentTimerBar
+										createdAt={createdAt}
+										expiresAt={expiresAt}
+										onExpire={onExpire}
+									/>
+								</div>
+							</div>
+						) : null}
 						<div className="grid grid-cols-[360px_1fr] gap-5 p-6">
 							<div className="rounded-2xl border border-[#8f7447]/35 bg-[#d8c29a] px-5 py-5 text-[#241c12] shadow-[inset_0_1px_0_rgba(255,255,255,0.25)]">
 								<div className="mb-4 flex items-start justify-between">
