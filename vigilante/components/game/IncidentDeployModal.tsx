@@ -87,7 +87,7 @@ type Props = {
 	} | null;
 	ownedVigilanteIds: string[];
 	/** Recovering vigilantes cannot be selected. */
-	vigilanteInjuryUntil?: Record<string, number>;
+	vigilanteRestRemaining?: Record<string, number>;
 	vigilanteSheets: VigilanteSheet[];
 	resourcePool: Record<string, ResourcePoolEntry>;
 	onClose: () => void;
@@ -100,14 +100,14 @@ export default function IncidentDeployModal({
 	open,
 	incident,
 	ownedVigilanteIds,
-	vigilanteInjuryUntil,
+	vigilanteRestRemaining,
 	vigilanteSheets,
 	resourcePool,
 	onClose,
 	onIncidentExpire,
 	onConfirm,
 }: Props) {
-	const injury = vigilanteInjuryUntil ?? EMPTY_INJURY;
+	const injury = vigilanteRestRemaining ?? EMPTY_INJURY;
 	const [now, setNow] = useState(() => Date.now());
 	useEffect(() => {
 		const id = window.setInterval(() => setNow(Date.now()), 1000);
@@ -115,8 +115,8 @@ export default function IncidentDeployModal({
 	}, []);
 
 	const recovering = useCallback(
-		(id: string) => isVigilanteRecovering(now, injury, id),
-		[now, injury],
+		(id: string) => isVigilanteRecovering(injury, id),
+		[injury],
 	);
 
 	const [vigSet, setVigSet] = useState<Set<string>>(new Set());
@@ -182,7 +182,7 @@ export default function IncidentDeployModal({
 		setVigSet((prev) => {
 			const next = new Set(
 				[...prev].filter(
-					(id) => !isVigilanteRecovering(now, injury, id),
+					(id) => !isVigilanteRecovering(injury, id),
 				),
 			);
 			if (next.size === 0) {
@@ -190,7 +190,7 @@ export default function IncidentDeployModal({
 					a.localeCompare(b),
 				);
 				const first = sorted.find(
-					(id) => !isVigilanteRecovering(now, injury, id),
+					(id) => !isVigilanteRecovering(injury, id),
 				);
 				if (first) next.add(first);
 			}
@@ -202,7 +202,7 @@ export default function IncidentDeployModal({
 			}
 			return next;
 		});
-	}, [open, incident?.id, now, ownedVigilanteIds, injury]);
+	}, [open, incident?.id, ownedVigilanteIds, injury]);
 
 	const bumpRes = (resourceId: string, delta: 1 | -1) => {
 		setResCounts((prev) => {
