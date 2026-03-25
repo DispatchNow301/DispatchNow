@@ -43,6 +43,12 @@ import {
 } from "@/lib/careerStats";
 import { mergePurchasedBuffIds } from "@/lib/purchasedBuffs";
 import { markCloudFlush, upsertGameSave } from "@/lib/cloudSaves";
+import {
+	applyRestCooldownAfterDispatch,
+	decrementRestRemaining,
+	pruneExpiredRests,
+	rollInjuryUpdatesAfterResolve,
+} from "@/lib/vigilanteInjury";
 import { readSave, touchSave, type SaveSlotId } from "@/lib/saves";
 import {
 	computeIncidentRollOutcome,
@@ -226,7 +232,7 @@ type GameState = {
 	ownedVigilanteIds: string[];
 	recruitLeads: RecruitLead[];
 	resourcePool: Record<string, ResourcePoolEntry>;
-	vigilanteInjuryUntil: Record<string, number>;
+	vigilanteRestRemaining: Record<string, number>;
 	careerStats: CareerStats;
 	purchasedBuffIds: string[];
 };
@@ -1331,18 +1337,6 @@ function parseStoredIncident(raw: unknown): Incident | null {
 	};
 }
 
-function pruneExpiredInjuries(
-	map: Record<string, number> | undefined,
-	now: number,
-): Record<string, number> {
-	if (!map) return {};
-	const next: Record<string, number> = {};
-	for (const [id, until] of Object.entries(map)) {
-		if (typeof until === "number" && until > now) next[id] = until;
-	}
-	return next;
-}
-
 function mergeResourcePool(
 	partial: unknown,
 ): Record<string, ResourcePoolEntry> {
@@ -1381,7 +1375,7 @@ function initialState(): GameState {
 		ownedVigilanteIds: ["bruce", "parya"],
 		recruitLeads: [],
 		resourcePool: { ...DEFAULT_RESOURCE_POOL },
-		vigilanteInjuryUntil: {},
+		vigilanteRestRemaining: {},
 		careerStats: { ...DEFAULT_CAREER_STATS },
 		purchasedBuffIds: mergePurchasedBuffIds(undefined),
 	};
@@ -1400,17 +1394,20 @@ function loadState(saveKey: string): GameState {
 			typeof p.selectedIncidentId === "string"
 				? p.selectedIncidentId
 				: null;
+		const loadedIncidents = Array.isArray(p.incidents)
+			? p.incidents
+					.map(parseStoredIncident)
+					.filter((x): x is Incident => x !== null)
+					.filter((i) => i.status !== "active" || Date.now() < i.expiresAt)
+					.filter((i) => i.status !== "resolving" || Date.now() < i.createdAt + 60000)
+			: [];
 		return {
 			level:
 				typeof p.level === "number" && p.level >= 1 && p.level <= 3
 					? p.level
 					: 1,
-			selectedIncidentId: showIncidentPanel ? selectedFromSave : null,
-			incidents: Array.isArray(p.incidents)
-				? p.incidents
-						.map(parseStoredIncident)
-						.filter((x): x is Incident => x !== null)
-				: [],
+			selectedIncidentId: showIncidentPanel && loadedIncidents.some((i) => i.id === selectedFromSave) ? selectedFromSave : null,
+			incidents: loadedIncidents,
 			showIncidentPanel,
 			showMinigamePanel:
 				typeof p.showMinigamePanel === "boolean"
@@ -1430,15 +1427,14 @@ function loadState(saveKey: string): GameState {
 		ownedVigilanteIds: Array.isArray(p.ownedVigilanteIds)
 			? (p.ownedVigilanteIds as string[])
 			: ["bruce", "parya"],
-			recruitLeads: Array.isArray(p.recruitLeads)
-				? (p.recruitLeads as RecruitLead[])
-				: [],
-			resourcePool: mergeResourcePool(p.resourcePool),
-			vigilanteInjuryUntil: pruneExpiredInjuries(
-				p.vigilanteInjuryUntil as Record<string, number> | undefined,
-				Date.now(),
-			),
-			careerStats: mergeCareerStats(p.careerStats),
+		recruitLeads: Array.isArray(p.recruitLeads)
+			? (p.recruitLeads as RecruitLead[])
+			: [],
+		resourcePool: mergeResourcePool(p.resourcePool),
+		vigilanteRestRemaining: pruneExpiredRests(
+			p.vigilanteRestRemaining as Record<string, number> | undefined,
+		),
+		careerStats: mergeCareerStats(p.careerStats),
 			purchasedBuffIds: mergePurchasedBuffIds(p.purchasedBuffIds),
 		};
 	} catch {
@@ -1464,6 +1460,17 @@ export default function StreetMapScene({
 	);
 	const stateRef = useRef(state);
 	stateRef.current = state;
+
+	// Decrement rest timers every second
+	useEffect(() => {
+		const interval = setInterval(() => {
+			setState((s) => ({
+				...s,
+				vigilanteRestRemaining: decrementRestRemaining(s.vigilanteRestRemaining, 1000),
+			}));
+		}, 1000);
+		return () => clearInterval(interval);
+	}, []);
 
 	const [isHost, setIsHost] = useState(false);
 
@@ -2255,9 +2262,19 @@ export default function StreetMapScene({
 						pool = forfeitDeployment(pool, deployed);
 					}
 				}
+				// Apply guaranteed rest cooldown, then roll for additional injury.
+				let nextVigilanteRestRemaining = applyRestCooldownAfterDispatch(
+					cur.deployedVigilanteIds ?? [],
+					s.vigilanteRestRemaining,
+				);
+				nextVigilanteRestRemaining = rollInjuryUpdatesAfterResolve(
+					cur.deployedVigilanteIds ?? [],
+					nextVigilanteRestRemaining,
+				);
 				return {
 					...s,
 					resourcePool: pool,
+					vigilanteRestRemaining: nextVigilanteRestRemaining,
 					careerStats: {
 						...s.careerStats,
 						dispatchesCompleted: s.careerStats.dispatchesCompleted + 1,
@@ -3667,6 +3684,7 @@ export default function StreetMapScene({
 						: null
 				}
 				ownedVigilanteIds={state.ownedVigilanteIds}
+				vigilanteRestRemaining={state.vigilanteRestRemaining}
 				vigilanteSheets={vigilantes}
 				resourcePool={state.resourcePool}
 				onClose={() => setDeployModalOpen(false)}
@@ -3723,8 +3741,8 @@ export default function StreetMapScene({
 							<Inventory
 								resourcePool={state.resourcePool}
 								ownedVigilanteIds={state.ownedVigilanteIds}
-								vigilanteInjuryUntil={
-									state.vigilanteInjuryUntil
+								vigilanteRestRemaining={
+									state.vigilanteRestRemaining
 								}
 								purchasedBuffIds={state.purchasedBuffIds}
 								tab={state.inventoryTab}

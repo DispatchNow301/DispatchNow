@@ -13,6 +13,7 @@ import {
 	type VigilanteSheet,
 } from "@/app/components/data/vigilante";
 import { portraitToSrc } from "@/lib/vigilantePortrait";
+import { VIGILANTE_REST_DURATION_MS } from "@/lib/vigilanteInjury";
 import { AnimatePresence, motion } from "framer-motion";
 import {
 	AlertTriangle,
@@ -200,8 +201,8 @@ type InventoryProps = {
 	 * slots: owned characters + grey empty slots until 5.
 	 */
 	ownedVigilanteIds?: string[];
-	/** Post-incident injury: id → recovery time (ms). Drives injured status + deploy lock. */
-	vigilanteInjuryUntil?: Record<string, number>;
+	/** Post-incident injury: id → remaining rest time (ms). Drives injured status + deploy lock. */
+	vigilanteRestRemaining?: Record<string, number>;
 	/**
 	 * Buff ids unlocked (e.g. shop). Omitted = show full catalog (demo / legacy).
 	 * When set, Buffs tab only lists purchased entries; stock still comes from `resourcePool`.
@@ -538,7 +539,7 @@ export default function Inventory({
 	onHide,
 	resourcePool,
 	ownedVigilanteIds,
-	vigilanteInjuryUntil,
+	vigilanteRestRemaining,
 	purchasedBuffIds,
 	tab: controlledTab,
 	onTabChange,
@@ -622,23 +623,23 @@ export default function Inventory({
 						kind: "filled" as const,
 						item,
 					}));
-		if (!vigilanteInjuryUntil) return base;
+		if (!vigilanteRestRemaining) return base;
 		return base.map((slot) => {
 			if (slot.kind !== "filled") return slot;
-			const until = vigilanteInjuryUntil[slot.item.id];
-			if (until != null && nowTick < until) {
+			const remaining = vigilanteRestRemaining[slot.item.id];
+			if (remaining != null && remaining > 0) {
 				return {
 					kind: "filled" as const,
 					item: {
 						...slot.item,
 						status: "injured" as const,
-						injuredUntilMs: until,
+						injuredUntilMs: remaining,
 					},
 				};
 			}
 			return slot;
 		});
-	}, [ownedVigilanteIds, vigilanteSheets, vigilanteInjuryUntil, nowTick]);
+	}, [ownedVigilanteIds, vigilanteSheets, vigilanteRestRemaining, nowTick]);
 
 	useEffect(() => {
 		if (ownedVigilanteIds !== undefined) {
@@ -920,6 +921,23 @@ export default function Inventory({
 															</div>
 														</div>
 
+														{v.status === "injured" ? (
+															<div className="pointer-events-none absolute inset-x-1 bottom-1 z-0">
+																<div className="h-1 w-full overflow-hidden rounded-full border border-rose-500/30 bg-rose-900/70">
+																	<div
+																		className="h-full rounded-full bg-rose-400 transition-all duration-300"
+																		style={{
+																			width: `${Math.max(0, Math.min(100, (v.injuredUntilMs / VIGILANTE_REST_DURATION_MS) * 100))}%`,
+																		}}
+																		aria-hidden
+																	/>
+																</div>
+																<div className="mt-0.5 text-[10px] text-rose-200/90 text-center font-semibold">
+																	{recoveryCountdownShort(Date.now() + v.injuredUntilMs, Date.now())}
+																</div>
+															</div>
+														) : null}
+
 														<div
 															className={`absolute -right-1 -bottom-1 z-10 flex size-6 shrink-0 items-center justify-center rounded-full border sm:size-7 ${st.badgeClass}`}
 															aria-hidden
@@ -1022,9 +1040,7 @@ export default function Inventory({
 						{hoverTip.kind === "v" && (() => {
 							const item = hoverTip.item;
 							const showRecovery =
-								item.status === "injured" &&
-								item.injuredUntilMs != null &&
-								nowTick < item.injuredUntilMs;
+								item.status === "injured";
 							return (
 								<div className="flex min-w-0 max-w-[min(260px,calc(100vw-2rem))] flex-col gap-0.5">
 									<span className="min-w-0 truncate font-semibold text-amber-100/95 text-xs sm:text-[13px] leading-snug">
@@ -1036,8 +1052,8 @@ export default function Inventory({
 									{showRecovery ? (
 										<div className="text-[10px] tabular-nums text-amber-200/60">
 											{recoveryCountdownShort(
-												item.injuredUntilMs!,
-												nowTick,
+												Date.now() + item.injuredUntilMs!,
+												Date.now(),
 											)}
 										</div>
 									) : null}
