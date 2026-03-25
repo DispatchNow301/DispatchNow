@@ -85,7 +85,7 @@ export default function NPCDialogueBox({
 			: speaker.portrait.src;
 
 	const btnPrimary =
-		"cursor-pointer rounded-lg border border-amber-900/45 bg-black/50 px-5 py-2.5 text-sm font-medium text-amber-100/90 transition hover:bg-amber-950/25";
+		"cursor-pointer rounded-lg border border-amber-900/45 bg-black/50 px-5 py-2.5 text-sm font-medium text-amber-100/90 transition-all hover:bg-amber-950/40 hover:border-amber-500/60 active:scale-[0.98]";
 
 	return (
 		<AnimatePresence mode="wait">
@@ -103,7 +103,7 @@ export default function NPCDialogueBox({
 				>
 					<div className="overflow-hidden rounded-xl border border-amber-900/40 bg-black/85">
 						<div className="flex items-stretch">
-							<div className="relative min-h-[152px] w-32 shrink-0 self-stretch overflow-hidden border-r border-amber-900/35 bg-black/40">
+							<div className="relative min-h-[152px] w-32 shrink-0 self-stretch overflow-hidden">
 								<div className="absolute inset-0">
 									<img
 										src={portraitSrc}

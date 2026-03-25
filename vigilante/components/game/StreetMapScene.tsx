@@ -222,6 +222,7 @@ type GameState = {
 	showMinigamePanel: boolean;
 	showPolicePanel: boolean;
 	showInventoryPanel: boolean;
+	inventoryTab: "vigilantes" | "resources" | "buffs";
 	ownedVigilanteIds: string[];
 	recruitLeads: RecruitLead[];
 	resourcePool: Record<string, ResourcePoolEntry>;
@@ -1376,6 +1377,7 @@ function initialState(): GameState {
 		showMinigamePanel: false,
 		showPolicePanel: true,
 		showInventoryPanel: true,
+		inventoryTab: "vigilantes",
 		ownedVigilanteIds: ["bruce", "parya"],
 		recruitLeads: [],
 		resourcePool: { ...DEFAULT_RESOURCE_POOL },
@@ -1418,13 +1420,16 @@ function loadState(saveKey: string): GameState {
 				typeof p.showPolicePanel === "boolean"
 					? p.showPolicePanel
 					: true,
-			showInventoryPanel:
-				typeof p.showInventoryPanel === "boolean"
-					? p.showInventoryPanel
-					: true,
-			ownedVigilanteIds: Array.isArray(p.ownedVigilanteIds)
-				? (p.ownedVigilanteIds as string[])
-				: ["bruce", "parya"],
+		showInventoryPanel:
+			typeof p.showInventoryPanel === "boolean"
+				? p.showInventoryPanel
+				: true,
+		inventoryTab: p.inventoryTab === "vigilantes" || p.inventoryTab === "resources" || p.inventoryTab === "buffs"
+			? p.inventoryTab
+			: "vigilantes",
+		ownedVigilanteIds: Array.isArray(p.ownedVigilanteIds)
+			? (p.ownedVigilanteIds as string[])
+			: ["bruce", "parya"],
 			recruitLeads: Array.isArray(p.recruitLeads)
 				? (p.recruitLeads as RecruitLead[])
 				: [],
@@ -1487,6 +1492,85 @@ export default function StreetMapScene({
 	const [showVettingModal, setShowVettingModal] = useState(false);
 	const [dialogue, setDialogue] = useState<DialogueState>(null);
 	const [overlayMode, setOverlayMode] = useState<OverlayMode>("recruit");
+	/** Tracks whether inventory was open before dialogue appeared (for auto-restore) */
+	const inventoryWasOpenRef = useRef(false);
+	/** Stores dialogue data while waiting for inventory to close before showing it */
+	const pendingDialogueRef = useRef<DialogueState>(null);
+	/** Tracks if inventory is currently animating closed */
+	const inventoryIsClosingRef = useRef(false);
+
+	// Inventory close animation helper: returns a promise that resolves when inventory is fully closed
+	const waitForInventoryClose = (): Promise<void> => {
+		return new Promise((resolve) => {
+			if (!state.showInventoryPanel) {
+				// Already closed
+				resolve();
+				return;
+			}
+			// Set flag and close inventory
+			inventoryIsClosingRef.current = true;
+			setState((s) => ({
+				...s,
+				showInventoryPanel: false,
+			}));
+			// Wait for exit animation: AnimatePresence delay is 0.48s (see Inventory container)
+			// We add a small buffer to ensure animation is complete
+			setTimeout(() => {
+				inventoryIsClosingRef.current = false;
+				resolve();
+			}, 500); // 0.48s animation + buffer
+		});
+	};
+
+	// Handle opening dialogue with sequencing
+	const openDialogue = async (dialogueData: DialogueState) => {
+		if (!dialogueData) return;
+
+		// If inventory is visible, close it first then show dialogue
+		if (state.showInventoryPanel) {
+			// Remember inventory was open for later restoration
+			inventoryWasOpenRef.current = true;
+			// Store pending dialogue
+			pendingDialogueRef.current = dialogueData;
+			// Close inventory and wait for animation
+			await waitForInventoryClose();
+			// After inventory closes, show the pending dialogue
+			if (pendingDialogueRef.current) {
+				setDialogue(pendingDialogueRef.current);
+				pendingDialogueRef.current = null;
+			}
+		} else {
+			// Inventory already closed, open dialogue immediately
+			setDialogue(dialogueData);
+		}
+	};
+
+	// Dialogue-Inventory Interaction: auto-close inventory when dialogue opens,
+	// and restore it when dialogue closes only if it was open before.
+	// Note: `inventoryWasOpenRef` is set by `openDialogue` before dialogue appears.
+	useEffect(() => {
+		if (dialogue) {
+			// Dialogue opened: close inventory if it's still open
+			if (state.showInventoryPanel) {
+				setState((s) => ({
+					...s,
+					showInventoryPanel: false,
+				}));
+			}
+		} else {
+			// Dialogue closed: restore inventory only if it was previously open
+			if (inventoryWasOpenRef.current) {
+				setState((s) => ({
+					...s,
+					showInventoryPanel: true,
+				}));
+			}
+			// Reset the ref for next time
+			inventoryWasOpenRef.current = false;
+		}
+		// Only run when dialogue opens/closes; intentionally depend on `dialogue`
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [dialogue]);
 
 	const [chanceRollOverlay, setChanceRollOverlay] = useState<{
 		incidentId: string;
@@ -1946,7 +2030,7 @@ export default function StreetMapScene({
 			const citizen =
 				NPC_DIALOGUE.citizens.find((c) => c.name === pin.name) ??
 				NPC_DIALOGUE.citizens[0];
-			setDialogue({
+			openDialogue({
 				name: citizen.name,
 				role: citizen.role,
 				portrait: citizen.portrait,
@@ -1956,7 +2040,7 @@ export default function StreetMapScene({
 		}
 
 		if (pin.name === "Chief Williams") {
-			setDialogue({
+			openDialogue({
 				name: NPC_DIALOGUE.chief.name,
 				role: NPC_DIALOGUE.chief.role,
 				portrait: NPC_DIALOGUE.chief.portrait,
@@ -1968,7 +2052,7 @@ export default function StreetMapScene({
 		const officer =
 			NPC_DIALOGUE.police.find((p) => p.name === pin.name) ??
 			NPC_DIALOGUE.police[0];
-		setDialogue({
+		openDialogue({
 			name: officer.name,
 			role: officer.role,
 			portrait: officer.portrait,
@@ -2993,36 +3077,36 @@ export default function StreetMapScene({
 						transition={{ duration: 0.2, ease: "easeOut" }}
 						className="absolute bottom-6 left-6 z-[2020] w-[min(52vw,720px)] min-w-[320px]"
 					>
-						<div className="overflow-hidden rounded-2xl border border-amber-900/40 bg-black/75 shadow-[0_18px_70px_rgba(0,0,0,0.55)] backdrop-blur-md">
+						<div className="overflow-hidden rounded-xl border border-amber-900/40 bg-black/75 shadow-lg backdrop-blur-md">
 							<div className="flex items-start">
-								<div className="shrink-0 border-r border-amber-900/30 bg-black/30 p-4">
-									<div className="relative h-[170px] w-[132px] overflow-hidden rounded-md">
-										<Image
-											src={dialogue.portrait}
-											alt={dialogue.name}
-											fill
-											className="object-cover object-center"
-											sizes="132px"
-										/>
-									</div>
+							<div className="shrink-0 border-r border-amber-900/30">
+								<div className="relative h-[160px] w-[120px] overflow-hidden rounded-none pt-10">
+									<Image
+										src={dialogue.portrait}
+										alt={dialogue.name}
+										fill
+										className="object-cover object-top"
+										sizes="132px"
+									/>
 								</div>
-								<div className="flex min-h-[202px] flex-1 flex-col justify-between px-5 py-4">
+							</div>
+								<div className="flex min-h-[160px] flex-1 flex-col justify-between px-4 py-3">
 									<div>
-										<div className="text-[11px] uppercase tracking-[0.24em] text-amber-400/70">
+										<div className="text-[10px] uppercase tracking-[0.2em] text-amber-400/70">
 											{dialogue.role}
 										</div>
-										<div className="mt-1 text-xl font-bold text-amber-100">
+										<div className="mt-1 text-base font-bold text-amber-100">
 											{dialogue.name}
 										</div>
-										<p className="mt-4 text-sm leading-7 text-amber-100/80">
+										<p className="mt-3 text-sm leading-relaxed text-amber-100/80">
 											{dialogue.text}
 										</p>
 									</div>
-									<div className="mt-4 flex items-center justify-end gap-3">
+									<div className="mt-3 flex items-center justify-end gap-2">
 										<button
 											type="button"
 											onClick={() => setDialogue(null)}
-											className="rounded-xl border border-amber-700/40 bg-amber-950/30 px-4 py-2.5 text-sm font-semibold text-amber-100 hover:bg-amber-900/35 transition"
+											className="cursor-pointer rounded-lg border border-amber-700/40 bg-amber-950/30 px-3 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-900/35 transition hover:border-amber-500/60 active:scale-[0.98]"
 										>
 											Continue
 										</button>
@@ -3643,6 +3727,13 @@ export default function StreetMapScene({
 									state.vigilanteInjuryUntil
 								}
 								purchasedBuffIds={state.purchasedBuffIds}
+								tab={state.inventoryTab}
+								onTabChange={(nextTab) =>
+									setState((s) => ({
+										...s,
+										inventoryTab: nextTab,
+									}))
+								}
 								onHide={() =>
 									setState((s) => ({
 										...s,

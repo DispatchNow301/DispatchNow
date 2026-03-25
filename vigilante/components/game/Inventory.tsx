@@ -207,6 +207,10 @@ type InventoryProps = {
 	 * When set, Buffs tab only lists purchased entries; stock still comes from `resourcePool`.
 	 */
 	purchasedBuffIds?: string[];
+	/** Controlled active tab (for tab persistence across open/close). */
+	tab?: InventoryTab;
+	/** Called when user switches tabs. */
+	onTabChange?: (tab: InventoryTab) => void;
 };
 
 type InventoryHoverTip =
@@ -536,6 +540,8 @@ export default function Inventory({
 	ownedVigilanteIds,
 	vigilanteInjuryUntil,
 	purchasedBuffIds,
+	tab: controlledTab,
+	onTabChange,
 }: InventoryProps) {
 	const [nowTick, setNowTick] = useState(() => Date.now());
 	useEffect(() => {
@@ -543,7 +549,19 @@ export default function Inventory({
 		return () => clearInterval(id);
 	}, []);
 
-	const [tab, setTab] = useState<InventoryTab>("vigilantes");
+	// Controlled/uncontrolled tab pattern
+	const [internalTab, setInternalTab] = useState<InventoryTab>("vigilantes");
+	const isControlled = controlledTab !== undefined;
+	const tab = isControlled ? controlledTab : internalTab;
+
+	const setTab = (next: InventoryTab) => {
+		if (isControlled && onTabChange) {
+			onTabChange(next);
+		} else if (!isControlled) {
+			setInternalTab(next);
+		}
+	};
+
 	const [slideDir, setSlideDir] = useState<1 | -1>(1);
 	const [hoverTip, setHoverTip] = useState<InventoryHoverTip | null>(null);
 	const [tipPos, setTipPos] = useState({ left: 0, top: 0 });
