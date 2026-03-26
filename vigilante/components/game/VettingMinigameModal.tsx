@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
-import { X } from "lucide-react";
+import { X, Shield } from "lucide-react";
 import { IncidentTimerBar } from "./IncidentTimerBar";
 
 type CharacterLike = {
@@ -12,12 +12,21 @@ type CharacterLike = {
 	role: string;
 	portrait: string;
 	age?: number;
+	status?: string;
+	heat?: number;
 	joinedAt?: string;
 	backgroundNote?: string;
 	traits?: string[];
+	equipment?: string[];
 	bio?: string;
 	isUndercover?: boolean;
 	trueIdentity?: string;
+	stats?: {
+		combat: number;
+		stealth: number;
+		tactics: number;
+		nerve: number;
+	};
 };
 
 type Props = {
@@ -279,6 +288,25 @@ function PaperField({
 	);
 }
 
+function StatCard({
+	label,
+	value = 0,
+}: {
+	label: string;
+	value?: number;
+}) {
+	return (
+		<div className="rounded-xl border border-amber-900/30 bg-black/25 p-3">
+			<div className="text-[11px] uppercase tracking-[0.2em] text-amber-400/70">
+				{label}
+			</div>
+			<div className="mt-2 text-lg font-bold text-amber-100">
+				{value}/10
+			</div>
+		</div>
+	);
+}
+
 function formatCountdown(ms: number) {
 	const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
 	const minutes = Math.floor(totalSeconds / 60);
@@ -291,16 +319,16 @@ function formatCountdown(ms: number) {
 }
 
 export default function VettingMinigameModal({
-		 open,
-		 character,
-		 createdAt,
-		 expiresAt,
-		 timeLeftMs,
-		 onExpire,
-		 onClose,
-		 onApprove,
-		 onReject,
-	 }: Props) {
+	open,
+	character,
+	createdAt,
+	expiresAt,
+	timeLeftMs,
+	onExpire,
+	onClose,
+	onApprove,
+	onReject,
+}: Props) {
 	const docs = character ? buildDocs(character) : null;
 
 	return (
@@ -308,170 +336,337 @@ export default function VettingMinigameModal({
 			{open && character && docs ? (
 				<>
 					<motion.div
-						className="absolute inset-0 z-[2600] bg-black/60"
+						className="fixed inset-0 z-[2600] bg-black/60"
 						initial={{ opacity: 0 }}
 						animate={{ opacity: 1 }}
 						exit={{ opacity: 0 }}
 						onClick={onClose}
 					/>
 
-					<motion.div
-						initial={{ opacity: 0, y: 18, scale: 0.985 }}
-						animate={{ opacity: 1, y: 0, scale: 1 }}
-						exit={{ opacity: 0, y: 10, scale: 0.985 }}
-						transition={{ duration: 0.2, ease: "easeOut" }}
-						className="absolute right-[4vw] top-1/2 z-[2610] w-[min(64vw,1180px)] min-w-[980px] -translate-y-1/2 overflow-hidden rounded-2xl border border-amber-900/35 bg-[#0f0c09]/95 text-amber-100 shadow-[0_24px_90px_rgba(0,0,0,0.62)] backdrop-blur-md"
-					>
-						<div className="flex items-start justify-between border-b border-amber-900/25 px-6 py-4">
-							<div>
-								<div className="text-[11px] uppercase tracking-[0.3em] text-amber-400/65">
-									Vetting Desk
-								</div>
-								<div className="mt-2 text-2xl font-bold text-amber-100">
-									Applicant Verification
-								</div>
-								<div className="mt-1 text-sm text-amber-200/55">
-									Check the recruit dossier against submitted paperwork before approving.
+					<div className="fixed inset-0 z-[2610] flex items-center justify-center px-6 py-6 pointer-events-none">
+						<motion.div
+							initial={{ opacity: 0, y: 18, scale: 0.985 }}
+							animate={{ opacity: 1, y: 0, scale: 1 }}
+							exit={{ opacity: 0, y: 10, scale: 0.985 }}
+							transition={{ duration: 0.2, ease: "easeOut" }}
+							className="pointer-events-auto flex w-[min(94vw,1680px)] max-h-[88vh] items-stretch gap-5"
+						>
+							{/* duplicate dossier, shown beside minigame */}
+							<div className="w-[440px] shrink-0 overflow-hidden rounded-2xl border border-amber-900/40 bg-black/72 text-amber-100 shadow-[0_18px_70px_rgba(0,0,0,0.55)] backdrop-blur-md">
+								<div
+									className="absolute inset-0 opacity-70"
+									aria-hidden
+									style={{
+										background:
+											"radial-gradient(600px circle at 20% 15%, rgba(180,140,80,0.12), transparent 40%), radial-gradient(500px circle at 80% 85%, rgba(120,20,20,0.10), transparent 42%)",
+									}}
+								/>
+
+								<div className="relative flex h-full max-h-[88vh] flex-col">
+									<div className="flex items-start justify-between border-b border-amber-900/30 px-5 py-4">
+										<div>
+											<div className="text-[11px] uppercase tracking-[0.28em] text-amber-400/70">
+												Vigilante Dossier
+											</div>
+											<h2
+												className="mt-2 text-2xl font-bold text-amber-100"
+												style={{
+													fontFamily:
+														"Georgia, 'Times New Roman', serif",
+												}}
+											>
+												{character.alias}
+											</h2>
+											<div className="mt-1 text-sm text-amber-200/60">
+												{character.name} • {character.role}
+											</div>
+										</div>
+									</div>
+
+									<div className="flex-1 overflow-y-auto px-5 py-4 vigilante-hide-scrollbar">
+										<div className="grid grid-cols-[132px_1fr] gap-4">
+											<div className="relative h-[172px] overflow-hidden rounded-xl border border-amber-900/35 bg-black/20">
+												<Image
+													src={character.portrait}
+													alt={character.alias}
+													fill
+													className="object-contain object-center"
+													sizes="172px"
+													unoptimized
+												/>
+											</div>
+
+											<div className="space-y-3">
+												<div className="flex flex-wrap gap-2">
+													{character.status ? (
+														<span className="rounded-full border border-amber-900/35 bg-black/30 px-3 py-1 text-[11px] uppercase tracking-[0.15em] text-amber-200/75">
+															{character.status}
+														</span>
+													) : null}
+													{typeof character.heat === "number" ? (
+														<span className="rounded-full border border-red-900/35 bg-red-950/20 px-3 py-1 text-[11px] uppercase tracking-[0.15em] text-red-300/75">
+															Heat {character.heat}
+														</span>
+													) : null}
+													{typeof character.age === "number" ? (
+														<span className="rounded-full border border-amber-900/35 bg-black/30 px-3 py-1 text-[11px] uppercase tracking-[0.15em] text-amber-200/75">
+															Age {character.age}
+														</span>
+													) : null}
+												</div>
+
+												<p className="text-sm leading-6 text-amber-100/78">
+													{character.bio ?? "No dossier notes entered yet."}
+												</p>
+											</div>
+										</div>
+
+										<div className="mt-6 grid grid-cols-2 gap-3">
+											<StatCard
+												label="Combat"
+												value={character.stats?.combat ?? 0}
+											/>
+											<StatCard
+												label="Stealth"
+												value={character.stats?.stealth ?? 0}
+											/>
+											<StatCard
+												label="Tactics"
+												value={character.stats?.tactics ?? 0}
+											/>
+											<StatCard
+												label="Nerve"
+												value={character.stats?.nerve ?? 0}
+											/>
+										</div>
+
+										<div className="mt-6 grid gap-4">
+											<div className="rounded-xl border border-amber-900/30 bg-black/25 p-4">
+												<div className="text-[11px] uppercase tracking-[0.24em] text-amber-400/70">
+													Traits
+												</div>
+												<div className="mt-3 flex flex-wrap gap-2">
+													{(character.traits ?? []).length > 0 ? (
+														character.traits?.map((trait) => (
+															<span
+																key={trait}
+																className="rounded-full border border-amber-900/30 bg-black/30 px-3 py-1 text-xs text-amber-100/80"
+															>
+																{trait}
+															</span>
+														))
+													) : (
+														<span className="text-sm text-amber-200/45">
+															No listed traits.
+														</span>
+													)}
+												</div>
+											</div>
+
+											<div className="rounded-xl border border-amber-900/30 bg-black/25 p-4">
+												<div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.24em] text-amber-400/70">
+													<Shield className="h-3.5 w-3.5" />
+													Equipment
+												</div>
+												<ul className="mt-3 space-y-2 text-sm text-amber-100/75">
+													{(character.equipment ?? []).length > 0 ? (
+														character.equipment?.map((item) => (
+															<li key={item}>• {item}</li>
+														))
+													) : (
+														<li className="text-amber-200/45">
+															No recorded equipment.
+														</li>
+													)}
+												</ul>
+											</div>
+										</div>
+									</div>
 								</div>
 							</div>
 
-							<button
-								type="button"
-								onClick={onClose}
-								className="rounded-lg border border-amber-900/35 bg-black/30 p-2 text-amber-200/70 hover:bg-amber-950/20 hover:text-amber-100 transition"
-							>
-								<X className="h-4 w-4" />
-							</button>
-						</div>
-						{createdAt && expiresAt ? (
-							<div className="border-b border-amber-900/20 px-6 py-4">
-								<div className="rounded-xl border border-red-900/35 bg-red-950/15 px-4 py-3">
-									<div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.18em] text-red-200/80">
-										<span>Applicant availability</span>
-										<span>{formatCountdown(timeLeftMs)}</span>
-									</div>
-									<IncidentTimerBar
-										createdAt={createdAt}
-										expiresAt={expiresAt}
-										onExpire={onExpire}
-									/>
-								</div>
-							</div>
-						) : null}
-						<div className="grid grid-cols-[360px_1fr] gap-5 p-6">
-							<div className="rounded-2xl border border-[#8f7447]/35 bg-[#d8c29a] px-5 py-5 text-[#241c12] shadow-[inset_0_1px_0_rgba(255,255,255,0.25)]">
-								<div className="mb-4 flex items-start justify-between">
-									<div>
-										<div className="text-[11px] uppercase tracking-[0.24em] text-[#5c4b30]/70">
-											Identification Card
+							{/* vetting desk */}
+							<div className="min-w-0 flex-1 overflow-hidden rounded-2xl border border-amber-900/35 bg-[#0f0c09]/95 text-amber-100 shadow-[0_24px_90px_rgba(0,0,0,0.62)] backdrop-blur-md">
+								<div className="flex h-full max-h-[88vh] flex-col">
+									<div className="flex items-start justify-between border-b border-amber-900/25 px-6 py-4">
+										<div>
+											<div className="text-[11px] uppercase tracking-[0.3em] text-amber-400/65">
+												Vetting Desk
+											</div>
+											<div className="mt-2 text-2xl font-bold text-amber-100">
+												Applicant Verification
+											</div>
+											<div className="mt-1 text-sm text-amber-200/55">
+												Check the recruit dossier against submitted paperwork before approving.
+											</div>
 										</div>
-										<div className="mt-1 text-lg font-bold text-[#1e1710]">
-											City Registry Access Pass
-										</div>
+
+										<button
+											type="button"
+											onClick={onClose}
+											className="rounded-lg border border-amber-900/35 bg-black/30 p-2 text-amber-200/70 transition hover:bg-amber-950/20 hover:text-amber-100"
+										>
+											<X className="h-4 w-4" />
+										</button>
 									</div>
-									{docs.idCard.showVerifiedCopy ? (
-										<div className="rounded-md border border-black/10 bg-black/[0.05] px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-[#5c4b30]">
-											Verified Copy
+
+									{createdAt && expiresAt ? (
+										<div className="border-b border-amber-900/20 px-6 py-4">
+											<div className="rounded-xl border border-red-900/35 bg-red-950/15 px-4 py-3">
+												<div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.18em] text-red-200/80">
+													<span>Applicant availability</span>
+													<span>{formatCountdown(timeLeftMs)}</span>
+												</div>
+												<IncidentTimerBar
+													createdAt={createdAt}
+													expiresAt={expiresAt}
+													onExpire={onExpire}
+												/>
+											</div>
 										</div>
 									) : null}
-								</div>
 
-								<div className="mb-4 flex items-start gap-4">
-									<div className="relative h-[112px] w-[86px] overflow-hidden rounded-md border border-black/10 bg-black/[0.06]">
-										<Image
-											src={docs.idCard.photo}
-											alt={character.alias}
-											fill
-											className="object-cover object-center"
-											sizes="86px"
-										/>
-									</div>
+									<div className="flex-1 overflow-y-auto p-6">
+										<div className="grid grid-cols-[360px_1fr] gap-5">
+											<div className="rounded-2xl border border-[#8f7447]/35 bg-[#d8c29a] px-5 py-5 text-[#241c12] shadow-[inset_0_1px_0_rgba(255,255,255,0.25)]">
+												<div className="mb-4 flex items-start justify-between">
+													<div>
+														<div className="text-[11px] uppercase tracking-[0.24em] text-[#5c4b30]/70">
+															Identification Card
+														</div>
+														<div className="mt-1 text-lg font-bold text-[#1e1710]">
+															City Registry Access Pass
+														</div>
+													</div>
+													{docs.idCard.showVerifiedCopy ? (
+														<div className="rounded-md border border-black/10 bg-black/[0.05] px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-[#5c4b30]">
+															Verified Copy
+														</div>
+													) : null}
+												</div>
 
-									<div className="min-w-0 flex-1 space-y-3">
-										<PaperField label="Legal Name" value={docs.idCard.legalName} compact />
-										<PaperField label="Registered Alias" value={docs.idCard.alias} compact />
-									</div>
-								</div>
+												<div className="mb-4 flex items-start gap-4">
+													<div className="relative h-[112px] w-[86px] overflow-hidden rounded-md border border-black/10 bg-transparent">
+														<Image
+															src={docs.idCard.photo}
+															alt={character.alias}
+															fill
+															className="object-contain object-center"
+															sizes="86px"
+															unoptimized
+														/>
+													</div>
 
-								<div className="space-y-3">
-									<PaperField label="Role" value={docs.idCard.role} compact />
-									<PaperField label="Age" value={docs.idCard.age} compact />
-									<PaperField label="Issuing District" value={docs.idCard.issueDistrict} compact />
-								</div>
+													<div className="min-w-0 flex-1 space-y-3">
+														<PaperField
+															label="Legal Name"
+															value={docs.idCard.legalName}
+															compact
+														/>
+														<PaperField
+															label="Registered Alias"
+															value={docs.idCard.alias}
+															compact
+														/>
+													</div>
+												</div>
 
-								<div className="mt-4 border-t border-black/10 pt-3 text-[10px] uppercase tracking-[0.2em] text-[#5c4b30]/70">
-									Keep visible while cross-checking.
-								</div>
-							</div>
+												<div className="space-y-3">
+													<PaperField label="Role" value={docs.idCard.role} compact />
+													<PaperField label="Age" value={docs.idCard.age} compact />
+													<PaperField
+														label="Issuing District"
+														value={docs.idCard.issueDistrict}
+														compact
+													/>
+												</div>
 
-							<div className="rounded-2xl border border-[#8f7447]/35 bg-[#eadab8] px-5 py-5 text-[#241c12] shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]">
-								<div className="mb-4 flex items-start justify-between">
-									<div>
-										<div className="text-[11px] uppercase tracking-[0.24em] text-[#5c4b30]/70">
-											Recruit Intake Sheet
+												<div className="mt-4 border-t border-black/10 pt-3 text-[10px] uppercase tracking-[0.2em] text-[#5c4b30]/70">
+													Keep visible while cross-checking.
+												</div>
+											</div>
+
+											<div className="rounded-2xl border border-[#8f7447]/35 bg-[#eadab8] px-5 py-5 text-[#241c12] shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]">
+												<div className="mb-4 flex items-start justify-between">
+													<div>
+														<div className="text-[11px] uppercase tracking-[0.24em] text-[#5c4b30]/70">
+															Recruit Intake Sheet
+														</div>
+														<div className="mt-1 text-lg font-bold text-[#1e1710]">
+															Field Admission Record
+														</div>
+													</div>
+													<div className="rounded-md border border-black/10 bg-black/[0.05] px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-[#5c4b30]">
+														Intake Office
+													</div>
+												</div>
+
+												<div className="grid grid-cols-2 gap-3">
+													<PaperField label="Filed Alias" value={docs.intakeSheet.alias} />
+													<PaperField label="Joined" value={docs.intakeSheet.joinedAt} />
+												</div>
+
+												<div className="mt-3 grid grid-cols-2 gap-3">
+													<PaperField
+														label="Referral Source"
+														value={docs.intakeSheet.referral}
+													/>
+													<PaperField
+														label="Background Summary"
+														value={docs.intakeSheet.background}
+													/>
+												</div>
+
+												<div className="mt-3">
+													<PaperField
+														label="Intake Notes"
+														value={docs.intakeSheet.notes}
+													/>
+												</div>
+
+												<div className="mt-4 border-t border-black/10 pt-3 text-[10px] uppercase tracking-[0.2em] text-[#5c4b30]/70">
+													Compare against dossier details before clearing hire.
+												</div>
+											</div>
 										</div>
-										<div className="mt-1 text-lg font-bold text-[#1e1710]">
-											Field Admission Record
+									</div>
+
+									<div className="border-t border-amber-900/25 px-6 py-4">
+										<div className="mb-3 text-xs text-amber-200/55">
+											The dossier stays visible while you review the submitted paperwork.
+										</div>
+
+										<div className="flex items-center justify-between gap-3">
+											<button
+												type="button"
+												onClick={onReject}
+												className="rounded-xl border border-red-900/35 bg-red-950/20 px-5 py-3 text-sm font-semibold text-red-200/85 transition hover:bg-red-950/30"
+											>
+												Flag Applicant
+											</button>
+
+											<div className="flex items-center gap-3">
+												<button
+													type="button"
+													onClick={onClose}
+													className="rounded-xl border border-amber-900/35 bg-black/30 px-4 py-3 text-sm text-amber-200/80 transition hover:bg-amber-950/20"
+												>
+													Back
+												</button>
+												<button
+													type="button"
+													onClick={onApprove}
+													className="rounded-xl border border-amber-700/40 bg-amber-950/30 px-5 py-3 text-sm font-semibold text-amber-100 transition hover:bg-amber-900/35"
+												>
+													Clear For Hire
+												</button>
+											</div>
 										</div>
 									</div>
-									<div className="rounded-md border border-black/10 bg-black/[0.05] px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-[#5c4b30]">
-										Intake Office
-									</div>
-								</div>
-
-								<div className="grid grid-cols-2 gap-3">
-									<PaperField label="Filed Alias" value={docs.intakeSheet.alias} />
-									<PaperField label="Joined" value={docs.intakeSheet.joinedAt} />
-								</div>
-
-								<div className="mt-3 grid grid-cols-2 gap-3">
-									<PaperField label="Referral Source" value={docs.intakeSheet.referral} />
-									<PaperField label="Background Summary" value={docs.intakeSheet.background} />
-								</div>
-
-								<div className="mt-3">
-									<PaperField label="Intake Notes" value={docs.intakeSheet.notes} />
-								</div>
-
-								<div className="mt-4 border-t border-black/10 pt-3 text-[10px] uppercase tracking-[0.2em] text-[#5c4b30]/70">
-									Compare against dossier details before clearing hire.
 								</div>
 							</div>
-						</div>
-
-						<div className="border-t border-amber-900/25 px-6 py-4">
-							<div className="mb-3 text-xs text-amber-200/55">
-								The dossier on the left stays visible. Look for inconsistencies in aliases, dates, ages, and background details.
-							</div>
-
-							<div className="flex items-center justify-between gap-3">
-								<button
-									type="button"
-									onClick={onReject}
-									className="rounded-xl border border-red-900/35 bg-red-950/20 px-5 py-3 text-sm font-semibold text-red-200/85 hover:bg-red-950/30 transition"
-								>
-									Flag Applicant
-								</button>
-
-								<div className="flex items-center gap-3">
-									<button
-										type="button"
-										onClick={onClose}
-										className="rounded-xl border border-amber-900/35 bg-black/30 px-4 py-3 text-sm text-amber-200/80 hover:bg-amber-950/20 transition"
-									>
-										Back
-									</button>
-									<button
-										type="button"
-										onClick={onApprove}
-										className="rounded-xl border border-amber-700/40 bg-amber-950/30 px-5 py-3 text-sm font-semibold text-amber-100 hover:bg-amber-900/35 transition"
-									>
-										Clear For Hire
-									</button>
-								</div>
-							</div>
-						</div>
-					</motion.div>
+						</motion.div>
+					</div>
 				</>
 			) : null}
 		</AnimatePresence>
