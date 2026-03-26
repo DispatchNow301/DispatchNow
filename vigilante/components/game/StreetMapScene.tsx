@@ -335,14 +335,7 @@ const STATIC_CHARACTER_BASES: CharacterPin[] = [
 		lat: 40.7102,
 		lng: -74.0005,
 	},
-	{
-		id: "cit-helper",
-		name: "Helper",
-		initial: "H",
-		kind: "citizen",
-		lat: 40.7185,
-		lng: -74.0072,
-	},
+	// helper used to live here ;-;
 	{
 		id: "cop-diaz",
 		name: "Officer Diaz",
@@ -408,16 +401,6 @@ const NPC_DIALOGUE = {
 				"The whole street feels wrong tonight. Like everyone's waiting for something.",
 				"I'm not asking questions. I just need this handled.",
 				"They moved fast. Professional fast.",
-			],
-		},
-		{
-			name: "Helper",
-			role: "Citizen" as const,
-			portrait: "/npcs/Helper.png",
-			lines: [
-				"I can point your people to the exact building if they move now.",
-				"I've got eyes on the block. Tell me where you want me.",
-				"Your vigilantes aren't subtle, but they're faster than dispatch.",
 			],
 		},
 	],
@@ -1609,15 +1592,6 @@ export default function StreetMapScene({
 	// Cloud sync: Supabase upsert while playing (plus pagehide / unmount).
 	const CLOUD_SYNC_INTERVAL_MS = 60_000;
 
-	const helperBase =
-		STATIC_CHARACTER_BASES.find((p) => p.id === "cit-helper") ??
-		STATIC_CHARACTER_BASES[0];
-
-	const [helperPos, setHelperPos] = useState({
-		lat: helperBase.lat,
-		lng: helperBase.lng,
-	});
-
 	const [policeRenderItems, setPoliceRenderItems] = useState<
 		PoliceRenderItem[]
 	>(() =>
@@ -2611,19 +2585,6 @@ export default function StreetMapScene({
 		sessionId,
 	]);
 
-	useEffect(() => {
-		if (isGameplayPausedByMinigame) return;
-
-		const id = window.setInterval(() => {
-			setHelperPos(() => {
-				const moved = nudgeNearby(helperBase.lat, helperBase.lng);
-				return { lat: moved.lat, lng: moved.lng };
-			});
-		}, 9000);
-
-		return () => window.clearInterval(id);
-	}, [helperBase.lat, helperBase.lng, isGameplayPausedByMinigame]);
-
 	const incidentCitizenPins = useMemo(() => {
 		const activeIncidents = state.incidents.filter(isOngoingIncident);
 
@@ -2652,15 +2613,6 @@ export default function StreetMapScene({
 	}, [state.incidents]);
 
 	const visibleDynamicPins = useMemo(() => {
-		const helperPin: CharacterPin = {
-			id: "cit-helper",
-			name: "Helper",
-			initial: "H",
-			kind: "citizen",
-			lat: helperPos.lat,
-			lng: helperPos.lng,
-		};
-
 		const policePins: CharacterPin[] = policeRenderItems.map((item) => ({
 			id: item.pinId,
 			name: item.name,
@@ -2673,9 +2625,11 @@ export default function StreetMapScene({
 		const ownedRoster = vigilantes.filter((v) =>
 			state.ownedVigilanteIds.includes(v.id),
 		);
+
 		const ownedPins: CharacterPin[] = ownedRoster.map((v, i) => {
 			const off =
 				OWNED_VIG_MARKER_OFFSETS[i % OWNED_VIG_MARKER_OFFSETS.length];
+
 			return {
 				id: v.id,
 				name: v.alias,
@@ -2686,10 +2640,9 @@ export default function StreetMapScene({
 			};
 		});
 
-		return [helperPin, ...incidentCitizenPins, ...policePins, ...ownedPins];
+		return [...incidentCitizenPins, ...policePins, ...ownedPins];
 	}, [
 		state.ownedVigilanteIds,
-		helperPos,
 		incidentCitizenPins,
 		policeRenderItems,
 	]);
