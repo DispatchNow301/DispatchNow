@@ -226,6 +226,8 @@ type GameState = {
 	ownedVigilanteIds: string[];
 	recruitLeads: RecruitLead[];
 	resourcePool: Record<string, ResourcePoolEntry>;
+	credits: number;
+	purchasedUpgradeIds: string[];
 	vigilanteInjuryUntil: Record<string, number>;
 	careerStats: CareerStats;
 	purchasedBuffIds: string[];
@@ -1383,6 +1385,8 @@ function initialState(): GameState {
 		ownedVigilanteIds: ["bruce", "parya"],
 		recruitLeads: [],
 		resourcePool: { ...DEFAULT_RESOURCE_POOL },
+		credits: 500,
+		purchasedUpgradeIds: [],
 		vigilanteInjuryUntil: {},
 		careerStats: { ...DEFAULT_CAREER_STATS },
 		purchasedBuffIds: mergePurchasedBuffIds(undefined),
@@ -1436,11 +1440,18 @@ function loadState(saveKey: string): GameState {
 				? (p.recruitLeads as RecruitLead[])
 				: [],
 			resourcePool: mergeResourcePool(p.resourcePool),
+			credits:
+				typeof p.credits === "number" && Number.isFinite(p.credits)
+					? Math.max(0, Math.floor(p.credits))
+					: 500,
 			vigilanteInjuryUntil: pruneExpiredInjuries(
 				p.vigilanteInjuryUntil as Record<string, number> | undefined,
 				Date.now(),
 			),
 			careerStats: mergeCareerStats(p.careerStats),
+			purchasedUpgradeIds: Array.isArray(p.purchasedUpgradeIds)
+				? (p.purchasedUpgradeIds as string[])
+				: [],
 			purchasedBuffIds: mergePurchasedBuffIds(p.purchasedBuffIds),
 		};
 	} catch {
@@ -1712,6 +1723,25 @@ export default function StreetMapScene({
 		// Game JSON lives at `saveKey`; slot meta (incl. menu "last updated") lives at `keyForSlot(saveSlot)`.
 		if (saveSlot) touchSave(saveSlot);
 	}, [mode, saveKey, saveSlot, state]);
+
+	// Re-sync the three market fields (credits, resourcePool, purchasedUpgradeIds)
+	// when an external page (black market test, game-over screen) writes to the
+	// same localStorage key. The `storage` event fires in the same tab on
+	// same-origin writes, so this works when navigating between Next.js routes.
+	useEffect(() => {
+		const onStorage = (e: StorageEvent) => {
+			if (e.key !== saveKey) return;
+			const saved = loadState(saveKey);
+			setState((s) => ({
+				...s,
+				credits: saved.credits,
+				resourcePool: saved.resourcePool,
+				purchasedUpgradeIds: saved.purchasedUpgradeIds,
+			}));
+		};
+		window.addEventListener("storage", onStorage);
+		return () => window.removeEventListener("storage", onStorage);
+	}, [saveKey]);
 
 	const pushCloudToServer = useCallback(async () => {
 		if (!cloudSync) return;
@@ -2103,7 +2133,8 @@ export default function StreetMapScene({
 		} else {
 			setState((s) => ({
 				...s,
-				incidents: [theftIncident, ...s.incidents],
+				credits: Math.max(0, s.credits + Math.max(0, reward.credits)),
+			incidents: [theftIncident, ...s.incidents],
 				selectedIncidentId: theftIncident.id,
 				showIncidentPanel: true,
 			}));
@@ -2248,9 +2279,11 @@ export default function StreetMapScene({
 						pool = forfeitDeployment(pool, deployed);
 					}
 				}
+				const missionCredits = rollOutcome.success ? 80 : 20;
 				return {
 					...s,
 					resourcePool: pool,
+					credits: Math.max(0, s.credits + missionCredits),
 					careerStats: {
 						...s.careerStats,
 						dispatchesCompleted: s.careerStats.dispatchesCompleted + 1,
@@ -3710,7 +3743,7 @@ export default function StreetMapScene({
 								vigilanteInjuryUntil={
 									state.vigilanteInjuryUntil
 								}
-								purchasedBuffIds={state.purchasedBuffIds}
+								purchasedUpgradeIds={state.purchasedUpgradeIds}
 								tab={state.inventoryTab}
 								onTabChange={(nextTab) =>
 									setState((s) => ({

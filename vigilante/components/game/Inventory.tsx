@@ -25,6 +25,7 @@ import type { LucideIcon } from "lucide-react";
 import { FaBolt, FaBroadcastTower, FaHeart, FaUser } from "react-icons/fa";
 import type { ResourcePoolEntry } from "@/lib/resourcePool";
 import { ResourceGearIcon } from "@/components/game/ResourceGearIcon";
+import { SHOP_RESOURCES, SHOP_UPGRADES } from "@/lib/shopCatalog";
 
 type VigilanteStatus = "available" | "injured" | "unavailable";
 type ResourceStatus = "ready" | "cooldown" | "offline";
@@ -206,7 +207,7 @@ type InventoryProps = {
 	 * Buff ids unlocked (e.g. shop). Omitted = show full catalog (demo / legacy).
 	 * When set, Buffs tab only lists purchased entries; stock still comes from `resourcePool`.
 	 */
-	purchasedBuffIds?: string[];
+	purchasedUpgradeIds?: string[];
 	/** Controlled active tab (for tab persistence across open/close). */
 	tab?: InventoryTab;
 	/** Called when user switches tabs. */
@@ -253,79 +254,15 @@ function VigilantePortrait({
 	);
 }
 
-/** Static catalog; merged with `resourcePool` when provided. */
-const BASE_RESOURCES: ResourceItem[] = [
-	{
-		id: "r1",
-		name: "First Aid Kit",
-		summary: "Treats cuts, burns, and small wounds.",
-		qty: 2,
-		status: "ready",
-	},
-	{
-		id: "r2",
-		name: "Fire Extinguisher",
-		summary: "Puts out small fires.",
-		qty: 1,
-		status: "cooldown",
-	},
-	{
-		id: "r3",
-		name: "Walkie-Talkie",
-		summary: "Talk to your team by radio.",
-		qty: 1,
-		status: "ready",
-	},
-	{
-		id: "r4",
-		name: "Handcuffs",
-		summary: "Locks on someone's wrists.",
-		qty: 3,
-		status: "ready",
-	},
-	{
-		id: "r5",
-		name: "Surveillance Drone",
-		summary: "See the area from the air.",
-		qty: 1,
-		status: "offline",
-	},
-	{
-		id: "r6",
-		name: "Protective Gear",
-		summary: "Vest and pads so you get hurt less.",
-		qty: 2,
-		status: "ready",
-	},
-	{
-		id: "r7",
-		name: "Barricade Kit",
-		summary: "Blocks doors and paths.",
-		qty: 1,
-		status: "ready",
-	},
-	{
-		id: "r8",
-		name: "EpiPen",
-		summary: "Shot for a bad allergic reaction.",
-		qty: 1,
-		status: "ready",
-	},
-	{
-		id: "r9",
-		name: "Rescue Tool",
-		summary: "Open stuck doors or cut through metal.",
-		qty: 1,
-		status: "cooldown",
-	},
-	{
-		id: "r10",
-		name: "Armored Vehicle",
-		summary: "Heavy truck with armor on the sides.",
-		qty: 1,
-		status: "ready",
-	},
-];
+/** Derived from SHOP_RESOURCES — single source of truth for item names/descriptions.
+ *  qty is always 0 here; live quantities always come from resourcePool in the game. */
+const BASE_RESOURCES: ResourceItem[] = SHOP_RESOURCES.map((r) => ({
+	id: r.id,
+	name: r.name,
+	summary: r.description,
+	qty: 0,
+	status: "ready" as const,
+}));
 
 export { BASE_RESOURCES };
 
@@ -510,36 +447,22 @@ function InventoryVigilanteDossierPane({
 	);
 }
 
-const BASE_BUFFS: BuffItem[] = [
-	{
-		id: "b1",
-		name: "Noir Focus",
-		summary: "Timers tick down more slowly.",
-		qty: 1,
-		status: "ready",
-	},
-	{
-		id: "b2",
-		name: "Street Network",
-		summary: "Send help again sooner.",
-		qty: 1,
-		status: "ready",
-	},
-	{
-		id: "b3",
-		name: "Adrenal Surge",
-		summary: "Move faster and take hits better for a short time.",
-		qty: 1,
-		status: "cooldown",
-	},
-];
+/** Derived from SHOP_UPGRADES — single source of truth for buff names/descriptions.
+ *  qty is always 1 here; live quantities always come from resourcePool in the game. */
+const BASE_BUFFS: BuffItem[] = SHOP_UPGRADES.map((u) => ({
+	id: u.id,
+	name: u.name,
+	summary: u.description,
+	qty: 1,
+	status: "ready" as const,
+}));
 
 export default function Inventory({
 	onHide,
 	resourcePool,
 	ownedVigilanteIds,
 	vigilanteInjuryUntil,
-	purchasedBuffIds,
+	purchasedUpgradeIds,
 	tab: controlledTab,
 	onTabChange,
 }: InventoryProps) {
@@ -650,20 +573,17 @@ export default function Inventory({
 		if (!resourcePool) return BASE_RESOURCES;
 		return BASE_RESOURCES.map((r) => {
 			const p = resourcePool[r.id];
-			const available = p ? Math.max(0, p.qty - p.deployed) : r.qty;
-			let status: ResourceStatus = r.status;
-			if (r.id === "r5" && r.status === "offline") status = "offline";
-			else if (available <= 0) status = "cooldown";
-			else status = "ready";
+			const available = p ? Math.max(0, p.qty - p.deployed) : 0;
+			const status: ResourceStatus = available <= 0 ? "cooldown" : "ready";
 			return { ...r, qty: available, status };
 		});
 	}, [resourcePool]);
 
 	const buffs: BuffItem[] = useMemo(() => {
 		const catalog =
-			purchasedBuffIds === undefined
+			purchasedUpgradeIds === undefined
 				? BASE_BUFFS
-				: BASE_BUFFS.filter((b) => purchasedBuffIds.includes(b.id));
+				: BASE_BUFFS.filter((b) => purchasedUpgradeIds.includes(b.id));
 		if (!resourcePool) return catalog;
 		return catalog.map((b) => {
 			const p = resourcePool[b.id];
@@ -672,7 +592,7 @@ export default function Inventory({
 				available <= 0 ? "cooldown" : "ready";
 			return { ...b, qty: available, status };
 		});
-	}, [resourcePool, purchasedBuffIds]);
+	}, [resourcePool, purchasedUpgradeIds]);
 
 	const tileIconClass =
 		"w-[1.25rem] h-[1.25rem] sm:w-6 sm:h-6 md:w-7 md:h-7";
