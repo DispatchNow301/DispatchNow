@@ -1021,7 +1021,7 @@ function CharacterMarkers({
 	onSelect: (pin: CharacterPin) => void;
 }) {
 	return (
-		<Pane name="characterPane" style={{ zIndex: 930 }}>
+		<Pane name="characterPane" style={{ zIndex: 820 }}>
 			{pins.map((pin) => (
 				<CharacterMarkerItem
 					key={pin.id}
@@ -1061,7 +1061,7 @@ function RecruitMarkers({
 	);
 }
 
-function TheftSiteMarkers({
+function TheftSiteMarkers({ //working as intended on master branch Thursday March 26 3:00AM EDT
 	sites,
 	onSelect,
 }: {
@@ -1168,7 +1168,7 @@ function IncidentMarkers({
 	];
 
 	return (
-		<Pane name="incidentPane" style={{ zIndex: 820 }}>
+		<Pane name="incidentPane" style={{ zIndex: 940 }}>
 			{rows.map(({ inc, fadingOut: isFadingOut }) => {
 				const isSelected = inc.id === selectedId;
 				const isFirstMapAppearance =
@@ -2788,8 +2788,8 @@ export default function StreetMapScene({
 				.vigilante-theftsite-icon { background: none; border: none; }
 				.vigilante-hide-scrollbar::-webkit-scrollbar { display: none; }
 				.vigilante-hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-				.leaflet-pane.characterPane { z-index: 930 !important; }
-				.leaflet-pane.incidentPane { z-index: 820 !important; }
+				.leaflet-pane.characterPane { z-index: 820 !important; }
+				.leaflet-pane.incidentPane { z-index: 940 !important; }
 				.leaflet-pane.recruitPane { z-index: 960 !important; }
 				.leaflet-pane.theftSitePane { z-index: 900 !important; }
 				.leaflet-marker-icon.vigilante-character-icon,
