@@ -1061,7 +1061,7 @@ function RecruitMarkers({
 	);
 }
 
-function TheftSiteMarkers({
+function TheftSiteMarkers({ //working as intended on master branch Thursday March 26 3:00AM EDT
 	sites,
 	onSelect,
 }: {
