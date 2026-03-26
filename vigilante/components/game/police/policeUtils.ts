@@ -33,6 +33,16 @@ export function distanceMeters(a: LatLngTuple, b: LatLngTuple) {
 	return Math.sqrt(dx * dx + dy * dy);
 }
 
+export function getPathDistanceMeters(path: LatLngTuple[]) {
+	if (path.length < 2) return 0;
+
+	let total = 0;
+	for (let i = 0; i < path.length - 1; i += 1) {
+		total += distanceMeters(path[i], path[i + 1]);
+	}
+	return total;
+}
+
 export function normalizePath(path: LatLngTuple[]) {
 	if (path.length <= 1) return path.slice();
 
@@ -79,7 +89,7 @@ export function resamplePath(path: LatLngTuple[], targetStepMeters = 26) {
 export function getSpeedMps(unit: PoliceUnit, mode: PoliceMode) {
 	switch (mode) {
 		case "responding":
-			return unit.speeds.responseMps;
+			return unit.responseOverrideMps ?? unit.speeds.responseMps;
 		case "rejoining":
 			return unit.speeds.rejoinMps;
 		case "holding":
@@ -196,6 +206,10 @@ export function switchUnitToPath(args: {
 		segmentIndex: 0,
 		segmentStartedAt: args.now,
 		segmentDurationMs: 1000,
+		responseOverrideMps:
+			args.mode === "responding"
+				? args.unit.responseOverrideMps ?? null
+				: null,
 	};
 
 	if (path.length < 2) {
@@ -216,15 +230,21 @@ export function switchUnitToPath(args: {
 export function restartLoop(unit: PoliceUnit, now: number) {
 	if (unit.path.length < 2) return unit;
 
-	return {
+	const nextUnit: PoliceUnit = {
 		...unit,
+		responseOverrideMps: unit.mode === "responding" ? unit.responseOverrideMps ?? null : null,
 		segmentIndex: 0,
 		segmentStartedAt: now,
+		segmentDurationMs: 1000,
+	};
+
+	return {
+		...nextUnit,
 		segmentDurationMs: getSegmentDurationMs(
-			unit,
-			unit.path[0],
-			unit.path[1],
-			unit.mode,
+			nextUnit,
+			nextUnit.path[0],
+			nextUnit.path[1],
+			nextUnit.mode,
 		),
 	};
 }

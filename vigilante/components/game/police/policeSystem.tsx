@@ -20,6 +20,7 @@ import {
 	advanceUnit,
 	distanceMeters,
 	ensureClosedLoop,
+	getPathDistanceMeters,
 	getRemainingEtaMs,
 	getRemainingVisiblePath,
 	getUnitPosition,
@@ -31,12 +32,16 @@ type Props = {
 	incidents: PoliceIncident[];
 	onPoliceRenderUpdate?: (items: PoliceRenderItem[]) => void;
 	onPoliceEtaUpdate?: (items: PoliceEtaItem[]) => void;
+	onPoliceResolveIncident?: (incidentId: string) => void;
 };
 
 const RESPONSE_RADIUS_METERS = 3200;
 const TICK_MS = 60;
 const RENDER_TICK_MS = 1000 / 30;
 const REASSIGN_COOLDOWN_MS = 1000;
+const TARGET_PRE_EXPIRY_ARRIVAL_MS = 5000;
+const RESPONSE_SPEED_MIN_MULTIPLIER = 0.75;
+const RESPONSE_SPEED_MAX_MULTIPLIER = 2.35;
 
 const LOCAL_PATROL_ANCHORS = {
 	diaz: [
@@ -134,6 +139,7 @@ export default function PoliceSystem({
 	incidents,
 	onPoliceRenderUpdate,
 	onPoliceEtaUpdate,
+	onPoliceResolveIncident,
 }: Props) {
 	const [units, setUnits] = useState<PoliceUnit[]>([]);
 	const [renderNow, setRenderNow] = useState(Date.now());
@@ -144,6 +150,7 @@ export default function PoliceSystem({
 	const pendingResponseUnitIdsRef = useRef<Set<string>>(new Set());
 	const pendingIncidentIdsRef = useRef<Set<string>>(new Set());
 	const pendingRejoinUnitIdsRef = useRef<Set<string>>(new Set());
+	const resolvedIncidentIdsRef = useRef<Set<string>>(new Set());
 
 	const patrolLoopsRef = useRef<Record<string, LatLngTuple[]>>({
 		diaz: ensureClosedLoop(LOCAL_PATROL_ANCHORS.diaz),
@@ -183,6 +190,7 @@ export default function PoliceSystem({
 					nextLoopPath: null,
 					holdUntilTs: null,
 					cooldownUntilTs: null,
+					responseOverrideMps: null,
 				},
 				path: patrolLoop,
 				mode: "patrolling",
@@ -280,10 +288,12 @@ export default function PoliceSystem({
 					const idx = prev.findIndex((x) => x.pinId === unit.pinId);
 					if (idx === -1) return prev;
 
+					const now = Date.now();
+
 					const latestIncident = incidentsRef.current.find(
 						(x) => x.id === incident.id,
 					);
-					if (!latestIncident || !isActiveIncident(latestIncident, Date.now())) {
+					if (!latestIncident || !isActiveIncident(latestIncident, now)) {
 						return prev;
 					}
 
@@ -296,16 +306,44 @@ export default function PoliceSystem({
 						return prev;
 					}
 
+					const pathMeters = getPathDistanceMeters(finalPath);
+					const remainingMs = Math.max(latestIncident.expiresAt - now, 0);
+					const targetTravelMs = Math.max(
+						remainingMs - TARGET_PRE_EXPIRY_ARRIVAL_MS,
+						1200,
+					);
+
+					const desiredResponseMps =
+						pathMeters > 0 ? pathMeters / (targetTravelMs / 1000) : 0;
+
+					const baseResponseMps = currentUnit.speeds.responseMps;
+					const minResponseMps =
+						baseResponseMps * RESPONSE_SPEED_MIN_MULTIPLIER;
+					const maxResponseMps =
+						baseResponseMps * RESPONSE_SPEED_MAX_MULTIPLIER;
+
+					const tunedResponseMps =
+						desiredResponseMps > 0
+							? Math.max(
+								minResponseMps,
+								Math.min(maxResponseMps, desiredResponseMps),
+							)
+							: baseResponseMps;
+
 					const next = [...prev];
+
 					next[idx] = switchUnitToPath({
-						unit: currentUnit,
+						unit: {
+							...currentUnit,
+							responseOverrideMps: tunedResponseMps,
+						},
 						path: finalPath,
 						mode: "responding",
 						isLooping: false,
 						nextLoopPath: null,
 						assignedIncidentId: incident.id,
 						holdUntilTs: null,
-						now: Date.now(),
+						now,
 					});
 
 					unitsRef.current = next;
@@ -450,6 +488,12 @@ export default function PoliceSystem({
 
 					if (unit.mode === "responding") {
 						const arrivedAt = getUnitPosition(nextUnit, now);
+						const resolvedIncidentId = unit.assignedIncidentId;
+
+						if (resolvedIncidentId) {
+							resolvedIncidentIdsRef.current.add(resolvedIncidentId);
+						}
+
 						changed = true;
 						return switchUnitToPath({
 							unit: nextUnit,
@@ -457,7 +501,7 @@ export default function PoliceSystem({
 							mode: "holding",
 							isLooping: false,
 							nextLoopPath: getPatrolLoop(nextUnit),
-							assignedIncidentId: unit.assignedIncidentId,
+							assignedIncidentId: null,
 							holdUntilTs: now + unit.holdMs,
 							now,
 						});
@@ -585,11 +629,12 @@ export default function PoliceSystem({
 		}
 	}, [incidents, units]);
 
-	useEffect(() => {
-		if (!onPoliceRenderUpdate) return;
+	const renderItems = useMemo<PoliceRenderItem[]>(() => {
+		const now = renderNow;
 
-		const renderItems: PoliceRenderItem[] = units.map((unit) => {
-			const pos = getUnitPosition(unit, renderNow);
+		return units.map((unit) => {
+			const pos = getUnitPosition(unit, now);
+
 			return {
 				pinId: unit.pinId,
 				name: unit.displayName,
@@ -599,34 +644,49 @@ export default function PoliceSystem({
 				mode: unit.mode,
 				visiblePath:
 					unit.mode === "responding"
-						? getRemainingVisiblePath(unit, renderNow)
+						? getRemainingVisiblePath(unit, now)
 						: [],
 				assignedIncidentId: unit.assignedIncidentId,
 			};
 		});
+	}, [units, renderNow]);
 
-		onPoliceRenderUpdate(renderItems);
-	}, [units, renderNow, onPoliceRenderUpdate]);
+	const etaItems = useMemo<PoliceEtaItem[]>(() => {
+		const now = renderNow;
 
-	useEffect(() => {
-		if (!onPoliceEtaUpdate) return;
-
-		const etaItems: PoliceEtaItem[] = units
-			.filter(
-				(unit) =>
-					unit.mode === "responding" &&
-					!!unit.assignedIncidentId,
-			)
+		return units
+			.filter((unit) => unit.assignedIncidentId)
 			.map((unit) => ({
 				unitId: unit.pinId,
 				name: unit.displayName,
-				incidentId: unit.assignedIncidentId!,
-				etaMs: getRemainingEtaMs(unit, renderNow),
+				incidentId: unit.assignedIncidentId as string,
+				etaMs:
+					unit.mode === "responding"
+						? getRemainingEtaMs(unit, now)
+						: 0,
 			}))
-			.sort((a, b) => a.etaMs - b.etaMs);
+			.filter((item) => item.etaMs >= 0);
+	}, [units, renderNow]);
 
-		onPoliceEtaUpdate(etaItems);
-	}, [units, renderNow, onPoliceEtaUpdate]);
+	useEffect(() => {
+		onPoliceRenderUpdate?.(renderItems);
+	}, [renderItems, onPoliceRenderUpdate]);
+
+	useEffect(() => {
+		onPoliceEtaUpdate?.(etaItems);
+	}, [etaItems, onPoliceEtaUpdate]);
+
+	useEffect(() => {
+		if (!onPoliceResolveIncident) return;
+		if (resolvedIncidentIdsRef.current.size === 0) return;
+
+		const resolvedIds = Array.from(resolvedIncidentIdsRef.current);
+		resolvedIncidentIdsRef.current.clear();
+
+		for (const incidentId of resolvedIds) {
+			onPoliceResolveIncident(incidentId);
+		}
+	}, [units, onPoliceResolveIncident]);
 
 	const responseLines = useMemo(() => {
 		return units
