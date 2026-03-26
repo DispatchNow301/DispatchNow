@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
+import { useRouter } from "next/navigation";
 import {
 	ChevronLeft,
 	ChevronRight,
@@ -18,6 +19,7 @@ import {
 	X,
 } from "lucide-react";
 import InventorySorterModal from "../minigames/InventorySorterModal";
+import GameOverOverlay from "@/components/game/GameOverOverlay";
 import type { LatLngBounds, LatLngTuple } from "leaflet";
 import { MapContainer, Marker, Pane, TileLayer, useMap } from "react-leaflet";
 import * as L from "leaflet";
@@ -257,6 +259,22 @@ type MinigameOption = {
 	title: string;
 	description: string;
 	status?: string;
+};
+
+type GameOverCause =
+	| "undercover_hired"
+	| "too_many_failed_incidents"
+	| "heat_maxed"
+	| "crew_wiped"
+	| "custom";
+
+type GameOverStats = {
+	totalTime?: string;
+	completedIncidents?: number;
+	failedIncidents?: number;
+	hiredVigilantes?: number;
+	policeHeat?: number;
+	lootedResources?: number;
 };
 
 const MINIGAME_OPTIONS: MinigameOption[] = [
@@ -1452,6 +1470,16 @@ function saveState(saveKey: string, state: GameState) {
 	localStorage.setItem(saveKey, JSON.stringify(state));
 }
 
+function formatDuration(ms: number): string {
+	const totalSeconds = Math.max(0, Math.round(ms / 1000));
+	const minutes = Math.floor(totalSeconds / 60);
+	const seconds = totalSeconds % 60;
+	if (minutes > 0) {
+		return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+	}
+	return `${seconds}s`;
+}
+
 export default function StreetMapScene({
 	saveKey,
 	saveSlot,
@@ -1484,6 +1512,13 @@ export default function StreetMapScene({
 
 	const isGameplayPausedByMinigame = inventorySorterMode !== null;
 	const pauseStartedAtRef = useRef<number | null>(null);
+
+	const router = useRouter();
+	const gameStartTimeRef = useRef<number>(Date.now());
+	const [gameOverOpen, setGameOverOpen] = useState(false);
+	const [gameOverCause, setGameOverCause] = useState<GameOverCause>("custom");
+	const [gameOverStats, setGameOverStats] = useState<GameOverStats>({});
+	const isGameplayPaused = isGameplayPausedByMinigame || gameOverOpen;
 
 	const resolveIncidentDueAtRef = useRef<number | null>(null);
 	const resolveIncidentResumeFnRef = useRef<(() => void) | null>(null);
@@ -1775,7 +1810,7 @@ export default function StreetMapScene({
 	}, []);
 
 	useEffect(() => {
-		if (isGameplayPausedByMinigame) {
+		if (isGameplayPaused) {
 			if (pauseStartedAtRef.current === null) {
 				pauseStartedAtRef.current = Date.now();
 			}
@@ -1838,7 +1873,7 @@ export default function StreetMapScene({
 				if (fn) fn();
 			}, remaining);
 		}
-	}, [isGameplayPausedByMinigame]);
+	}, [isGameplayPaused]);
 
 	useEffect(() => {
 		return () => {
@@ -2117,6 +2152,32 @@ export default function StreetMapScene({
 			(r) => r.id === selectedRecruitLeadId,
 		);
 		if (!lead) return;
+
+		const selectedVigilante = vigilantes.find(
+			(v) => v.id === lead.vigilanteId,
+		);
+
+		// Check if this is an undercover agent
+		if (selectedVigilante?.isUndercover) {
+			// Game over: undercover hired
+			const elapsedMs = Date.now() - gameStartTimeRef.current;
+			setGameOverOpen(true);
+			setGameOverCause("undercover_hired");
+			setGameOverStats({
+				totalTime: formatDuration(elapsedMs),
+				completedIncidents: state.careerStats.incidentsResolvedSuccess,
+				failedIncidents: state.careerStats.incidentsResolvedFailure,
+				hiredVigilantes: state.ownedVigilanteIds.length,
+				policeHeat: 8, // Placeholder - adjust if you have actual heat tracking
+				lootedResources: Object.values(state.resourcePool).reduce(
+					(sum, entry) => sum + entry.qty,
+					0,
+				),
+			});
+			setShowVettingModal(false);
+			return;
+		}
+
 		setState((s) => {
 			const alreadyOwned = s.ownedVigilanteIds.includes(lead.vigilanteId);
 			return {
@@ -2330,7 +2391,7 @@ export default function StreetMapScene({
 	};
 
 	useEffect(() => {
-		if (isGameplayPausedByMinigame) return;
+		if (isGameplayPaused) return;
 
 		let alive = true;
 		const MAX_ACTIVE = 100;
@@ -2413,7 +2474,7 @@ export default function StreetMapScene({
 			alive = false;
 		};
 	}, [
-		isGameplayPausedByMinigame,
+		isGameplayPaused,
 		mode,
 		isHost,
 		sessionId,
@@ -2421,12 +2482,12 @@ export default function StreetMapScene({
 	]);
 
 	useEffect(() => {
-		if (isGameplayPausedByMinigame) return;
+		if (isGameplayPaused) return;
 
 		let alive = true;
 
 		const MAX_RECRUITS = 3;
-		const SPAWN_INTERVAL_MS = 260_000;
+		const SPAWN_INTERVAL_MS = 260_000; // 260_000
 
 		const scheduleNext = () => {
 			if (!alive) return;
@@ -2437,7 +2498,7 @@ export default function StreetMapScene({
 				setState((s) => {
 					if (s.recruitLeads.length >= MAX_RECRUITS) return s;
 
-					if (s.ownedVigilanteIds.length >= 5) return s;
+					if (s.ownedVigilanteIds.length >= 10) return s;
 
 					const bounds = levelBoundsRef.current.get(s.level);
 					if (!bounds) return s;
@@ -2506,10 +2567,10 @@ export default function StreetMapScene({
 		return () => {
 			alive = false;
 		};
-	}, [isGameplayPausedByMinigame]);
+	}, [isGameplayPaused]);
 
 	useEffect(() => {
-		if (isGameplayPausedByMinigame) return;
+		if (isGameplayPaused) return;
 
 		const id = window.setInterval(() => {
 			const now = Date.now();
@@ -2577,7 +2638,7 @@ export default function StreetMapScene({
 		}, 1_000);
 		return () => window.clearInterval(id);
 	}, [
-		isGameplayPausedByMinigame,
+		isGameplayPaused,
 		selectedRecruitLeadId,
 		state.recruitLeads,
 		state.incidents,
@@ -2666,14 +2727,14 @@ export default function StreetMapScene({
 	const [nowTick, setNowTick] = useState(() => Date.now());
 
 	useEffect(() => {
-		if (isGameplayPausedByMinigame) return;
+		if (isGameplayPaused) return;
 
 		const id = window.setInterval(() => {
 			setNowTick(Date.now());
 		}, 250);
 
 		return () => window.clearInterval(id);
-	}, [isGameplayPausedByMinigame]);
+	}, [isGameplayPaused]);
 
 	const selectedRecruitMsLeft = selectedRecruitLead
 		? Math.max(0, selectedRecruitLead.expiresAt - nowTick)
@@ -3763,6 +3824,22 @@ export default function StreetMapScene({
 					)}
 				</AnimatePresence>
 			</div>
+
+			<GameOverOverlay
+				open={gameOverOpen}
+				cause={gameOverCause}
+				stats={gameOverStats}
+				onQuit={() => {
+					router.push("/");
+				}}
+				onContinue={() => {
+					// TODO: Navigate to black market once ready
+					console.log("Continue to black market");
+				}}
+				onClose={() => setGameOverOpen(false)}
+				continueLabel="To Black Market"
+				quitLabel="Quit"
+			/>
 		</div>
 	);
 }
