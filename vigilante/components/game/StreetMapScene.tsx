@@ -821,8 +821,7 @@ function makeRecruitIcon(initial: string) {
 		justify-content:center;
 		border-radius:999px;
 		background:transparent;
-		cursor:pointer;
-		pointer-events:auto;
+		pointer-events:none;
 	">
 		<div style="
 			width:34px;
@@ -2798,11 +2797,15 @@ export default function StreetMapScene({
 				.leaflet-marker-icon.vigilante-theftsite-icon {
 					pointer-events: auto !important;
 				}
+
 				.vigilante-character-icon > div,
+				.vigilante-character-icon > div > div,
 				.vigilante-recruit-icon > div,
-				.vigilante-theftsite-icon > div {
+				.vigilante-recruit-icon > div > div,
+				.vigilante-theftsite-icon > div,
+				.vigilante-theftsite-icon > div > div {
 					cursor: pointer !important;
-					pointer-events: auto !important;
+					pointer-events: none !important;
 				}
 				@keyframes vigilante-pulse-soft {
 					0%   { box-shadow: 0 0 0 0 rgba(185,28,28,0.35); }
