@@ -814,19 +814,39 @@ function makeCharacterIcon(initial: string, kind: CharacterKind) {
 
 function makeRecruitIcon(initial: string) {
 	const html = `<div style="
-		width:34px;height:34px;border-radius:999px;
-		border:2px solid #b45309;background:rgba(120,53,15,0.86);
-		display:flex;align-items:center;justify-content:center;
-		color:#fde68a;font-weight:800;font-size:15px;
-		text-shadow:0 0 4px rgba(0,0,0,0.85);
-		box-shadow:0 0 18px rgba(120,53,15,0.55);cursor:pointer;
-	">${initial}</div>`;
+		width:44px;
+		height:44px;
+		display:flex;
+		align-items:center;
+		justify-content:center;
+		border-radius:999px;
+		background:transparent;
+		cursor:pointer;
+		pointer-events:auto;
+	">
+		<div style="
+			width:34px;
+			height:34px;
+			border-radius:999px;
+			border:2px solid #b45309;
+			background:rgba(120,53,15,0.86);
+			display:flex;
+			align-items:center;
+			justify-content:center;
+			color:#fde68a;
+			font-weight:800;
+			font-size:15px;
+			text-shadow:0 0 4px rgba(0,0,0,0.85);
+			box-shadow:0 0 18px rgba(120,53,15,0.55);
+			pointer-events:none;
+		">${initial}</div>
+	</div>`;
 
 	return L.divIcon({
 		html,
 		className: "vigilante-recruit-icon",
-		iconSize: [34, 34],
-		iconAnchor: [17, 17],
+		iconSize: [44, 44],
+		iconAnchor: [22, 22],
 	});
 }
 
@@ -2913,19 +2933,17 @@ export default function StreetMapScene({
 						<motion.aside
 							initial={{
 								opacity: 0,
-								x: overlayMode === "owned" ? 30 : -30,
+								y: 18,
 								scale: 0.98,
 							}}
-							animate={{ opacity: 1, x: 0, scale: 1 }}
+							animate={{ opacity: 1, y: 0, scale: 1 }}
 							exit={{
 								opacity: 0,
-								x: overlayMode === "owned" ? 24 : -24,
+								y: 10,
 								scale: 0.98,
 							}}
 							transition={{ duration: 0.2, ease: "easeOut" }}
-							className={`absolute top-6 bottom-6 z-[2010] w-[min(34vw,460px)] min-w-[340px] overflow-hidden rounded-2xl border border-amber-900/40 bg-black/75 text-amber-100 shadow-[0_18px_70px_rgba(0,0,0,0.55)] backdrop-blur-md ${
-								overlayMode === "owned" ? "right-6" : "left-6"
-							}`}
+							className="absolute left-1/2 top-1/2 z-[2010] flex h-[88vh] w-[min(34vw,460px)] min-w-[340px] max-h-[88vh] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl border border-amber-900/40 bg-black/75 text-amber-100 shadow-[0_18px_70px_rgba(0,0,0,0.55)] backdrop-blur-md"
 						>
 							<div className="flex h-full flex-col">
 								<div className="flex items-start justify-between border-b border-amber-900/30 px-5 py-4">
@@ -3052,9 +3070,9 @@ export default function StreetMapScene({
 										{overlayMode === "recruit" ? (
 											<button
 												type="button"
-												onClick={() =>
-													setShowVettingModal(true)
-												}
+												onClick={() => {
+													setShowVettingModal(true);
+												}}
 												className="rounded-xl border border-amber-700/40 bg-amber-950/30 px-5 py-3 text-sm font-semibold text-amber-100 hover:bg-amber-900/35 transition"
 											>
 												Hire vigilante
