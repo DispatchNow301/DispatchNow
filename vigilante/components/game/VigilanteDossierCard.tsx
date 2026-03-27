@@ -12,7 +12,6 @@ export type VigilanteSheet = {
 	portrait: string | StaticImageData;
 	age?: number;
 	status?: string;
-	heat?: number;
 	bio?: string;
 	traits?: string[];
 	equipment?: string[];
@@ -143,11 +142,6 @@ export default function VigilanteDossierCard({
 												{character.status ? (
 													<span className="rounded-full border border-amber-900/35 bg-black/30 px-3 py-1 text-[11px] uppercase tracking-[0.15em] text-amber-200/75">
 														{character.status}
-													</span>
-												) : null}
-												{typeof character.heat === "number" ? (
-													<span className="rounded-full border border-red-900/35 bg-red-950/20 px-3 py-1 text-[11px] uppercase tracking-[0.15em] text-red-300/75">
-														Heat {character.heat}
 													</span>
 												) : null}
 												{typeof character.age === "number" ? (

@@ -234,6 +234,7 @@ type GameState = {
 	inventoryTab: "vigilantes" | "resources" | "buffs";
 	ownedVigilanteIds: string[];
 	recruitLeads: RecruitLead[];
+	consumedTheftSiteIds: string[];
 	resourcePool: Record<string, ResourcePoolEntry>;
 	credits: number;
 	purchasedUpgradeIds: string[];
@@ -1407,6 +1408,7 @@ function initialState(): GameState {
 		inventoryTab: "vigilantes",
 		ownedVigilanteIds: ["bruce", "parya"],
 		recruitLeads: [],
+		consumedTheftSiteIds: [],
 		resourcePool: { ...DEFAULT_RESOURCE_POOL },
 		credits: 500,
 		purchasedUpgradeIds: [],
@@ -1534,11 +1536,16 @@ function loadState(saveKey: string): GameState {
 				p.inventoryTab === "buffs"
 						? p.inventoryTab
 						: "vigilantes",
-				ownedVigilanteIds: Array.isArray(p.ownedVigilanteIds)
-					? (p.ownedVigilanteIds as string[])
-					: ["bruce", "parya"],
+			ownedVigilanteIds: Array.isArray(p.ownedVigilanteIds)
+				? (p.ownedVigilanteIds as string[])
+				: ["bruce", "parya"],
 			recruitLeads: Array.isArray(p.recruitLeads)
 				? (p.recruitLeads as RecruitLead[])
+				: [],
+			consumedTheftSiteIds: Array.isArray(p.consumedTheftSiteIds)
+				? (p.consumedTheftSiteIds as string[]).filter(
+					(id): id is string => typeof id === "string",
+				)
 				: [],
 			resourcePool: mergeResourcePool(p.resourcePool),
 			credits:
@@ -2283,10 +2290,19 @@ export default function StreetMapScene({
 
 		setState((s) => ({
 			...s,
+			credits: Math.max(0, s.credits + Math.max(0, reward.credits)),
 			resourcePool: applyInventorySorterRewardToPool(
 				s.resourcePool,
 				reward.items,
 			),
+			consumedTheftSiteIds: s.consumedTheftSiteIds.includes(site.id)
+				? s.consumedTheftSiteIds
+				: [...s.consumedTheftSiteIds, site.id],
+			incidents: [theftIncident, ...s.incidents],
+			selectedIncidentId: theftIncident.id,
+			showIncidentPanel: true,
+			showMinigamePanel: false,
+			showPolicePanel: false,
 		}));
 
 		if (mode === "multiplayer" && sessionId) {
@@ -2302,16 +2318,6 @@ export default function StreetMapScene({
 				expiresAt: new Date(theftIncident.expiresAt).toISOString(),
 				status: "active",
 			});
-		} else {
-			setState((s) => ({
-				...s,
-				credits: Math.max(0, s.credits + Math.max(0, reward.credits)),
-				incidents: [theftIncident, ...s.incidents],
-				selectedIncidentId: theftIncident.id,
-				showIncidentPanel: true,
-				showMinigamePanel: false,
-				showPolicePanel: false,
-			}));
 		}
 
 		setInventorySorterMode(null);
@@ -3141,10 +3147,19 @@ export default function StreetMapScene({
 		[state.incidents, state.selectedIncidentId],
 	);
 
+	const availableTheftSites = useMemo(
+		() =>
+			THEFT_SITES.filter(
+				(site) => !state.consumedTheftSiteIds.includes(site.id),
+			),
+		[state.consumedTheftSiteIds],
+	);
+
 	const selectedTheftSite = useMemo(
 		() =>
-			THEFT_SITES.find((site) => site.id === selectedTheftSiteId) ?? null,
-		[selectedTheftSiteId],
+			availableTheftSites.find((site) => site.id === selectedTheftSiteId) ??
+			null,
+		[availableTheftSites, selectedTheftSiteId],
 	);
 
 	const incidentPanelRows = useMemo(() => {
@@ -3299,7 +3314,7 @@ export default function StreetMapScene({
 					onSelect={handleCharacterSelect}
 				/>
 				<TheftSiteMarkers
-					sites={THEFT_SITES}
+					sites={availableTheftSites}
 					onSelect={handleTheftSiteSelect}
 				/>
 				<RecruitMarkers
@@ -3408,11 +3423,6 @@ export default function StreetMapScene({
 												{activeDossier.status ? (
 													<span className="rounded-full border border-amber-900/35 bg-black/30 px-3 py-1 text-[11px] uppercase tracking-[0.15em] text-amber-200/75">
 														{activeDossier.status}
-													</span>
-												) : null}
-												{typeof activeDossier.heat === "number" ? (
-													<span className="rounded-full border border-red-900/35 bg-red-950/20 px-3 py-1 text-[11px] uppercase tracking-[0.15em] text-red-300/75">
-														Heat {activeDossier.heat}
 													</span>
 												) : null}
 											</div>
