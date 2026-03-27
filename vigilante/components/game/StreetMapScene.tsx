@@ -653,21 +653,26 @@ function pickSpatiallyUniformPoi(
 	return randomFrom(pool);
 }
 
-function applyTheftRewardToPool(
+function applyInventorySorterRewardToPool(
 	pool: Record<string, ResourcePoolEntry>,
-	site: TheftSite,
-	bundleCount: number,
+	items: Array<{ type: string; quantity: number }>,
 ) {
 	const next: Record<string, ResourcePoolEntry> = { ...pool };
 
-	for (let i = 0; i < bundleCount; i += 1) {
-		for (const id of site.rewardIds) {
-			const entry = next[id] ?? { qty: 0, deployed: 0 };
-			next[id] = {
-				...entry,
-				qty: entry.qty + 1,
-			};
-		}
+	for (const item of items) {
+		if (typeof item.type !== "string" || item.type.length === 0) continue;
+
+		const quantity = Number.isFinite(item.quantity)
+			? Math.max(0, Math.floor(item.quantity))
+			: 0;
+
+		if (quantity <= 0) continue;
+
+		const entry = next[item.type] ?? { qty: 0, deployed: 0 };
+		next[item.type] = {
+			...entry,
+			qty: entry.qty + quantity,
+		};
 	}
 
 	return next;
@@ -2274,17 +2279,14 @@ export default function StreetMapScene({
 			items: Array<{ type: string; quantity: number }>;
 		},
 	) => {
-		const bundleCount = reward.items.reduce((sum, item) => {
-			if (item.type === "supply_pack") return sum + item.quantity;
-			return sum;
-		}, 0);
-
-		const bundles = Math.max(1, bundleCount);
 		const theftIncident = makeTheftIncident(site);
 
 		setState((s) => ({
 			...s,
-			resourcePool: applyTheftRewardToPool(s.resourcePool, site, bundles),
+			resourcePool: applyInventorySorterRewardToPool(
+				s.resourcePool,
+				reward.items,
+			),
 		}));
 
 		if (mode === "multiplayer" && sessionId) {
@@ -2307,8 +2309,11 @@ export default function StreetMapScene({
 				incidents: [theftIncident, ...s.incidents],
 				selectedIncidentId: theftIncident.id,
 				showIncidentPanel: true,
+				showMinigamePanel: false,
+				showPolicePanel: false,
 			}));
 		}
+
 		setInventorySorterMode(null);
 		setSelectedTheftSiteId(null);
 	};
@@ -4105,6 +4110,11 @@ export default function StreetMapScene({
 					inventorySorterMode === "resource-theft"
 						? "Move the stolen goods fast, keep the layout clean, and get out before the area locks down."
 						: "Organize the emergency locker to recover extra supplies before time runs out."
+				}
+				rewardMode={
+					inventorySorterMode === "resource-theft"
+						? "random-resource"
+						: "none"
 				}
 			/>
 
