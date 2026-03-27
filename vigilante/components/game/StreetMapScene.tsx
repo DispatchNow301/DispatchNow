@@ -25,6 +25,7 @@ import { MapContainer, Marker, Pane, TileLayer, useMap } from "react-leaflet";
 import * as L from "leaflet";
 import Inventory from "./Inventory";
 import PoliceSystem from "./police/policeSystem";
+import PoliceCaptureModal from "./police/PoliceCaptureModal";
 import type { PoliceEtaItem, PoliceRenderItem } from "./police/policeTypes";
 import IncidentChanceRollOverlay from "./IncidentChanceRollOverlay";
 import IncidentDeployModal from "./IncidentDeployModal";
@@ -1610,6 +1611,14 @@ export default function StreetMapScene({
 	const [inventorySorterMode, setInventorySorterMode] =
 		useState<InventorySorterMode>(null);
 
+	const [policeCaptureState, setPoliceCaptureState] = useState<{
+		open: boolean;
+		capturedIds: string[];
+	}>({
+		open: false,
+		capturedIds: [],
+	});
+
 	// Achievement tracking
 	const achievements = useAchievements(state, setState);
 
@@ -1689,16 +1698,37 @@ export default function StreetMapScene({
 	};
 
 	const handlePoliceResolveIncident = useCallback((incidentId: string) => {
+		const current = stateRef.current;
+		const targetIncident =
+			current.incidents.find((incident) => incident.id === incidentId) ?? null;
+
+		const capturedIds = (targetIncident?.deployedVigilanteIds ?? []).filter(
+			(id) => current.ownedVigilanteIds.includes(id),
+		);
+
+		const capturedSet = new Set(capturedIds);
+
 		setState((s) => ({
 			...s,
 			selectedIncidentId:
 				s.selectedIncidentId === incidentId
 					? null
 					: s.selectedIncidentId,
+			ownedVigilanteIds:
+				capturedIds.length > 0
+					? s.ownedVigilanteIds.filter((id) => !capturedSet.has(id))
+					: s.ownedVigilanteIds,
 			incidents: s.incidents.filter(
 				(incident) => incident.id !== incidentId,
 			),
 		}));
+
+		if (capturedIds.length > 0) {
+			setPoliceCaptureState({
+				open: true,
+				capturedIds,
+			});
+		}
 	}, []);
 
 	const toggleExclusiveLeftPanel = useCallback(
@@ -4127,7 +4157,17 @@ export default function StreetMapScene({
 						: "none"
 				}
 			/>
-
+			<PoliceCaptureModal
+				open={policeCaptureState.open}
+				capturedIds={policeCaptureState.capturedIds}
+				vigilanteSheets={vigilantes}
+				onClose={() =>
+					setPoliceCaptureState({
+						open: false,
+						capturedIds: [],
+					})
+				}
+			/>
 			<div className="pointer-events-none absolute inset-x-0 bottom-0 z-[980] max-h-[min(92vh,100%)] overflow-hidden">
 				<AnimatePresence initial={false} mode="wait">
 					{state.showInventoryPanel ? (
