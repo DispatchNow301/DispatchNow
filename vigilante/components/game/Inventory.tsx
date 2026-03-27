@@ -14,15 +14,17 @@ import {
 } from "@/app/components/data/vigilante";
 import { portraitToSrc } from "@/lib/vigilantePortrait";
 import { AnimatePresence, motion } from "framer-motion";
-import {
-	AlertTriangle,
-	Ban,
-	Check,
-	ChevronDown,
-	X,
-} from "lucide-react";
+import { AlertTriangle, Ban, Check, ChevronDown, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { FaBolt, FaBroadcastTower, FaHeart, FaShieldAlt, FaBullseye, FaDollarSign, FaUser } from "react-icons/fa";
+import {
+	FaBolt,
+	FaBroadcastTower,
+	FaHeart,
+	FaShieldAlt,
+	FaBullseye,
+	FaDollarSign,
+	FaUser,
+} from "react-icons/fa";
 import type { ResourcePoolEntry } from "@/lib/resourcePool";
 import { ResourceGearIcon } from "@/components/game/ResourceGearIcon";
 import { SHOP_RESOURCES, SHOP_UPGRADES } from "@/lib/shopCatalog";
@@ -66,11 +68,7 @@ type InventoryTab = "vigilantes" | "resources" | "buffs";
 function sheetStatusToGameStatus(s?: string): VigilanteStatus {
 	const t = (s ?? "Available").toLowerCase();
 	if (t.includes("injur")) return "injured";
-	if (
-		t.includes("unavail") ||
-		t.includes("offline") ||
-		t.includes("down")
-	) {
+	if (t.includes("unavail") || t.includes("offline") || t.includes("down")) {
 		return "unavailable";
 	}
 	return "available";
@@ -105,9 +103,7 @@ function buildHomeBaseVigilanteSlots(
 	sheets: VigilanteSheet[],
 ): VigilanteSlot[] {
 	const byId = new Map(sheets.map((s) => [s.id, s]));
-	const sortedIds = [...new Set(ownedIds)].sort((a, b) =>
-		a.localeCompare(b),
-	);
+	const sortedIds = [...new Set(ownedIds)].sort((a, b) => a.localeCompare(b));
 	const filled: VigilanteItem[] = [];
 	for (const id of sortedIds) {
 		const s = byId.get(id);
@@ -236,9 +232,7 @@ function VigilantePortrait({
 	const showImage = Boolean(portraitSrc) && !failed;
 
 	if (!showImage) {
-		return (
-			<FaUser className={tileIconClass} aria-hidden />
-		);
+		return <FaUser className={tileIconClass} aria-hidden />;
 	}
 
 	/* Native <img>: Next/Image + Framer opacity/transform sometimes leaves a blank layer after tab changes. */
@@ -574,7 +568,8 @@ export default function Inventory({
 		return BASE_RESOURCES.map((r) => {
 			const p = resourcePool[r.id];
 			const available = p ? Math.max(0, p.qty - p.deployed) : 0;
-			const status: ResourceStatus = available <= 0 ? "cooldown" : "ready";
+			const status: ResourceStatus =
+				available <= 0 ? "cooldown" : "ready";
 			return { ...r, qty: available, status };
 		});
 	}, [resourcePool]);
@@ -594,8 +589,7 @@ export default function Inventory({
 		});
 	}, [resourcePool, purchasedUpgradeIds]);
 
-	const tileIconClass =
-		"w-[1.25rem] h-[1.25rem] sm:w-6 sm:h-6 md:w-7 md:h-7";
+	const tileIconClass = "w-[1.25rem] h-[1.25rem] sm:w-6 sm:h-6 md:w-7 md:h-7";
 
 	/** Larger icons for 5 vigilantes only; same min-height as other tabs so the panel doesn’t jump. */
 	const vigilanteTileClass =
@@ -633,10 +627,7 @@ export default function Inventory({
 		setHoverTip({ kind: "r", item, el });
 	};
 
-	const showBuffTip = (
-		e: React.MouseEvent<HTMLElement>,
-		item: BuffItem,
-	) => {
+	const showBuffTip = (e: React.MouseEvent<HTMLElement>, item: BuffItem) => {
 		const el = e.currentTarget;
 		const r = el.getBoundingClientRect();
 		setTipPos({ left: r.left + r.width / 2, top: r.top - 10 });
@@ -648,7 +639,8 @@ export default function Inventory({
 	const buffIcon = (id: BuffItem["id"]) => {
 		const cls = tileIconClass;
 		if (id === "b1") return <FaBolt className={cls} aria-hidden />;
-		if (id === "b2") return <FaBroadcastTower className={cls} aria-hidden />;
+		if (id === "b2")
+			return <FaBroadcastTower className={cls} aria-hidden />;
 		if (id === "b3") return <FaHeart className={cls} aria-hidden />;
 		if (id === "b4") return <FaBullseye className={cls} aria-hidden />;
 		if (id === "b5") return <FaShieldAlt className={cls} aria-hidden />;
@@ -659,345 +651,364 @@ export default function Inventory({
 
 	return (
 		<>
-		<div className="pointer-events-none w-full px-4 py-2">
-			<div className="pointer-events-auto mx-auto max-w-5xl overflow-hidden rounded-2xl border border-amber-900/40 bg-black/55 backdrop-blur-md shadow-2xl shadow-black/60">
-				{onHide && (
-					<button
-						type="button"
-						onClick={onHide}
-						className="flex w-full cursor-pointer items-center justify-center gap-2 border-b border-amber-900/40 bg-black/70 px-3 py-2.5 text-[11px] font-medium uppercase tracking-[0.14em] text-amber-200/65 transition-colors hover:bg-black/60 hover:text-amber-100"
-						aria-label="Hide inventory"
-					>
-						<span className="select-none">Hide inventory</span>
-						<ChevronDown
-							className="h-4 w-4 shrink-0 text-amber-200/80"
-							strokeWidth={2.25}
-							aria-hidden
-						/>
-					</button>
-				)}
+			<div className="pointer-events-none w-full px-4 py-2">
+				<div className="pointer-events-auto mx-auto max-w-5xl overflow-hidden rounded-2xl border border-amber-900/40 bg-black/55 backdrop-blur-md shadow-2xl shadow-black/60">
+					{onHide && (
+						<button
+							type="button"
+							onClick={onHide}
+							className="flex w-full cursor-pointer items-center justify-center gap-2 border-b border-amber-900/40 bg-black/70 px-3 py-2.5 text-[11px] font-medium uppercase tracking-[0.14em] text-amber-200/65 transition-colors hover:bg-black/60 hover:text-amber-100"
+							aria-label="Hide inventory"
+						>
+							<span className="select-none">Hide inventory</span>
+							<ChevronDown
+								className="h-4 w-4 shrink-0 text-amber-200/80"
+								strokeWidth={2.25}
+								aria-hidden
+							/>
+						</button>
+					)}
 
-				<div className="flex items-center gap-3 border-b border-amber-900/40 px-4 py-3">
-					<div
-						className="inline-flex items-center rounded-xl border border-amber-900/50 bg-black/30 p-1"
-						role="tablist"
-						aria-label="Inventory section"
-					>
-						<button
-							id="inventory-tab-vigilantes"
-							type="button"
-							role="tab"
-							aria-selected={tab === "vigilantes"}
-							onClick={() => handleTabChange("vigilantes")}
-							className={`px-3.5 py-2 rounded-lg text-[11px] sm:px-4 sm:py-2.5 sm:text-xs uppercase tracking-[0.16em] cursor-pointer transition-colors ${
-								tab === "vigilantes"
-									? "bg-amber-900/45 text-amber-100 border border-amber-500/40"
-									: "text-amber-200/60 hover:text-amber-100"
-							}`}
+					<div className="flex items-center gap-3 border-b border-amber-900/40 px-4 py-3">
+						<div
+							className="inline-flex items-center rounded-xl border border-amber-900/50 bg-black/30 p-1"
+							role="tablist"
+							aria-label="Inventory section"
 						>
-							Vigilantes
-						</button>
-						<span
-							className="mx-0.5 h-5 w-px shrink-0 bg-amber-200/5 sm:h-6"
-							aria-hidden
-						/>
-						<button
-							id="inventory-tab-resources"
-							type="button"
-							role="tab"
-							aria-selected={tab === "resources"}
-							onClick={() => handleTabChange("resources")}
-							className={`px-3.5 py-2 rounded-lg text-[11px] sm:px-4 sm:py-2.5 sm:text-xs uppercase tracking-[0.16em] cursor-pointer transition-colors ${
-								tab === "resources"
-									? "bg-amber-900/45 text-amber-100 border border-amber-500/40"
-									: "text-amber-200/60 hover:text-amber-100"
-							}`}
-						>
-							Resources
-						</button>
-						<span
-							className="mx-0.5 h-5 w-px shrink-0 bg-amber-200/5 sm:h-6"
-							aria-hidden
-						/>
-						<button
-							id="inventory-tab-buffs"
-							type="button"
-							role="tab"
-							aria-selected={tab === "buffs"}
-							onClick={() => handleTabChange("buffs")}
-							className={`px-3.5 py-2 rounded-lg text-[11px] sm:px-4 sm:py-2.5 sm:text-xs uppercase tracking-[0.16em] cursor-pointer transition-colors ${
-								tab === "buffs"
-									? "bg-amber-900/45 text-amber-100 border border-amber-500/40"
-									: "text-amber-200/60 hover:text-amber-100"
-							}`}
-						>
-							Buffs
-						</button>
-					</div>
-				</div>
-
-				<div className="relative px-3 py-3">
-					{/* Grid stack: exiting + entering panels share one cell so sync mode doesn’t leave a blank gap.
-					    Equal py/px inset so resource/buff qty & vigilante status badges aren’t clipped */}
-					<div className="grid grid-cols-1 overflow-hidden px-1 py-2.5 *:col-start-1 *:row-start-1 *:min-w-0 sm:px-1.5 sm:py-3">
-						<AnimatePresence
-							initial={false}
-							mode="sync"
-							custom={slideDir}
-						>
-							<motion.div
-								// Same key "vigilantes" on every re-entry lets Framer reuse the panel;
-								// opacity/transform can stick wrong so portraits vanish. Mount id only
-								// bumps on tab navigation, not on roster updates (see portrait epoch).
-								key={
+							<button
+								id="inventory-tab-vigilantes"
+								type="button"
+								role="tab"
+								aria-selected={tab === "vigilantes"}
+								onClick={() => handleTabChange("vigilantes")}
+								className={`px-3.5 py-2 rounded-lg text-[11px] sm:px-4 sm:py-2.5 sm:text-xs uppercase tracking-[0.16em] cursor-pointer transition-colors ${
 									tab === "vigilantes"
-										? `vigilantes-${vigilantePanelMountId}`
-										: tab
-								}
-								role="tabpanel"
-								aria-labelledby={`inventory-tab-${tab}`}
-								custom={slideDir}
-								variants={tabPanelVariants}
-								initial="enter"
-								animate="center"
-								exit="exit"
-								transition={{
-									// Spring for position — soft settle, no bounce
-									x: {
-										type: "spring",
-										stiffness: 260,
-										damping: 52,
-										mass: 0.95,
-									},
-									// Tween for opacity — smooth fade (springs can wobble opacity)
-									opacity: {
-										duration: 0.4,
-										ease: [0.22, 1, 0.36, 1],
-									},
-								}}
-								className="col-start-1 row-start-1 w-full min-w-0 will-change-transform"
+										? "bg-amber-900/45 text-amber-100 border border-amber-500/40"
+										: "text-amber-200/60 hover:text-amber-100"
+								}`}
 							>
-								{tab === "vigilantes" ? (
-									<div className={vigilanteGridClass}>
-										{vigilanteSlots.map((slot) => {
-											if (slot.kind === "empty") {
+								Vigilantes
+							</button>
+							<span
+								className="mx-0.5 h-5 w-px shrink-0 bg-amber-200/5 sm:h-6"
+								aria-hidden
+							/>
+							<button
+								id="inventory-tab-resources"
+								type="button"
+								role="tab"
+								aria-selected={tab === "resources"}
+								onClick={() => handleTabChange("resources")}
+								className={`px-3.5 py-2 rounded-lg text-[11px] sm:px-4 sm:py-2.5 sm:text-xs uppercase tracking-[0.16em] cursor-pointer transition-colors ${
+									tab === "resources"
+										? "bg-amber-900/45 text-amber-100 border border-amber-500/40"
+										: "text-amber-200/60 hover:text-amber-100"
+								}`}
+							>
+								Resources
+							</button>
+							<span
+								className="mx-0.5 h-5 w-px shrink-0 bg-amber-200/5 sm:h-6"
+								aria-hidden
+							/>
+							<button
+								id="inventory-tab-buffs"
+								type="button"
+								role="tab"
+								aria-selected={tab === "buffs"}
+								onClick={() => handleTabChange("buffs")}
+								className={`px-3.5 py-2 rounded-lg text-[11px] sm:px-4 sm:py-2.5 sm:text-xs uppercase tracking-[0.16em] cursor-pointer transition-colors ${
+									tab === "buffs"
+										? "bg-amber-900/45 text-amber-100 border border-amber-500/40"
+										: "text-amber-200/60 hover:text-amber-100"
+								}`}
+							>
+								Buffs
+							</button>
+						</div>
+					</div>
+
+					<div className="relative px-3 py-3">
+						{/* Grid stack: exiting + entering panels share one cell so sync mode doesn’t leave a blank gap.
+					    Equal py/px inset so resource/buff qty & vigilante status badges aren’t clipped */}
+						<div className="grid grid-cols-1 overflow-hidden px-1 py-2.5 *:col-start-1 *:row-start-1 *:min-w-0 sm:px-1.5 sm:py-3">
+							<AnimatePresence
+								initial={false}
+								mode="sync"
+								custom={slideDir}
+							>
+								<motion.div
+									// Same key "vigilantes" on every re-entry lets Framer reuse the panel;
+									// opacity/transform can stick wrong so portraits vanish. Mount id only
+									// bumps on tab navigation, not on roster updates (see portrait epoch).
+									key={
+										tab === "vigilantes"
+											? `vigilantes-${vigilantePanelMountId}`
+											: tab
+									}
+									role="tabpanel"
+									aria-labelledby={`inventory-tab-${tab}`}
+									custom={slideDir}
+									variants={tabPanelVariants}
+									initial="enter"
+									animate="center"
+									exit="exit"
+									transition={{
+										// Spring for position — soft settle, no bounce
+										x: {
+											type: "spring",
+											stiffness: 260,
+											damping: 52,
+											mass: 0.95,
+										},
+										// Tween for opacity — smooth fade (springs can wobble opacity)
+										opacity: {
+											duration: 0.4,
+											ease: [0.22, 1, 0.36, 1],
+										},
+									}}
+									className="col-start-1 row-start-1 w-full min-w-0 will-change-transform"
+								>
+									{tab === "vigilantes" ? (
+										<div className={vigilanteGridClass}>
+											{vigilanteSlots.map((slot) => {
+												if (slot.kind === "empty") {
+													return (
+														<div
+															key={`roster-empty-${slot.index}`}
+															className="relative flex min-w-0 items-center justify-center"
+														>
+															<div
+																className={`group relative flex items-center justify-center ${vigilanteTileClass} cursor-default border-dashed border-zinc-600/50 bg-zinc-950/40 opacity-55 grayscale hover:opacity-70`}
+																aria-label="Empty roster slot"
+															>
+																<FaUser
+																	className={`${vigilantePortraitIconClass} text-zinc-500/80`}
+																	aria-hidden
+																/>
+															</div>
+														</div>
+													);
+												}
+												const v = slot.item;
+												const st = vigilanteStatusUi(
+													v.status,
+												);
+												const StatusIcon = st.Icon;
 												return (
 													<div
-														key={`roster-empty-${slot.index}`}
+														key={v.id}
 														className="relative flex min-w-0 items-center justify-center"
 													>
-														<div
-															className={`group relative flex items-center justify-center ${vigilanteTileClass} cursor-default border-dashed border-zinc-600/50 bg-zinc-950/40 opacity-55 grayscale hover:opacity-70`}
-															aria-label="Empty roster slot"
+														<button
+															type="button"
+															className={`group relative m-0 flex items-center justify-center p-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/35 ${vigilanteTileClass} ${VIGILANTE_TILE_NEUTRAL}`}
+															aria-label={`${v.name}, ${st.shortLabel}. Open dossier.`}
+															onMouseEnter={(e) =>
+																showVigilanteTip(
+																	e,
+																	v,
+																)
+															}
+															onMouseLeave={
+																hideInventoryTip
+															}
+															onClick={() => {
+																hideInventoryTip();
+																const full =
+																	vigilanteSheets.find(
+																		(s) =>
+																			s.id ===
+																			v.id,
+																	);
+																if (full)
+																	setDossierSheet(
+																		full,
+																	);
+															}}
 														>
-															<FaUser
-																className={`${vigilantePortraitIconClass} text-zinc-500/80`}
+															<div className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-3xl">
+																<div className="relative flex h-full w-full items-center justify-center">
+																	<VigilantePortrait
+																		key={`${v.id}-${vigilantePortraitEpoch}`}
+																		portraitSrc={
+																			v.portraitSrc
+																		}
+																		tileIconClass={
+																			vigilantePortraitIconClass
+																		}
+																	/>
+																</div>
+															</div>
+
+															<div
+																className={`absolute -right-1 -bottom-1 z-10 flex size-6 shrink-0 items-center justify-center rounded-full border sm:size-7 ${st.badgeClass}`}
 																aria-hidden
-															/>
-														</div>
+																title={
+																	st.shortLabel
+																}
+															>
+																<StatusIcon
+																	className={`h-3 w-3 sm:h-3.5 sm:w-3.5 ${st.iconClass}`}
+																	strokeWidth={
+																		2.75
+																	}
+																/>
+															</div>
+														</button>
 													</div>
 												);
-											}
-											const v = slot.item;
-											const st = vigilanteStatusUi(v.status);
-											const StatusIcon = st.Icon;
-											return (
+											})}
+										</div>
+									) : tab === "resources" ? (
+										<div className={inventoryGridClass}>
+											{resources.map((r) => (
 												<div
-													key={v.id}
-													className="relative flex min-w-0 items-center justify-center"
+													key={r.id}
+													className="relative flex min-w-0 justify-center"
 												>
-													<button
-														type="button"
-														className={`group relative m-0 flex items-center justify-center p-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/35 ${vigilanteTileClass} ${VIGILANTE_TILE_NEUTRAL}`}
-														aria-label={`${v.name}, ${st.shortLabel}. Open dossier.`}
+													<div
+														className="group relative flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-2xl border border-amber-900/45 bg-black/35 text-amber-200/85 transition-colors hover:bg-black/45 sm:h-14 sm:w-14 md:h-16 md:w-16"
+														aria-label={r.name}
 														onMouseEnter={(e) =>
-															showVigilanteTip(e, v)
+															showResourceTip(
+																e,
+																r,
+															)
 														}
 														onMouseLeave={
 															hideInventoryTip
 														}
-														onClick={() => {
-															hideInventoryTip();
-															const full =
-																vigilanteSheets.find(
-																	(s) =>
-																		s.id ===
-																		v.id,
-																);
-															if (full)
-																setDossierSheet(
-																	full,
-																);
-														}}
 													>
-														<div className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-3xl">
-															<div className="relative flex h-full w-full items-center justify-center">
-																<VigilantePortrait
-																	key={`${v.id}-${vigilantePortraitEpoch}`}
-																	portraitSrc={
-																		v.portraitSrc
-																	}
-																	tileIconClass={
-																		vigilantePortraitIconClass
-																	}
-																/>
-															</div>
-														</div>
+														<ResourceGearIcon
+															resourceId={r.id}
+															className={
+																tileIconClass
+															}
+														/>
 
 														<div
-															className={`absolute -right-1 -bottom-1 z-10 flex size-6 shrink-0 items-center justify-center rounded-full border sm:size-7 ${st.badgeClass}`}
+															className={`absolute -top-1 -left-1 flex size-6 shrink-0 items-center justify-center rounded-full border border-amber-900/60 bg-black/80 text-[10px] font-semibold tabular-nums leading-none ${
+																r.qty > 0
+																	? "text-amber-100/90"
+																	: "text-amber-200/45"
+															}`}
 															aria-hidden
-															title={st.shortLabel}
 														>
-															<StatusIcon
-																className={`h-3 w-3 sm:h-3.5 sm:w-3.5 ${st.iconClass}`}
-																strokeWidth={2.75}
-															/>
+															{r.qty}
 														</div>
-													</button>
-												</div>
-											);
-										})}
-									</div>
-								) : tab === "resources" ? (
-									<div className={inventoryGridClass}>
-										{resources.map((r) => (
-											<div
-												key={r.id}
-												className="relative flex min-w-0 justify-center"
-											>
-												<div
-													className="group relative flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-2xl border border-amber-900/45 bg-black/35 text-amber-200/85 transition-colors hover:bg-black/45 sm:h-14 sm:w-14 md:h-16 md:w-16"
-													aria-label={r.name}
-													onMouseEnter={(e) =>
-														showResourceTip(e, r)
-													}
-													onMouseLeave={hideInventoryTip}
-												>
-													<ResourceGearIcon
-														resourceId={r.id}
-														className={tileIconClass}
-													/>
-
-													<div
-														className={`absolute -top-1 -left-1 flex size-6 shrink-0 items-center justify-center rounded-full border border-amber-900/60 bg-black/80 text-[10px] font-semibold tabular-nums leading-none ${
-															r.qty > 0
-																? "text-amber-100/90"
-																: "text-amber-200/45"
-														}`}
-														aria-hidden
-													>
-														{r.qty}
 													</div>
 												</div>
-											</div>
-										))}
-									</div>
-								) : (
-									<div className={inventoryGridClass}>
-										{buffs.map((b) => (
-											<div
-												key={b.id}
-												className="relative flex min-w-0 justify-center"
-											>
+											))}
+										</div>
+									) : (
+										<div className={inventoryGridClass}>
+											{buffs.map((b) => (
 												<div
-													className="group relative flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-2xl border border-amber-900/45 bg-black/35 text-amber-200/85 transition-colors hover:bg-black/45 sm:h-14 sm:w-14 md:h-16 md:w-16"
-													aria-label={b.name}
-													onMouseEnter={(e) =>
-														showBuffTip(e, b)
-													}
-													onMouseLeave={hideInventoryTip}
+													key={b.id}
+													className="relative flex min-w-0 justify-center"
 												>
-													{buffIcon(b.id)}
-
 													<div
-														className={`absolute -top-1 -left-1 flex size-6 shrink-0 items-center justify-center rounded-full border border-amber-900/60 bg-black/80 text-[10px] font-semibold tabular-nums leading-none ${
-															b.qty > 0
-																? "text-amber-100/90"
-																: "text-amber-200/45"
-														}`}
-														aria-hidden
+														className="group relative flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-2xl border border-amber-900/45 bg-black/35 text-amber-200/85 transition-colors hover:bg-black/45 sm:h-14 sm:w-14 md:h-16 md:w-16"
+														aria-label={b.name}
+														onMouseEnter={(e) =>
+															showBuffTip(e, b)
+														}
+														onMouseLeave={
+															hideInventoryTip
+														}
 													>
-														{b.qty}
+														{buffIcon(b.id)}
+
+														<div
+															className={`absolute -top-1 -left-1 flex size-6 shrink-0 items-center justify-center rounded-full border border-amber-900/60 bg-black/80 text-[10px] font-semibold tabular-nums leading-none ${
+																b.qty > 0
+																	? "text-amber-100/90"
+																	: "text-amber-200/45"
+															}`}
+															aria-hidden
+														>
+															{b.qty}
+														</div>
 													</div>
 												</div>
-											</div>
-										))}
-									</div>
-								)}
-							</motion.div>
-						</AnimatePresence>
+											))}
+										</div>
+									)}
+								</motion.div>
+							</AnimatePresence>
+						</div>
 					</div>
 				</div>
-			</div>
 
-			{typeof document !== "undefined" &&
-				hoverTip &&
-				createPortal(
-					<div
-						role="tooltip"
-						className="pointer-events-none fixed z-99999 max-w-[min(320px,calc(100vw-2rem))] min-w-0 rounded-xl border border-amber-900/45 bg-black/80 px-3 py-2 shadow-xl shadow-black/60 backdrop-blur-md"
-						style={{
-							left: tipPos.left,
-							top: tipPos.top,
-							transform: "translate(-50%, -100%)",
-						}}
-					>
-						{hoverTip.kind === "v" && (() => {
-							const item = hoverTip.item;
-							const showRecovery =
-								item.status === "injured" &&
-								item.injuredUntilMs != null &&
-								nowTick < item.injuredUntilMs;
-							return (
-								<div className="flex min-w-0 max-w-[min(260px,calc(100vw-2rem))] flex-col gap-0.5">
-									<span className="min-w-0 truncate font-semibold text-amber-100/95 text-xs sm:text-[13px] leading-snug">
-										{item.name}
-										<span className="sr-only">
-											{`, ${vigilanteStatusUi(item.status).shortLabel}`}
-										</span>
-									</span>
-									{showRecovery ? (
-										<div className="text-[10px] tabular-nums text-amber-200/60">
-											{recoveryCountdownShort(
-												item.injuredUntilMs!,
-												nowTick,
-											)}
+				{typeof document !== "undefined" &&
+					hoverTip &&
+					createPortal(
+						<div
+							role="tooltip"
+							className="pointer-events-none fixed z-99999 max-w-[min(320px,calc(100vw-2rem))] min-w-0 rounded-xl border border-amber-900/45 bg-black/80 px-3 py-2 shadow-xl shadow-black/60 backdrop-blur-md"
+							style={{
+								left: tipPos.left,
+								top: tipPos.top,
+								transform: "translate(-50%, -100%)",
+							}}
+						>
+							{hoverTip.kind === "v" &&
+								(() => {
+									const item = hoverTip.item;
+									const showRecovery =
+										item.status === "injured" &&
+										item.injuredUntilMs != null &&
+										nowTick < item.injuredUntilMs;
+									return (
+										<div className="flex min-w-0 max-w-[min(260px,calc(100vw-2rem))] flex-col gap-0.5">
+											<span className="min-w-0 truncate font-semibold text-amber-100/95 text-xs sm:text-[13px] leading-snug">
+												{item.name}
+												<span className="sr-only">
+													{`, ${vigilanteStatusUi(item.status).shortLabel}`}
+												</span>
+											</span>
+											{showRecovery ? (
+												<div className="text-[10px] tabular-nums text-amber-200/60">
+													{recoveryCountdownShort(
+														item.injuredUntilMs!,
+														nowTick,
+													)}
+												</div>
+											) : null}
 										</div>
-									) : null}
+									);
+								})()}
+							{hoverTip.kind === "r" && (
+								<div className="min-w-0 text-[11px] leading-tight">
+									<div className="font-semibold text-amber-100/95">
+										{hoverTip.item.name}
+									</div>
+									<p className="mt-1 min-w-0 truncate text-[11px] text-amber-200/70">
+										{hoverTip.item.summary}
+									</p>
 								</div>
-							);
-						})()}
-						{hoverTip.kind === "r" && (
-							<div className="min-w-0 text-[11px] leading-tight">
-								<div className="font-semibold text-amber-100/95">
-									{hoverTip.item.name}
+							)}
+							{hoverTip.kind === "b" && (
+								<div className="min-w-0 text-[11px] leading-tight">
+									<div className="font-semibold text-amber-100/95">
+										{hoverTip.item.name}
+									</div>
+									<p className="mt-1 min-w-0 truncate text-[11px] text-amber-200/70">
+										{hoverTip.item.summary}
+									</p>
 								</div>
-								<p className="mt-1 min-w-0 truncate text-[11px] text-amber-200/70">
-									{hoverTip.item.summary}
-								</p>
-							</div>
-						)}
-						{hoverTip.kind === "b" && (
-							<div className="min-w-0 text-[11px] leading-tight">
-								<div className="font-semibold text-amber-100/95">
-									{hoverTip.item.name}
-								</div>
-								<p className="mt-1 min-w-0 truncate text-[11px] text-amber-200/70">
-									{hoverTip.item.summary}
-								</p>
-							</div>
-						)}
-					</div>,
-					document.body,
-				)}
-		</div>
-		{dossierSheet ? (
-			<InventoryVigilanteDossierPane
-				sheet={dossierSheet}
-				onClose={() => setDossierSheet(null)}
-			/>
-		) : null}
+							)}
+						</div>,
+						document.body,
+					)}
+			</div>
+			{dossierSheet ? (
+				<InventoryVigilanteDossierPane
+					sheet={dossierSheet}
+					onClose={() => setDossierSheet(null)}
+				/>
+			) : null}
 		</>
 	);
 }

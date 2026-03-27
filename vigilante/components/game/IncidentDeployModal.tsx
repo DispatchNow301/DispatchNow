@@ -16,10 +16,7 @@ import { BASE_RESOURCES } from "@/components/game/Inventory";
 import { ResourceGearIcon } from "@/components/game/ResourceGearIcon";
 import { IncidentTimerBar } from "@/components/game/IncidentTimerBar";
 import type { IncidentArchetype } from "@/lib/incidentTemplates";
-import {
-	canStageDeployment,
-	type ResourcePoolEntry,
-} from "@/lib/resourcePool";
+import { canStageDeployment, type ResourcePoolEntry } from "@/lib/resourcePool";
 import { isVigilanteRecovering } from "@/lib/vigilanteInjury";
 
 const EMPTY_INJURY: Record<string, number> = {};
@@ -122,19 +119,10 @@ export default function IncidentDeployModal({
 	const [vigSet, setVigSet] = useState<Set<string>>(new Set());
 	const [resCounts, setResCounts] = useState<Record<string, number>>({});
 
-	/** Only depends on roster + injury map — NOT on `now` — so we don't re-run every second and wipe crew/gear. */
 	const reset = useCallback(() => {
-		const sorted = [...new Set(ownedVigilanteIds)].sort((a, b) =>
-			a.localeCompare(b),
-		);
-		const t = Date.now();
-		const first = sorted.find(
-			(id) => !isVigilanteRecovering(t, injury, id),
-		);
-		if (first) setVigSet(new Set([first]));
-		else setVigSet(new Set());
+		setVigSet(new Set());
 		setResCounts({});
-	}, [ownedVigilanteIds, injury]);
+	}, []);
 
 	useEffect(() => {
 		if (open && incident) reset();
@@ -166,17 +154,13 @@ export default function IncidentDeployModal({
 		if (recovering(id)) return;
 		setVigSet((prev) => {
 			const next = new Set(prev);
-			if (next.has(id)) {
-				if (next.size <= 1) return prev;
-				next.delete(id);
-			} else {
-				next.add(id);
-			}
+			if (next.has(id)) next.delete(id);
+			else next.add(id);
 			return next;
 		});
 	};
 
-	/** Drop injured crew and ensure ≥1 deployable; only update React state when the set actually changes (avoids fighting user clicks every tick). */
+	/** Drop injured crew every tick to keep selection valid. */
 	useEffect(() => {
 		if (!open || !incident) return;
 		setVigSet((prev) => {
@@ -185,15 +169,6 @@ export default function IncidentDeployModal({
 					(id) => !isVigilanteRecovering(now, injury, id),
 				),
 			);
-			if (next.size === 0) {
-				const sorted = [...new Set(ownedVigilanteIds)].sort((a, b) =>
-					a.localeCompare(b),
-				);
-				const first = sorted.find(
-					(id) => !isVigilanteRecovering(now, injury, id),
-				);
-				if (first) next.add(first);
-			}
 			if (
 				prev.size === next.size &&
 				[...prev].every((id) => next.has(id))
@@ -202,7 +177,7 @@ export default function IncidentDeployModal({
 			}
 			return next;
 		});
-	}, [open, incident?.id, now, ownedVigilanteIds, injury]);
+	}, [open, incident?.id, now, injury]);
 
 	const bumpRes = (resourceId: string, delta: 1 | -1) => {
 		setResCounts((prev) => {
@@ -219,9 +194,7 @@ export default function IncidentDeployModal({
 		});
 	};
 
-	/** Larger glyphs; tile size stays the same (grid `aspect-square`). */
-	const gearIconClass =
-		"h-9 w-9 text-amber-200/90 sm:h-10 sm:w-10";
+	const gearIconClass = "h-9 w-9 text-amber-200/90 sm:h-10 sm:w-10";
 
 	const handleGearContextMenu = (
 		e: MouseEvent,
@@ -279,7 +252,7 @@ export default function IncidentDeployModal({
 						animate={{ opacity: 1, y: 0, scale: 1 }}
 						exit={{ opacity: 0, y: 8, scale: 0.99 }}
 						transition={{ duration: 0.2, ease: "easeOut" }}
-						className="relative z-10 w-full max-w-lg overflow-hidden rounded-2xl border border-amber-900/45 bg-[#0a0908]/95 text-amber-100 shadow-[0_24px_80px_rgba(0,0,0,0.65)]"
+						className="relative z-10 w-full max-w-lg rounded-2xl border border-amber-900/45 bg-[#0a0908]/95 text-amber-100 shadow-[0_24px_80px_rgba(0,0,0,0.65)] [&>*:first-child]:rounded-t-2xl [&>*:last-child]:rounded-b-2xl"
 						onClick={(e) => e.stopPropagation()}
 					>
 						<div className="flex items-start justify-between gap-3 border-b border-amber-900/35 px-5 py-4">
@@ -336,7 +309,9 @@ export default function IncidentDeployModal({
 													aria-pressed={on}
 													aria-disabled={inj}
 													disabled={inj}
-													onClick={() => toggleVig(v.id)}
+													onClick={() =>
+														toggleVig(v.id)
+													}
 													className={[
 														"relative flex h-[4.75rem] w-[4.75rem] shrink-0 overflow-hidden rounded-2xl border transition select-none sm:h-[5.25rem] sm:w-[5.25rem]",
 														inj
@@ -349,7 +324,9 @@ export default function IncidentDeployModal({
 																].join(" "),
 													].join(" ")}
 												>
-													<CrewPortraitThumb portrait={v.portrait} />
+													<CrewPortraitThumb
+														portrait={v.portrait}
+													/>
 													{inj ? (
 														<span className="pointer-events-none absolute inset-x-0 bottom-0 bg-rose-950/80 py-0.5 text-center text-[9px] font-medium uppercase tracking-wide text-rose-200/90">
 															Injured
@@ -367,15 +344,19 @@ export default function IncidentDeployModal({
 									Gear
 								</h3>
 								<p className="sr-only">
-									Staging count is top left, available at base is top right.
-									Click to add one up to available; Shift+click or right‑click to
+									Staging count is top left, available at base
+									is top right. Click to add one up to
+									available; Shift+click or right‑click to
 									remove one.
 								</p>
 								<div className="mt-3 grid grid-cols-5 gap-2">
 									{BASE_RESOURCES.map((r) => {
 										const pool = resourcePool[r.id];
 										const avail = pool
-											? Math.max(0, pool.qty - pool.deployed)
+											? Math.max(
+													0,
+													pool.qty - pool.deployed,
+												)
 											: 0;
 										const n = resCounts[r.id] ?? 0;
 										const empty = avail <= 0;
@@ -437,22 +418,27 @@ export default function IncidentDeployModal({
 							</section>
 						</div>
 
-						<div className="flex items-center justify-end gap-2 border-t border-amber-900/35 bg-black/30 px-5 py-4">
-							<button
-								type="button"
-								onClick={onClose}
-								className="cursor-pointer rounded-lg border border-amber-900/45 px-4 py-2 text-sm text-amber-200/75 transition hover:border-amber-700/50 hover:text-amber-50"
-							>
-								Cancel
-							</button>
-							<button
-								type="button"
-								disabled={!canSend}
-								onClick={handleConfirm}
-								className="cursor-pointer rounded-lg border border-amber-600/55 bg-amber-950/40 px-5 py-2 text-sm font-medium text-amber-50 transition hover:bg-amber-900/35 disabled:cursor-not-allowed disabled:opacity-35"
-							>
-								Deploy
-							</button>
+						<div className="flex items-center justify-between border-t border-amber-900/35 bg-black/30 px-5 py-4">
+							<p className="text-xs text-amber-200/30">
+								At least one vigilante must be deployed
+							</p>
+							<div className="flex items-center gap-2">
+								<button
+									type="button"
+									onClick={onClose}
+									className="cursor-pointer rounded-lg border border-amber-900/45 px-4 py-2 text-sm text-amber-200/75 transition hover:border-amber-700/50 hover:text-amber-50"
+								>
+									Cancel
+								</button>
+								<button
+									type="button"
+									disabled={!canSend}
+									onClick={handleConfirm}
+									className="cursor-pointer rounded-lg border border-amber-600/55 bg-amber-950/40 px-5 py-2 text-sm font-medium text-amber-50 transition hover:bg-amber-900/35 disabled:cursor-not-allowed disabled:opacity-35"
+								>
+									Deploy
+								</button>
+							</div>
 						</div>
 					</motion.div>
 				</motion.div>
