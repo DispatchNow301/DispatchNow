@@ -54,6 +54,7 @@ export type PoliceUnit = {
 	nextLoopPath: LatLngTuple[] | null;
 	holdUntilTs: number | null;
 	cooldownUntilTs: number | null;
+	responseOverrideMps: number | null;
 };
 
 export type PoliceRenderItem = {

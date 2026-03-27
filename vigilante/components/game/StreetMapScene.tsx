@@ -3833,8 +3833,7 @@ export default function StreetMapScene({
 					router.push("/");
 				}}
 				onContinue={() => {
-					// TODO: Navigate to black market once ready
-					console.log("Continue to black market");
+					router.push("/black_market_test?scope=local&slot=1");
 				}}
 				onClose={() => setGameOverOpen(false)}
 				continueLabel="To Black Market"

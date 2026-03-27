@@ -7,18 +7,40 @@ export type ResourcePoolEntry = {
 	deployed: number;
 };
 
-/** r1–r10 + buffs b1–b3 (buffs deploy only if you wire them later) */
+/**
+ * Starting quantities for each resource (r1–r10).
+ * Edit these values to change how many of each item the player starts with.
+ */
+export const RESOURCE_STARTING_QUANTITIES: Record<string, number> = {
+	r1: 3,
+	r2: 2,
+	r3: 2,
+	r4: 2,
+	r5: 0,
+	r6: 1,
+	r7: 0,
+	r8: 1,
+	r9: 1,
+	r10: 0,
+};
+
+/**
+ * Upgrades (buffs) the player owns from the start, before visiting the black market.
+ * Add buff IDs here (e.g. "b1", "b2", "b3") to pre-unlock them.
+ * These show as already-owned (greyed out) in the black market.
+ */
+export const STARTING_UPGRADE_IDS: string[] = [
+	// "b1"
+];
+
+/** r1–r10 + buffs b1–b3 built from RESOURCE_STARTING_QUANTITIES */
 export const DEFAULT_RESOURCE_POOL: Record<string, ResourcePoolEntry> = {
-	r1: { qty: 2, deployed: 0 },
-	r2: { qty: 1, deployed: 0 },
-	r3: { qty: 1, deployed: 0 },
-	r4: { qty: 3, deployed: 0 },
-	r5: { qty: 1, deployed: 0 },
-	r6: { qty: 2, deployed: 0 },
-	r7: { qty: 1, deployed: 0 },
-	r8: { qty: 1, deployed: 0 },
-	r9: { qty: 1, deployed: 0 },
-	r10: { qty: 1, deployed: 0 },
+	...Object.fromEntries(
+		Object.entries(RESOURCE_STARTING_QUANTITIES).map(([id, qty]) => [
+			id,
+			{ qty, deployed: 0 },
+		]),
+	),
 	b1: { qty: 1, deployed: 0 },
 	b2: { qty: 1, deployed: 0 },
 	b3: { qty: 1, deployed: 0 },

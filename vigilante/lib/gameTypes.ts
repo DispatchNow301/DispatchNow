@@ -78,3 +78,83 @@ export function dbMarkerToGameMarker(row: MultiplayerMarkerRow): MultiplayerMark
 		status: row.status,
 	};
 }
+
+/**
+ * Achievement tracking state stored in GameState
+ */
+export type UnlockedAchievement = {
+	achievementId: string;
+	unlockedAt: number;
+};
+
+export type AchievementProgress = {
+	/** Total credits earned (cumulative) */
+	totalCreditsEarned: number;
+	/** Highest single dispatch credit payout */
+	highestSinglePayout: number;
+	/** Current dispatch streak (consecutive successes without failure) */
+	currentStreak: number;
+	/** Best dispatch streak ever */
+	bestStreak: number;
+	/** Timestamps of recent incident resolutions for quick response tracking */
+	recentResolutions: number[];
+	/** Number of dispatches started (for tracking quick response) */
+	dispatchesStarted: number;
+	/** Track incident types resolved */
+	incidentsByArchetype: Record<string, number>;
+	/** Resources currently owned (highest counts) */
+	maxResourceInventory: Record<string, number>;
+	/** Vigilantes ever owned */
+	uniqueVigilantesOwned: Set<string>;
+	/** Vigilante injuries count */
+	vigilanteInjuries: number;
+	/** Total playtime in milliseconds */
+	totalPlaytimeMs: number;
+	/** Session start time for tracking playtime */
+	sessionStartTime: number | null;
+};
+
+export const DEFAULT_ACHIEVEMENT_PROGRESS: AchievementProgress = {
+	totalCreditsEarned: 0,
+	highestSinglePayout: 0,
+	currentStreak: 0,
+	bestStreak: 0,
+	recentResolutions: [],
+	dispatchesStarted: 0,
+	incidentsByArchetype: {},
+	maxResourceInventory: {},
+	uniqueVigilantesOwned: new Set(),
+	vigilanteInjuries: 0,
+	totalPlaytimeMs: 0,
+	sessionStartTime: null,
+};
+
+// Complete GameState type (used across the application)
+export type CareerStats = {
+	dispatchesCompleted: number;
+	incidentsResolvedSuccess: number;
+	incidentsResolvedFailure: number;
+	incidentsExpired: number;
+	vigilantesRecruited: number;
+};
+
+export type GameState = {
+	level: number;
+	selectedIncidentId: string | null;
+	incidents: any[];
+	showIncidentPanel: boolean;
+	showMinigamePanel: boolean;
+	showPolicePanel: boolean;
+	showInventoryPanel: boolean;
+	inventoryTab: "vigilantes" | "resources" | "buffs";
+	ownedVigilanteIds: string[];
+	recruitLeads: any[];
+	resourcePool: Record<string, any>;
+	credits: number;
+	purchasedUpgradeIds: string[];
+	vigilanteInjuryUntil: Record<string, number>;
+	careerStats: CareerStats;
+	purchasedBuffIds: string[];
+	unlockedAchievementIds: UnlockedAchievement[];
+	achievementProgress: AchievementProgress;
+};
