@@ -44,6 +44,8 @@ import {
 import { mergePurchasedBuffIds } from "@/lib/purchasedBuffs";
 import { markCloudFlush, upsertGameSave } from "@/lib/cloudSaves";
 import { readSave, touchSave, type SaveSlotId } from "@/lib/saves";
+import { DEFAULT_ACHIEVEMENT_PROGRESS } from "@/lib/achievements";
+import type { UnlockedAchievement } from "@/lib/gameTypes";
 import {
 	computeIncidentRollOutcome,
 	type DispatchRollBreakdown,
@@ -56,7 +58,10 @@ import {
 	subscribeToSessionMarkers,
 	getSessionById,
 } from "../../lib/multiplayer";
-import type { AssignedResource } from "../../lib/gameTypes";
+import type {
+	AssignedResource,
+	AchievementProgress,
+} from "../../lib/gameTypes";
 import { getSupabaseBrowserClient } from "../../lib/supabaseClient";
 
 import {
@@ -66,6 +71,8 @@ import {
 	type IncidentTemplate,
 } from "@/lib/incidentTemplates";
 import { formatIncidentTypeLabel } from "@/lib/formatIncidentTitle";
+import { useAchievements } from "./useAchievements";
+import { AchievementNotification } from "./AchievementNotification";
 
 // ── Inline helpers (not exported by incidentTemplates) ───────────────────────
 function archetypeSuccessBase(archetype: IncidentArchetype): number {
@@ -231,6 +238,9 @@ type GameState = {
 	vigilanteInjuryUntil: Record<string, number>;
 	careerStats: CareerStats;
 	purchasedBuffIds: string[];
+	/** Achievement tracking */
+	unlockedAchievementIds: UnlockedAchievement[];
+	achievementProgress: AchievementProgress;
 };
 
 const CENTER: LatLngTuple = [40.7128, -74.006];
@@ -1046,7 +1056,8 @@ function RecruitMarkers({
 	);
 }
 
-function TheftSiteMarkers({ //working as intended on master branch Thursday March 26 3:00AM EDT
+function TheftSiteMarkers({
+	//working as intended on master branch Thursday March 26 3:00AM EDT
 	sites,
 	onSelect,
 }: {
@@ -1390,6 +1401,12 @@ function initialState(): GameState {
 		vigilanteInjuryUntil: {},
 		careerStats: { ...DEFAULT_CAREER_STATS },
 		purchasedBuffIds: mergePurchasedBuffIds(undefined),
+		unlockedAchievementIds: [],
+		achievementProgress: {
+			...DEFAULT_ACHIEVEMENT_PROGRESS,
+			uniqueVigilantesOwned: new Set(["bruce", "parya"]),
+			sessionStartTime: Date.now(),
+		},
 	};
 }
 
@@ -1407,9 +1424,7 @@ function loadState(saveKey: string): GameState {
 				? p.showMinigamePanel
 				: false;
 		const rawShowPolicePanel =
-			typeof p.showPolicePanel === "boolean"
-				? p.showPolicePanel
-				: false;
+			typeof p.showPolicePanel === "boolean" ? p.showPolicePanel : false;
 
 		const activeLeftTab = rawShowMinigamePanel
 			? "minigame"
@@ -1423,12 +1438,71 @@ function loadState(saveKey: string): GameState {
 			typeof p.selectedIncidentId === "string"
 				? p.selectedIncidentId
 				: null;
+
+		// Load achievement progress
+		let achievementProgress: AchievementProgress = {
+			...DEFAULT_ACHIEVEMENT_PROGRESS,
+		};
+		if (p.achievementProgress) {
+			const ap = p.achievementProgress;
+			achievementProgress = {
+				totalCreditsEarned:
+					typeof ap.totalCreditsEarned === "number"
+						? Math.max(0, ap.totalCreditsEarned)
+						: 0,
+				highestSinglePayout:
+					typeof ap.highestSinglePayout === "number"
+						? Math.max(0, ap.highestSinglePayout)
+						: 0,
+				currentStreak:
+					typeof ap.currentStreak === "number"
+						? Math.max(0, ap.currentStreak)
+						: 0,
+				bestStreak:
+					typeof ap.bestStreak === "number"
+						? Math.max(0, ap.bestStreak)
+						: 0,
+				recentResolutions: Array.isArray(ap.recentResolutions)
+					? ap.recentResolutions
+					: [],
+				dispatchesStarted:
+					typeof ap.dispatchesStarted === "number"
+						? Math.max(0, ap.dispatchesStarted)
+						: 0,
+				incidentsByArchetype:
+					typeof ap.incidentsByArchetype === "object"
+						? ap.incidentsByArchetype
+						: {},
+				maxResourceInventory:
+					typeof ap.maxResourceInventory === "object"
+						? ap.maxResourceInventory
+						: {},
+				uniqueVigilantesOwned:
+					p.ownedVigilanteIds && Array.isArray(p.ownedVigilanteIds)
+						? new Set(p.ownedVigilanteIds as string[])
+						: new Set(["bruce", "parya"]),
+				vigilanteInjuries:
+					typeof ap.vigilanteInjuries === "number"
+						? Math.max(0, ap.vigilanteInjuries)
+						: 0,
+				totalPlaytimeMs:
+					typeof ap.totalPlaytimeMs === "number"
+						? Math.max(0, ap.totalPlaytimeMs)
+						: 0,
+				sessionStartTime:
+					typeof ap.sessionStartTime === "number"
+						? ap.sessionStartTime
+						: Date.now(),
+			};
+		}
+
 		return {
 			level:
 				typeof p.level === "number" && p.level >= 1 && p.level <= 3
 					? p.level
 					: 1,
-			selectedIncidentId: activeLeftTab === "incident" ? selectedFromSave : null,
+			selectedIncidentId:
+				activeLeftTab === "incident" ? selectedFromSave : null,
 			incidents: Array.isArray(p.incidents)
 				? p.incidents
 						.map(parseStoredIncident)
@@ -1437,16 +1511,19 @@ function loadState(saveKey: string): GameState {
 			showIncidentPanel: activeLeftTab === "incident",
 			showMinigamePanel: activeLeftTab === "minigame",
 			showPolicePanel: activeLeftTab === "police",
-		showInventoryPanel:
-			typeof p.showInventoryPanel === "boolean"
-				? p.showInventoryPanel
-				: true,
-		inventoryTab: p.inventoryTab === "vigilantes" || p.inventoryTab === "resources" || p.inventoryTab === "buffs"
-			? p.inventoryTab
-			: "vigilantes",
-		ownedVigilanteIds: Array.isArray(p.ownedVigilanteIds)
-			? (p.ownedVigilanteIds as string[])
-			: ["bruce", "parya"],
+			showInventoryPanel:
+				typeof p.showInventoryPanel === "boolean"
+					? p.showInventoryPanel
+					: true,
+			inventoryTab:
+				p.inventoryTab === "vigilantes" ||
+				p.inventoryTab === "resources" ||
+				p.inventoryTab === "buffs"
+					? p.inventoryTab
+					: "vigilantes",
+			ownedVigilanteIds: Array.isArray(p.ownedVigilanteIds)
+				? (p.ownedVigilanteIds as string[])
+				: ["bruce", "parya"],
 			recruitLeads: Array.isArray(p.recruitLeads)
 				? (p.recruitLeads as RecruitLead[])
 				: [],
@@ -1464,6 +1541,14 @@ function loadState(saveKey: string): GameState {
 				? (p.purchasedUpgradeIds as string[])
 				: [],
 			purchasedBuffIds: mergePurchasedBuffIds(p.purchasedBuffIds),
+			unlockedAchievementIds: Array.isArray(p.unlockedAchievementIds)
+				? (p.unlockedAchievementIds as string[] | UnlockedAchievement[]).map((a) =>
+						typeof a === "string"
+							? { achievementId: a, unlockedAt: Date.now() }
+							: a
+				  )
+				: [],
+			achievementProgress,
 		};
 	} catch {
 		return initialState();
@@ -1503,6 +1588,9 @@ export default function StreetMapScene({
 
 	const [inventorySorterMode, setInventorySorterMode] =
 		useState<InventorySorterMode>(null);
+
+	// Achievement tracking
+	const achievements = useAchievements(state, setState);
 
 	const isGameplayPausedByMinigame = inventorySorterMode !== null;
 	const pauseStartedAtRef = useRef<number | null>(null);
@@ -1573,8 +1661,12 @@ export default function StreetMapScene({
 		setState((s) => ({
 			...s,
 			selectedIncidentId:
-				s.selectedIncidentId === incidentId ? null : s.selectedIncidentId,
-			incidents: s.incidents.filter((incident) => incident.id !== incidentId),
+				s.selectedIncidentId === incidentId
+					? null
+					: s.selectedIncidentId,
+			incidents: s.incidents.filter(
+				(incident) => incident.id !== incidentId,
+			),
 		}));
 	}, []);
 
@@ -1892,10 +1984,10 @@ export default function StreetMapScene({
 					incident.status === "resolved"
 						? incident
 						: {
-							...incident,
-							createdAt: incident.createdAt + pausedMs,
-							expiresAt: incident.expiresAt + pausedMs,
-						},
+								...incident,
+								createdAt: incident.createdAt + pausedMs,
+								expiresAt: incident.expiresAt + pausedMs,
+							},
 				),
 				recruitLeads: s.recruitLeads.map((lead) => ({
 					...lead,
@@ -2192,7 +2284,7 @@ export default function StreetMapScene({
 			setState((s) => ({
 				...s,
 				credits: Math.max(0, s.credits + Math.max(0, reward.credits)),
-			incidents: [theftIncident, ...s.incidents],
+				incidents: [theftIncident, ...s.incidents],
 				selectedIncidentId: theftIncident.id,
 				showIncidentPanel: true,
 			}));
@@ -2206,6 +2298,10 @@ export default function StreetMapScene({
 			(r) => r.id === selectedRecruitLeadId,
 		);
 		if (!lead) return;
+		const isNewRecruit = !state.ownedVigilanteIds.includes(
+			lead.vigilanteId,
+		);
+
 		setState((s) => {
 			const alreadyOwned = s.ownedVigilanteIds.includes(lead.vigilanteId);
 			return {
@@ -2223,6 +2319,12 @@ export default function StreetMapScene({
 						},
 			};
 		});
+
+		// Track achievement progress
+		if (isNewRecruit) {
+			achievements.trackVigilanteRecruitment(lead.vigilanteId);
+		}
+
 		setSelectedRecruitLeadId(null);
 		setShowVettingModal(false);
 	};
@@ -2257,6 +2359,15 @@ export default function StreetMapScene({
 		}
 		if (!canStageDeployment(state.resourcePool, payload.resourceIds))
 			return;
+
+		// Track quick response: time from spawn to deployment (incident expires at timestamp)
+		const deploymentTimeMs = inc.expiresAt
+			? inc.expiresAt - Date.now() - 30000
+			: 0;
+		if (deploymentTimeMs > 0) {
+			// achievements.trackDeployment(deploymentTimeMs);
+			// Disabled - need better tracking of spawn-to-deploy timing
+		}
 
 		const assignedVigs = vigilantes.filter((v) =>
 			payload.vigilanteIds.includes(v.id),
@@ -2337,55 +2448,70 @@ export default function StreetMapScene({
 						pool = forfeitDeployment(pool, deployed);
 					}
 				}
-				const missionCredits = rollOutcome.success ? 80 : 20;
-				return {
-					...s,
-					resourcePool: pool,
-					credits: Math.max(0, s.credits + missionCredits),
-					careerStats: {
-						...s.careerStats,
-						dispatchesCompleted: s.careerStats.dispatchesCompleted + 1,
-						incidentsResolvedSuccess:
-							s.careerStats.incidentsResolvedSuccess +
-							(rollOutcome.success ? 1 : 0),
-						incidentsResolvedFailure:
-							s.careerStats.incidentsResolvedFailure +
-							(rollOutcome.success ? 0 : 1),
-					},
-					incidents: s.incidents.map((x) =>
-						x.id === id
-							? {
-								...x,
-								status: "resolved" as const,
-								deployedResourceIds: [],
-								resolution: {
-									success: rollOutcome.success,
-									adjustedPercent: rollOutcome.adjustedPercent,
-									beforeLuckPercent:
+		const missionCredits = rollOutcome.success ? 80 : 20;
+
+		// Get achievement progress updates
+		const achievementUpdates = achievements.trackIncidentResolution(
+			inc.category,
+			rollOutcome.success,
+			missionCredits,
+		);
+
+		return {
+			...s,
+			resourcePool: pool,
+			credits: Math.max(0, s.credits + missionCredits),
+			careerStats: {
+				...s.careerStats,
+				dispatchesCompleted:
+					s.careerStats.dispatchesCompleted + 1,
+				incidentsResolvedSuccess:
+					s.careerStats.incidentsResolvedSuccess +
+					(rollOutcome.success ? 1 : 0),
+				incidentsResolvedFailure:
+					s.careerStats.incidentsResolvedFailure +
+					(rollOutcome.success ? 0 : 1),
+			},
+			achievementProgress: {
+				...s.achievementProgress,
+				...achievementUpdates,
+			},
+			incidents: s.incidents.map((x) =>
+				x.id === id
+					? {
+							...x,
+							status: "resolved" as const,
+							deployedResourceIds: [],
+							resolution: {
+								success: rollOutcome.success,
+								adjustedPercent:
+									rollOutcome.adjustedPercent,
+								beforeLuckPercent:
 									rollOutcome.beforeLuckPercent,
-									rolled: rollOutcome.rolled,
-									baseChancePercent:
+								rolled: rollOutcome.rolled,
+								baseChancePercent:
 									rollOutcome.baseChancePercent,
-									resourceMultiplier:
+								resourceMultiplier:
 									rollOutcome.resourceMultiplier,
-									buffMultiplier:
+								buffMultiplier:
 									rollOutcome.buffMultiplier,
-									vigilanteMultiplier:
+								vigilanteMultiplier:
 									rollOutcome.vigilanteMultiplier,
-									avgArchetypeFit:
+								avgArchetypeFit:
 									rollOutcome.avgArchetypeFit,
-									staffingSupportMultiplier:
+								staffingSupportMultiplier:
 									rollOutcome.staffingSupportMultiplier,
-									gearPresenceMultiplier:
+								gearPresenceMultiplier:
 									rollOutcome.gearPresenceMultiplier,
-									luckDeltaPercent:
+								luckDeltaPercent:
 									rollOutcome.luckDeltaPercent,
-								},
-							}
-							: x,
-					),
-				};
+							},
+						}
+					: x,
+			),
+		};
 			});
+
 			setChanceRollOverlay((prev) =>
 				prev && prev.incidentId === id
 					? { ...prev, phase: "outcome" }
@@ -2490,8 +2616,15 @@ export default function StreetMapScene({
 						return s;
 					}
 
+					// Track incident spawn for quick response achievement
+					const spawnUpdates = achievements.trackIncidentSpawn();
+
 					return {
 						...s,
+						achievementProgress: {
+							...s.achievementProgress,
+							...spawnUpdates,
+						},
 						incidents: [...s.incidents, newIncident],
 					};
 				});
@@ -2551,12 +2684,14 @@ export default function StreetMapScene({
 						(v) => !v.isUndercover,
 					);
 
-					const undercoverAlreadyOnMap = s.recruitLeads.some((lead) => {
-						const match = vigilantes.find(
-							(v) => v.id === lead.vigilanteId,
-						);
-						return match?.isUndercover;
-					});
+					const undercoverAlreadyOnMap = s.recruitLeads.some(
+						(lead) => {
+							const match = vigilantes.find(
+								(v) => v.id === lead.vigilanteId,
+							);
+							return match?.isUndercover;
+						},
+					);
 
 					let chosen;
 					if (
@@ -2732,11 +2867,7 @@ export default function StreetMapScene({
 		});
 
 		return [...incidentCitizenPins, ...policePins, ...ownedPins];
-	}, [
-		state.ownedVigilanteIds,
-		incidentCitizenPins,
-		policeRenderItems,
-	]);
+	}, [state.ownedVigilanteIds, incidentCitizenPins, policeRenderItems]);
 
 	const zoomConfig = useMemo(
 		() => ({
@@ -3018,16 +3149,31 @@ export default function StreetMapScene({
 											{activeDossier.name} •{" "}
 											{activeDossier.role}
 										</div>
-										{overlayMode === "recruit" && selectedRecruitLead ? (
+										{overlayMode === "recruit" &&
+										selectedRecruitLead ? (
 											<div className="mt-3 rounded-xl border border-red-900/35 bg-red-950/15 px-3 py-2">
 												<div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.16em] text-red-200/80">
-													<span>Applicant availability</span>
-													<span>{formatCountdown(selectedRecruitMsLeft)}</span>
+													<span>
+														Applicant availability
+													</span>
+													<span>
+														{formatCountdown(
+															selectedRecruitMsLeft,
+														)}
+													</span>
 												</div>
 												<IncidentTimerBar
-													createdAt={selectedRecruitLead.createdAt}
-													expiresAt={selectedRecruitLead.expiresAt}
-													onExpire={() => expireRecruitLead(selectedRecruitLead.id)}
+													createdAt={
+														selectedRecruitLead.createdAt
+													}
+													expiresAt={
+														selectedRecruitLead.expiresAt
+													}
+													onExpire={() =>
+														expireRecruitLead(
+															selectedRecruitLead.id,
+														)
+													}
 												/>
 											</div>
 										) : null}
@@ -3155,17 +3301,17 @@ export default function StreetMapScene({
 					>
 						<div className="overflow-hidden rounded-xl border border-amber-900/40 bg-black/75 shadow-lg backdrop-blur-md">
 							<div className="flex items-start">
-							<div className="shrink-0 border-r border-amber-900/30">
-								<div className="relative h-[160px] w-[120px] overflow-hidden rounded-none pt-10">
-									<Image
-										src={dialogue.portrait}
-										alt={dialogue.name}
-										fill
-										className="object-cover object-top"
-										sizes="132px"
-									/>
+								<div className="shrink-0 border-r border-amber-900/30">
+									<div className="relative h-[160px] w-[120px] overflow-hidden rounded-none pt-10">
+										<Image
+											src={dialogue.portrait}
+											alt={dialogue.name}
+											fill
+											className="object-cover object-top"
+											sizes="132px"
+										/>
+									</div>
 								</div>
-							</div>
 								<div className="flex min-h-[160px] flex-1 flex-col justify-between px-4 py-3">
 									<div>
 										<div className="text-[10px] uppercase tracking-[0.2em] text-amber-400/70">
@@ -3373,27 +3519,29 @@ export default function StreetMapScene({
 													inc.id,
 												)
 											}
-											className={`flex h-[92px] flex-col px-3 py-2 text-left text-xs transition-colors cursor-pointer ${isSelected
+											className={`flex h-[92px] flex-col px-3 py-2 text-left text-xs transition-colors cursor-pointer ${
+												isSelected
 													? "border-amber-500/80 bg-amber-900/50 text-amber-100"
 													: "border-amber-900/50 bg-black/40 text-amber-200/70 hover:border-amber-700/70 hover:text-amber-100"
-												} w-full rounded-lg border`}
+											} w-full rounded-lg border`}
 										>
 											<div className="flex min-h-0 flex-1 flex-col justify-center">
 												<div className="flex h-[64px] w-full shrink-0 items-center gap-3">
 													<div
-														className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] ${inc.status ===
-																"resolved"
+														className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] ${
+															inc.status ===
+															"resolved"
 																? "border-amber-800/50 bg-amber-950/35 text-amber-200/70"
 																: inc.status ===
-																	"resolving"
+																	  "resolving"
 																	? "border-amber-700/60 bg-amber-950/40 text-amber-200"
 																	: "border-red-900 bg-red-900/30 text-red-300"
-															}`}
+														}`}
 													>
 														{inc.status === "active"
 															? "!"
 															: inc.status ===
-																"resolving"
+																  "resolving"
 																? "…"
 																: "·"}
 													</div>
@@ -3527,8 +3675,12 @@ export default function StreetMapScene({
 											if (deployModalOpen) return;
 											if (showVettingModal) return;
 
-											if (game.id === "inventory-sorter") {
-												setInventorySorterMode("supply-recovery");
+											if (
+												game.id === "inventory-sorter"
+											) {
+												setInventorySorterMode(
+													"supply-recovery",
+												);
 											}
 										}}
 										className="w-full text-left rounded-lg border border-amber-900/50 bg-black/40 px-3 py-3 text-xs text-amber-200/70 hover:border-amber-700/70 hover:text-amber-100 transition-colors cursor-pointer"
@@ -3662,7 +3814,7 @@ export default function StreetMapScene({
 							)}
 						</motion.div>
 					)}
-								</AnimatePresence>
+				</AnimatePresence>
 			</div>
 
 			{chanceRollOverlay && (
@@ -3810,6 +3962,12 @@ export default function StreetMapScene({
 						</motion.div>
 					)}
 				</AnimatePresence>
+
+				{/* Achievement notifications */}
+				<AchievementNotification
+					queue={achievements.notificationQueue}
+					onDismiss={achievements.dismissNotification}
+				/>
 			</div>
 		</div>
 	);

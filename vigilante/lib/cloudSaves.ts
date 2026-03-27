@@ -112,3 +112,29 @@ export async function upsertGameSave(params: {
 		return false;
 	}
 }
+
+/**
+ * Delete a cloud save for a specific user and slot
+ */
+export async function deleteGameSave(
+	userId: string,
+	slotIndex: 1 | 2 | 3
+): Promise<boolean> {
+	try {
+		const supabase = getSupabaseBrowserClient();
+		const { error } = await supabase
+			.from("game_saves")
+			.delete()
+			.eq("user_id", userId)
+			.eq("slot_index", slotIndex);
+
+		if (error) {
+			console.warn("[cloudSaves] deleteGameSave:", error.message);
+			return false;
+		}
+		return true;
+	} catch (e) {
+		console.warn("[cloudSaves] deleteGameSave:", e);
+		return false;
+	}
+}

@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { X, Copy, Loader2 } from "lucide-react";
 import { useAuth } from "../../lib/auth";
-import { listSlots, readSave, writeNewSave, type SaveSlotId } from "../../lib/saves";
+import { listSlots, readSave, writeNewSave, deleteSave, type SaveSlotId } from "../../lib/saves";
+import { deleteGameSave } from "../../lib/cloudSaves";
 import {
 	createMultiplayerSession,
 	addPlayerToSession,
@@ -43,6 +44,10 @@ export default function MultiplayerModal({ open, onClose, isSignedIn }: Multipla
 	const [selectedSlot, setSelectedSlot] = useState<SaveSlotId | null>(null);
 	const [tick, setTick] = useState(0);
 	const [errorMessage, setErrorMessage] = useState("");
+	const [deletingSlot, setDeletingSlot] = useState<SaveSlotId | null>(null);
+	const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+	const [deleteStatus, setDeleteStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+	const [deleteError, setDeleteError] = useState<string | null>(null);
 
 	useEffect(() => {
 		if (open) {
@@ -54,6 +59,10 @@ export default function MultiplayerModal({ open, onClose, isSignedIn }: Multipla
 			setCopied(false);
 			setLoading(false);
 			setErrorMessage("");
+			setDeletingSlot(null);
+			setShowDeleteConfirm(false);
+			setDeleteStatus("idle");
+			setDeleteError(null);
 		}
 	}, [open]);
 
@@ -65,6 +74,55 @@ export default function MultiplayerModal({ open, onClose, isSignedIn }: Multipla
 		play("modalClose");
 		onClose();
 	}, [onClose, play]);
+
+	const handleDelete = useCallback((e: React.MouseEvent, slot: SaveSlotId) => {
+		e.stopPropagation();
+		play("uiClick");
+		setDeletingSlot(slot);
+		setShowDeleteConfirm(true);
+	}, [play]);
+
+	const confirmDelete = useCallback(async () => {
+		if (!deletingSlot) return;
+		play("uiClick");
+		setDeleteStatus("loading");
+		setDeleteError(null);
+
+		try {
+			let success = false;
+			if (deletingSlot.scope === "local") {
+				deleteSave(deletingSlot);
+				success = true;
+			} else if (deletingSlot.scope === "cloud" && user) {
+				success = await deleteGameSave(user.id, deletingSlot.index);
+			}
+
+			if (success) {
+				setDeleteStatus("success");
+				setTick((t) => t + 1); // Refresh the list
+				// Auto-close after short delay
+				setTimeout(() => {
+					setShowDeleteConfirm(false);
+					setDeletingSlot(null);
+					setDeleteStatus("idle");
+				}, 800);
+			} else {
+				setDeleteStatus("error");
+				setDeleteError("Failed to delete save. Please try again.");
+			}
+		} catch (err) {
+			setDeleteStatus("error");
+			setDeleteError(err instanceof Error ? err.message : "An error occurred");
+		}
+	}, [deletingSlot, user, play]);
+
+	const cancelDelete = useCallback(() => {
+		play("uiClick");
+		setShowDeleteConfirm(false);
+		setDeletingSlot(null);
+		setDeleteStatus("idle");
+		setDeleteError(null);
+	}, [play]);
 
 	const saveSlots = useMemo(() => {
 		const local = listSlots("local").map((slot) => ({ slot, label: `Local ${slot.index}` }));
@@ -269,6 +327,16 @@ export default function MultiplayerModal({ open, onClose, isSignedIn }: Multipla
 												}}
 												aria-hidden
 											/>
+										{save && (
+											<button
+												type="button"
+												onClick={(e) => handleDelete(e, slot)}
+												className="absolute top-2 right-2 p-2 rounded-lg bg-red-950/40 text-red-400 hover:bg-red-900/60 hover:text-red-300 border border-red-900/50 transition-all shadow-md hover:shadow-red-900/30 opacity-100 focus:opacity-100"
+												aria-label="Delete save"
+											>
+												<Trash2 className="w-4 h-4" />
+											</button>
+										)}
 											<div className="relative">
 												<div className="text-[11px] uppercase tracking-[0.22em] text-amber-400/70">
 													{slot.scope}
@@ -378,6 +446,90 @@ export default function MultiplayerModal({ open, onClose, isSignedIn }: Multipla
 					)}
 				</div>
 			</div>
+
+			{/* Delete confirmation modal */}
+			{showDeleteConfirm && deletingSlot && (
+				<div
+					className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+					onClick={(e) => e.target === e.currentTarget && cancelDelete()}
+					role="dialog"
+					aria-modal="true"
+					aria-labelledby="delete-confirm-title-mp"
+				>
+					<div
+						className="w-full max-w-sm rounded-xl border border-red-900/50 bg-[#0d0c0e] shadow-2xl shadow-black/50"
+						onClick={(e) => e.stopPropagation()}
+					>
+						<div className="flex items-center justify-between px-5 py-4 border-b border-red-900/30">
+							<h2 id="delete-confirm-title-mp" className="text-lg font-semibold text-red-200">
+								{deleteStatus === "loading" ? "Deleting..." : deleteStatus === "error" ? "Delete Failed" : "Delete Save?"}
+							</h2>
+							<button
+								type="button"
+								onClick={cancelDelete}
+								disabled={deleteStatus === "loading"}
+								className="p-1.5 rounded-lg text-amber-200/70 hover:bg-amber-900/30 hover:text-amber-100 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-600/50 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+								aria-label="Cancel"
+							>
+								<X className="w-5 h-5" />
+							</button>
+						</div>
+						<div className="p-5">
+							{deleteStatus === "loading" ? (
+								<div className="flex items-center justify-center py-4">
+									<div className="flex items-center gap-3 text-red-200/80">
+										<div className="w-5 h-5 border-2 border-red-500/30 border-t-red-500 rounded-full animate-spin" />
+										<span>Deleting save...</span>
+									</div>
+								</div>
+							) : deleteStatus === "error" ? (
+								<div className="space-y-4">
+									<p className="text-sm text-red-300">{deleteError}</p>
+									<div className="flex gap-3">
+										<button
+											type="button"
+											onClick={cancelDelete}
+											className="flex-1 py-2.5 rounded-lg border border-amber-900/40 bg-black/30 text-amber-200/80 hover:bg-amber-950/20 transition-colors cursor-pointer"
+										>
+											Close
+										</button>
+										<button
+											type="button"
+											onClick={() => { setDeleteStatus("idle"); setDeleteError(null); }}
+											className="flex-1 py-2.5 rounded-lg border border-red-900/50 bg-red-950/30 text-red-200 hover:bg-red-900/40 transition-colors cursor-pointer"
+										>
+											Retry
+										</button>
+									</div>
+								</div>
+							) : (
+								<>
+									<p className="text-sm text-amber-200/70 mb-4">
+										Are you sure you want to delete {deletingSlot.scope} save slot {deletingSlot.index}?
+										<span className="block mt-1 text-amber-200/50">This action cannot be undone.</span>
+									</p>
+									<div className="flex gap-3">
+										<button
+											type="button"
+											onClick={cancelDelete}
+											className="flex-1 py-2.5 rounded-lg border border-amber-900/40 bg-black/30 text-amber-200/80 hover:bg-amber-950/20 transition-colors cursor-pointer"
+										>
+											Cancel
+										</button>
+										<button
+											type="button"
+											onClick={confirmDelete}
+											className="flex-1 py-2.5 rounded-lg border border-red-900/50 bg-red-950/30 text-red-200 hover:bg-red-900/40 transition-colors cursor-pointer"
+										>
+											Delete
+										</button>
+									</div>
+								</>
+							)}
+						</div>
+					</div>
+				</div>
+			)}
 		</div>
 	);
 }
