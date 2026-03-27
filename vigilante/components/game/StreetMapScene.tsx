@@ -73,9 +73,15 @@ import {
 	type IncidentArchetype,
 	type IncidentTemplate,
 } from "@/lib/incidentTemplates";
+import { generateAIDialogue, type AIDialogueContext } from "@/lib/aiDialogue";
+import { getNPCProfile } from "@/lib/npcDialogueData";
+import { NPC_PORTRAIT } from "@/lib/characterPortraitUrls";
+import { GAME_STORY } from "@/lib/gameStory";
 import { formatIncidentTypeLabel } from "@/lib/formatIncidentTitle";
 import { useAchievements } from "./useAchievements";
 import { AchievementNotification } from "./AchievementNotification";
+import { useInWorldTTS } from "@/hooks/useInWorldTTS";
+import { getVoiceForCharacter } from "@/lib/ttsCharacterVoices";
 
 // ── Inline helpers (not exported by incidentTemplates) ───────────────────────
 function archetypeSuccessBase(archetype: IncidentArchetype): number {
@@ -270,6 +276,44 @@ const LEVELS = [
 	{ id: 3, label: "L3", zoomOut: 13, zoomIn: 13 },
 ];
 
+/**
+ * Get past incidents for AI context.
+ * Returns a mix of the last 5 resolved incidents + 5 random resolved incidents from earlier,
+ * shuffled together for better variety while keeping token count reasonable (~10 incidents max).
+ */
+function getPastIncidentsForAI(
+	incidents: Incident[],
+	totalCount: number = 10,
+): Array<{ type: string; resolution: string; outcome: string }> {
+	const resolved = incidents.filter((inc) => inc.status === "resolved");
+	if (resolved.length === 0) return [];
+
+	// Always include the most recent 5
+	const lastFive = resolved.slice(-5);
+
+	// If we have more than 5, pick random ones from the earlier pool
+	const selected = new Set(lastFive.map((inc) => inc.id));
+	const randomPool = resolved.filter((inc) => !selected.has(inc.id));
+
+	// Shuffle and take up to 5 random ones
+	const shuffled = randomPool.sort(() => Math.random() - 0.5);
+	const randomFive = shuffled.slice(
+		0,
+		Math.min(5, totalCount - lastFive.length),
+	);
+
+	// Combine and shuffle so order isn't just "last 5 then random 5"
+	const combined = [...lastFive, ...randomFive].sort(
+		() => Math.random() - 0.5,
+	);
+
+	return combined.map((inc) => ({
+		type: inc.category,
+		resolution: inc.title,
+		outcome: inc.status,
+	}));
+}
+
 type MinigameId = "inventory-sorter" | "resource-theft";
 type InventorySorterMode = "supply-recovery" | "resource-theft" | null;
 
@@ -383,21 +427,32 @@ const STATIC_CHARACTER_BASES: CharacterPin[] = [
 	},
 ];
 
-type DialogueRole = "Citizen" | "Police" | "Chief";
+type DialogueRole = "Citizen" | "Police" | "Chief" | "Dispatcher" | "Vigilante";
+
+type DialogueType = "past" | "current" | "story" | "unknown";
 
 type DialogueState = {
+	id: string;
 	name: string;
 	role: DialogueRole;
 	portrait: string;
 	text: string;
-} | null;
+	dialogueType?: DialogueType;
+	characterId: string;
+};
+
+// Allow null separately
+type DialogueStateOrNull = DialogueState | null;
 
 const NPC_DIALOGUE = {
 	citizens: [
 		{
+			id: "cit-oldman",
 			name: "Old Man",
 			role: "Citizen" as const,
 			portrait: "/npcs/OldMan.png",
+			personality:
+				"Grizzled, experienced, community-focused with deep local knowledge.",
 			lines: [
 				"I've lived on this block thirty years. Something's wrong tonight.",
 				"I heard boots in the alley and then everything went quiet.",
@@ -405,9 +460,12 @@ const NPC_DIALOGUE = {
 			],
 		},
 		{
+			id: "cit-girl",
 			name: "Girl",
 			role: "Citizen" as const,
 			portrait: "/npcs/Girl.png",
+			personality:
+				"Young, observant, street-smart. Knows what she saw and isn't afraid to share.",
 			lines: [
 				"I saw them run past the subway entrance. They looked armed.",
 				"If your crew is taking this job, don't be late.",
@@ -415,21 +473,40 @@ const NPC_DIALOGUE = {
 			],
 		},
 		{
+			id: "cit-woman",
 			name: "Woman",
 			role: "Citizen" as const,
 			portrait: "/npcs/Woman.png",
+			personality:
+				"Worried but practical. Keeps her head down but notices everything.",
 			lines: [
 				"The whole street feels wrong tonight. Like everyone's waiting for something.",
 				"I'm not asking questions. I just need this handled.",
 				"They moved fast. Professional fast.",
 			],
 		},
+		{
+			id: "cit-helper",
+			name: "Helper",
+			role: "Citizen" as const,
+			portrait: "/npcs/Helper.png",
+			personality:
+				"Eager to assist, knows the neighborhood intimately, wants to help the vigilantes succeed.",
+			lines: [
+				"I can point your people to the exact building if they move now.",
+				"I've got eyes on the block. Tell me where you want me.",
+				"Your vigilantes aren't subtle, but they're faster than dispatch.",
+			],
+		},
 	],
 	police: [
 		{
+			id: "cop-diaz",
 			name: "Officer Diaz",
 			role: "Police" as const,
 			portrait: "/npcs/OfficerDiaz.png",
+			personality:
+				"Hard-nosed, by-the-book, suspicious of vigilantes but professional.",
 			lines: [
 				"You better hope I don't catch any of your people at my crime scenes.",
 				"Civilian intervention is punishable, don't test me.",
@@ -437,9 +514,12 @@ const NPC_DIALOGUE = {
 			],
 		},
 		{
+			id: "cop-kim",
 			name: "Detective Kim",
 			role: "Police" as const,
 			portrait: "/npcs/DetectiveKim.png",
+			personality:
+				"Intelligent, observant, aware of vigilante activities but constrained by procedure.",
 			lines: [
 				"This city makes vigilantes out of everyone eventually.",
 				"When your people make messes for us to clean up, we don't get the chance to focus on what's really important...",
@@ -448,9 +528,12 @@ const NPC_DIALOGUE = {
 		},
 	],
 	chief: {
+		id: "chief-williams",
 		name: "Chief Williams",
 		role: "Chief" as const,
 		portrait: "/npcs/ChiefWilliams.png",
+		personality:
+			"Stressed but pragmatic. Officially opposes vigilantes but unofficially acknowledges they're necessary.",
 		lines: [
 			"The city is slipping faster than my officers can hold it together.",
 			"Damn vigilantes running around the city thinking they're helping us. We don't need them.",
@@ -1563,11 +1646,15 @@ function loadState(saveKey: string): GameState {
 				: [],
 			purchasedBuffIds: mergePurchasedBuffIds(p.purchasedBuffIds),
 			unlockedAchievementIds: Array.isArray(p.unlockedAchievementIds)
-				? (p.unlockedAchievementIds as string[] | UnlockedAchievement[]).map((a) =>
+				? (
+						p.unlockedAchievementIds as
+							| string[]
+							| UnlockedAchievement[]
+					).map((a) =>
 						typeof a === "string"
 							? { achievementId: a, unlockedAt: Date.now() }
-							: a
-				  )
+							: a,
+					)
 				: [],
 			achievementProgress,
 			activeMinigame: null,
@@ -1642,14 +1729,24 @@ export default function StreetMapScene({
 	const [showExitingModal, setShowExitingModal] = useState(false);
 	const [deployModalOpen, setDeployModalOpen] = useState(false);
 	const [showVettingModal, setShowVettingModal] = useState(false);
-	const [dialogue, setDialogue] = useState<DialogueState>(null);
+	const [dialogue, setDialogue] = useState<DialogueStateOrNull>(null);
 	const [overlayMode, setOverlayMode] = useState<OverlayMode>("recruit");
 	/** Tracks whether inventory was open before dialogue appeared (for auto-restore) */
 	const inventoryWasOpenRef = useRef(false);
 	/** Stores dialogue data while waiting for inventory to close before showing it */
-	const pendingDialogueRef = useRef<DialogueState>(null);
+	const pendingDialogueRef = useRef<DialogueStateOrNull>(null);
 	/** Tracks if inventory is currently animating closed */
 	const inventoryIsClosingRef = useRef(false);
+
+	// TTS for NPC dialogue
+	const tts = useInWorldTTS();
+	const lastSpokenTextRef = useRef<string | null>(null);
+	const dialogueOpenRef = useRef<boolean>(false);
+	const currentDialogueIdRef = useRef<string | null>(null);
+
+	// AI Dialogue on incident spawn: track which incidents we've announced
+	const announcedIncidentIdsRef = useRef<Set<string>>(new Set());
+	const incidentCounterRef = useRef<number>(0); // Counter for every 5 incidents
 
 	// Inventory close animation helper: returns a promise that resolves when inventory is fully closed
 	const waitForInventoryClose = (): Promise<void> => {
@@ -1674,26 +1771,105 @@ export default function StreetMapScene({
 		});
 	};
 
+	/**
+	 * Get a random character for incident spawn dialogue.
+	 * Can be: Dispatcher, Police officer, or Vigilante from roster.
+	 */
+	function getRandomSpawnCharacter() {
+		const roll = Math.random();
+		const ownedVigilantes = vigilantes.filter((v) =>
+			state.ownedVigilanteIds.includes(v.id),
+		);
+
+		if (roll < 0.33 && ownedVigilantes.length > 0) {
+			// Pick random owned vigilante
+			const vigilante =
+				ownedVigilantes[
+					Math.floor(Math.random() * ownedVigilantes.length)
+				];
+			return {
+				type: "vigilante" as const,
+				profile: {
+					id: vigilante.id,
+					name: vigilante.alias || vigilante.name,
+					role: "Vigilante" as const,
+					portrait: vigilante.portrait,
+					personality:
+						vigilante.bio ||
+						`A skilled operative with ${vigilante.role} responsibilities.`,
+				},
+				situation:
+					"Vigilante reporting to their handler about the new incident or rallying the crew.",
+			};
+		} else if (roll < 0.66) {
+			// Pick random police officer
+			const officer =
+				NPC_DIALOGUE.police[
+					Math.floor(Math.random() * NPC_DIALOGUE.police.length)
+				];
+			return {
+				type: "police" as const,
+				profile: {
+					id: officer.id,
+					name: officer.name,
+					role: officer.role,
+					portrait: officer.portrait,
+					personality: officer.personality,
+				},
+				situation:
+					"Police officer discussing the new incident, possibly giving orders or warnings.",
+			};
+		} else {
+			// Dispatcher
+			const dispatcherProfile = getNPCProfile(
+				"dispatcher",
+				"Dispatcher",
+			) || {
+				id: "dispatcher",
+				name: "Dispatcher",
+				role: "Dispatcher" as const,
+				portrait: NPC_PORTRAIT.dispatcher,
+				personality:
+					"Professional, urgent, information-focused. The voice of authority and coordination.",
+			};
+			return {
+				type: "dispatcher" as const,
+				profile: dispatcherProfile,
+				situation:
+					"Dispatcher announcing a new incident to the vigilante crew.",
+			};
+		}
+	}
+
 	// Handle opening dialogue with sequencing
-	const openDialogue = async (dialogueData: DialogueState) => {
+	const openDialogue = async (dialogueData: Omit<DialogueState, "id">) => {
+		// ← id not required
 		if (!dialogueData) return;
+
+		// Prevent opening the same dialogue again while it’s already open
+		if (dialogueOpenRef.current) {
+			return;
+		}
+
+		// Generate a unique id for this dialogue instance
+		const dialogueWithId = {
+			...dialogueData,
+			id: `${Date.now()}-${Math.random().toString(36).substr(2, 8)}`,
+		};
 
 		// If inventory is visible, close it first then show dialogue
 		if (state.showInventoryPanel) {
-			// Remember inventory was open for later restoration
 			inventoryWasOpenRef.current = true;
-			// Store pending dialogue
-			pendingDialogueRef.current = dialogueData;
-			// Close inventory and wait for animation
+			pendingDialogueRef.current = dialogueWithId; // ← store with id
 			await waitForInventoryClose();
-			// After inventory closes, show the pending dialogue
 			if (pendingDialogueRef.current) {
+				dialogueOpenRef.current = true;
 				setDialogue(pendingDialogueRef.current);
 				pendingDialogueRef.current = null;
 			}
 		} else {
-			// Inventory already closed, open dialogue immediately
-			setDialogue(dialogueData);
+			dialogueOpenRef.current = true;
+			setDialogue(dialogueWithId);
 		}
 	};
 
@@ -1785,10 +1961,101 @@ export default function StreetMapScene({
 			}
 			// Reset the ref for next time
 			inventoryWasOpenRef.current = false;
+			// Also reset dialogue open flag when dialogue closes
+			dialogueOpenRef.current = false;
 		}
 		// Only run when dialogue opens/closes; intentionally depend on `dialogue`
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [dialogue]);
+
+	// TTS: speak dialogue text when it changes, but only once per unique text
+	useEffect(() => {
+		if (dialogue && dialogue.text) {
+			if (lastSpokenTextRef.current !== dialogue.text) {
+				lastSpokenTextRef.current = dialogue.text;
+				currentDialogueIdRef.current = dialogue.id; // ← store current id
+
+				const voiceId = getVoiceForCharacter(dialogue.characterId);
+				tts.speak(dialogue.text, voiceId)
+					.then(() => {
+						// Only close if the dialogue that finished is still the active one
+						if (currentDialogueIdRef.current === dialogue.id) {
+							setDialogue(null);
+						}
+					})
+					.catch((err) => {
+						console.warn("[TTS] failed to speak dialogue:", err);
+					});
+			}
+		} else {
+			tts.stop();
+			lastSpokenTextRef.current = null;
+			currentDialogueIdRef.current = null; // ← clear ref when no dialogue
+		}
+	}, [dialogue, tts]);
+
+	// AI Dialogue on incident spawn: track which incidents we've announced
+	useEffect(() => {
+		// Find incidents that haven't been announced yet
+		const unannouncedIncidents = state.incidents.filter(
+			(inc) => !announcedIncidentIdsRef.current.has(inc.id),
+		);
+
+		unannouncedIncidents.forEach(async (incident) => {
+			// Mark as announced immediately to prevent re-entry
+			announcedIncidentIdsRef.current.add(incident.id);
+			incidentCounterRef.current += 1;
+
+			// Only try AI every 5th incident (5, 10, 15, ...)
+			if (incidentCounterRef.current % 5 !== 0) {
+				return; // Skip dialogue for this incident
+			}
+
+			// Get random character for this incident
+			const { profile, situation } = getRandomSpawnCharacter();
+
+			// Build past incidents context (mix of last 5 and random 5 resolved)
+			const pastIncidents = getPastIncidentsForAI(state.incidents, 10);
+
+			const aiContext: AIDialogueContext = {
+				characterId: profile.id,
+				characterRole: profile.role,
+				overallStory: GAME_STORY,
+				pastIncidents: pastIncidents,
+				currentIncident: {
+					type: incident.category,
+					description: incident.summary,
+					location: incident.title,
+				},
+				situation: situation,
+				customProfile: {
+					name: profile.name,
+					portrait: profile.portrait,
+					personality: profile.personality,
+				},
+			};
+
+			// Try AI dialogue - if it fails, show nothing (no fallback)
+			const result = await generateAIDialogue(aiContext);
+			if (result) {
+				// Check if the incident still exists in current state (not expired/removed)
+				const stillExists = state.incidents.some(
+					(inc) => inc.id === incident.id,
+				);
+				if (stillExists) {
+					openDialogue({
+						name: result.speakerName,
+						role: result.speakerRole,
+						portrait: result.portrait,
+						text: result.text,
+						dialogueType: result.type,
+						characterId: result.speakerId,
+					});
+				}
+			}
+			// If AI fails (null) or incident no longer exists, do nothing - no dialogue shown
+		});
+	}, [state.incidents]); // Run when incidents array changes
 
 	const [chanceRollOverlay, setChanceRollOverlay] = useState<{
 		incidentId: string;
@@ -2257,6 +2524,56 @@ export default function StreetMapScene({
 		setSelectedTheftSiteId(null);
 
 		if (pin.kind === "vigilante") {
+			// Find vigilante data
+			const vigilante = vigilantes.find((v) => v.id === pin.id);
+			if (!vigilante) return;
+
+			// Build AI context for Vigilante
+			const aiContext: AIDialogueContext = {
+				characterId: vigilante.id,
+				characterRole: "Vigilante",
+				overallStory: GAME_STORY,
+				pastIncidents: getPastIncidentsForAI(state.incidents, 10),
+				currentIncident: state.selectedIncidentId
+					? {
+							type:
+								state.incidents.find(
+									(i) => i.id === state.selectedIncidentId,
+								)?.category || "unknown",
+							description:
+								state.incidents.find(
+									(i) => i.id === state.selectedIncidentId,
+								)?.summary || "",
+						}
+					: undefined,
+				situation:
+					"Vigilante reporting to their handler or discussing the mission.",
+				customProfile: {
+					name: vigilante.alias || vigilante.name,
+					portrait: vigilante.portrait,
+					personality:
+						vigilante.bio ||
+						`A skilled operative with ${vigilante.role} responsibilities.`,
+				},
+			};
+
+			// Use AI dialogue only - no fallback
+			void (async () => {
+				const result = await generateAIDialogue(aiContext);
+				if (result) {
+					openDialogue({
+						name: result.speakerName,
+						role: result.speakerRole,
+						portrait: result.portrait,
+						text: result.text,
+						dialogueType: result.type,
+						characterId: result.speakerId,
+					});
+				}
+				// If AI fails, show nothing
+			})();
+
+			// Still open the owned overlay to show vigilante details
 			handleOwnedVigilanteSelect(pin.id);
 			return;
 		}
@@ -2265,12 +2582,59 @@ export default function StreetMapScene({
 			const citizen =
 				NPC_DIALOGUE.citizens.find((c) => c.name === pin.name) ??
 				NPC_DIALOGUE.citizens[0];
+
+			// First show a fallback line so user sees something immediately
 			openDialogue({
 				name: citizen.name,
 				role: citizen.role,
 				portrait: citizen.portrait,
 				text: randomFrom(citizen.lines),
+				characterId: citizen.id,
 			});
+
+			// Gather context for AI dialogue generation
+			const aiContext: AIDialogueContext = {
+				characterId:
+					citizen.id || pin.name.toLowerCase().replace(/\s+/g, "-"),
+				characterRole: "Citizen",
+				overallStory: GAME_STORY,
+				pastIncidents: getPastIncidentsForAI(state.incidents, 10),
+				currentIncident: state.selectedIncidentId
+					? {
+							type:
+								state.incidents.find(
+									(i) => i.id === state.selectedIncidentId,
+								)?.category || "unknown",
+							description:
+								state.incidents.find(
+									(i) => i.id === state.selectedIncidentId,
+								)?.summary || "",
+						}
+					: undefined,
+				situation:
+					"Citizen reporting information or reacting to ongoing events in the neighborhood.",
+				customProfile: {
+					name: citizen.name,
+					portrait: citizen.portrait,
+					personality: citizen.personality,
+				},
+			};
+
+			// Use AI dialogue only - no fallback
+			void (async () => {
+				const result = await generateAIDialogue(aiContext);
+				if (result) {
+					openDialogue({
+						name: result.speakerName,
+						role: result.speakerRole,
+						portrait: result.portrait,
+						text: result.text,
+						dialogueType: result.type,
+						characterId: result.speakerId,
+					});
+				}
+				// If AI fails, show nothing
+			})();
 			return;
 		}
 
@@ -2280,19 +2644,110 @@ export default function StreetMapScene({
 				role: NPC_DIALOGUE.chief.role,
 				portrait: NPC_DIALOGUE.chief.portrait,
 				text: randomFrom(NPC_DIALOGUE.chief.lines),
+				characterId: NPC_DIALOGUE.chief.id,
 			});
+			const chiefProfile = NPC_DIALOGUE.chief;
+
+			// Build AI context for Chief
+			const aiContext: AIDialogueContext = {
+				characterId: chiefProfile.id,
+				characterRole: chiefProfile.role,
+				overallStory: GAME_STORY,
+				pastIncidents: getPastIncidentsForAI(state.incidents, 10),
+				currentIncident: state.selectedIncidentId
+					? {
+							type:
+								state.incidents.find(
+									(i) => i.id === state.selectedIncidentId,
+								)?.category || "unknown",
+							description:
+								state.incidents.find(
+									(i) => i.id === state.selectedIncidentId,
+								)?.summary || "",
+						}
+					: undefined,
+				situation:
+					"Chief Williams discussing the state of the city and vigilante operations.",
+				customProfile: {
+					name: chiefProfile.name,
+					portrait: chiefProfile.portrait,
+					personality: chiefProfile.personality,
+				},
+			};
+
+			// Use AI dialogue only - no fallback
+			void (async () => {
+				const result = await generateAIDialogue(aiContext);
+				if (result) {
+					openDialogue({
+						name: result.speakerName,
+						role: result.speakerRole,
+						portrait: result.portrait,
+						text: result.text,
+						dialogueType: result.type,
+						characterId: result.speakerId,
+					});
+				}
+				// If AI fails, show nothing
+			})();
 			return;
 		}
 
 		const officer =
 			NPC_DIALOGUE.police.find((p) => p.name === pin.name) ??
 			NPC_DIALOGUE.police[0];
+
+		// First show fallback line so user sees something immediately
 		openDialogue({
 			name: officer.name,
 			role: officer.role,
 			portrait: officer.portrait,
 			text: randomFrom(officer.lines),
+			characterId: officer.id,
 		});
+
+		// Build AI context for Police Officer
+		const aiContext: AIDialogueContext = {
+			characterId: officer.id,
+			characterRole: officer.role,
+			overallStory: GAME_STORY,
+			pastIncidents: getPastIncidentsForAI(state.incidents, 10),
+			currentIncident: state.selectedIncidentId
+				? {
+						type:
+							state.incidents.find(
+								(i) => i.id === state.selectedIncidentId,
+							)?.category || "unknown",
+						description:
+							state.incidents.find(
+								(i) => i.id === state.selectedIncidentId,
+							)?.summary || "",
+					}
+				: undefined,
+			situation:
+				"Police officer discussing the incident or giving orders to vigilantes.",
+			customProfile: {
+				name: officer.name,
+				portrait: officer.portrait,
+				personality: officer.personality,
+			},
+		};
+
+		// Use AI dialogue only - no fallback
+		void (async () => {
+			const result = await generateAIDialogue(aiContext);
+			if (result) {
+				openDialogue({
+					name: result.speakerName,
+					role: result.speakerRole,
+					portrait: result.portrait,
+					text: result.text,
+					dialogueType: result.type,
+					characterId: result.speakerId,
+				});
+			}
+			// If AI fails, show nothing
+		})();
 	};
 
 	const handleTheftSiteSelect = (site: TheftSite) => {
@@ -2688,59 +3143,68 @@ export default function StreetMapScene({
 						pool = forfeitDeployment(pool, deployed);
 					}
 				}
-		const missionCredits = rollOutcome.success ? 80 : 20;
+				const missionCredits = rollOutcome.success ? 80 : 20;
 
-		// Get achievement progress updates
-		const achievementUpdates = achievements.trackIncidentResolution(
-			inc.category,
-			rollOutcome.success,
-			missionCredits,
-		);
+				// Get achievement progress updates
+				const achievementUpdates = achievements.trackIncidentResolution(
+					inc.category,
+					rollOutcome.success,
+					missionCredits,
+				);
 
-		return {
-			...s,
-			resourcePool: pool,
-			credits: Math.max(0, s.credits + missionCredits),
-			careerStats: {
-				...s.careerStats,
-				dispatchesCompleted:
-					s.careerStats.dispatchesCompleted + 1,
-				incidentsResolvedSuccess:
-					s.careerStats.incidentsResolvedSuccess +
-					(rollOutcome.success ? 1 : 0),
-				incidentsResolvedFailure:
-					s.careerStats.incidentsResolvedFailure +
-					(rollOutcome.success ? 0 : 1),
-			},
-			achievementProgress: {
-				...s.achievementProgress,
-				...achievementUpdates,
-			},
-			incidents: s.incidents.map((x) =>
-				x.id === id
-					? {
-							...x,
-							status: "resolved" as const,
-							deployedResourceIds: [],
-							resolution: {
-								success: rollOutcome.success,
-								adjustedPercent:
-									rollOutcome.adjustedPercent,
-								beforeLuckPercent: rollOutcome.beforeLuckPercent,
-								rolled: rollOutcome.rolled,
-								baseChancePercent: rollOutcome.baseChancePercent,
-								resourceMultiplier: rollOutcome.resourceMultiplier,
-								buffMultiplier: rollOutcome.buffMultiplier,
-								vigilanteMultiplier: rollOutcome.vigilanteMultiplier,
-								avgArchetypeFit: rollOutcome.avgArchetypeFit,
-								staffingSupportMultiplier: rollOutcome.staffingSupportMultiplier,
-								gearPresenceMultiplier: rollOutcome.gearPresenceMultiplier,
-								luckDeltaPercent: rollOutcome.luckDeltaPercent,
-							},
-						}
-					: x,
-			),
-		};
+				return {
+					...s,
+					resourcePool: pool,
+					credits: Math.max(0, s.credits + missionCredits),
+					careerStats: {
+						...s.careerStats,
+						dispatchesCompleted:
+							s.careerStats.dispatchesCompleted + 1,
+						incidentsResolvedSuccess:
+							s.careerStats.incidentsResolvedSuccess +
+							(rollOutcome.success ? 1 : 0),
+						incidentsResolvedFailure:
+							s.careerStats.incidentsResolvedFailure +
+							(rollOutcome.success ? 0 : 1),
+					},
+					achievementProgress: {
+						...s.achievementProgress,
+						...achievementUpdates,
+					},
+					incidents: s.incidents.map((x) =>
+						x.id === id
+							? {
+									...x,
+									status: "resolved" as const,
+									deployedResourceIds: [],
+									resolution: {
+										success: rollOutcome.success,
+										adjustedPercent:
+											rollOutcome.adjustedPercent,
+										beforeLuckPercent:
+											rollOutcome.beforeLuckPercent,
+										rolled: rollOutcome.rolled,
+										baseChancePercent:
+											rollOutcome.baseChancePercent,
+										resourceMultiplier:
+											rollOutcome.resourceMultiplier,
+										buffMultiplier:
+											rollOutcome.buffMultiplier,
+										vigilanteMultiplier:
+											rollOutcome.vigilanteMultiplier,
+										avgArchetypeFit:
+											rollOutcome.avgArchetypeFit,
+										staffingSupportMultiplier:
+											rollOutcome.staffingSupportMultiplier,
+										gearPresenceMultiplier:
+											rollOutcome.gearPresenceMultiplier,
+										luckDeltaPercent:
+											rollOutcome.luckDeltaPercent,
+									},
+								}
+							: x,
+					),
+				};
 			});
 
 			setChanceRollOverlay((prev) =>
@@ -3527,51 +3991,109 @@ export default function StreetMapScene({
 
 			<AnimatePresence>
 				{dialogue ? (
-					<motion.div
-						initial={{ opacity: 0, y: 16 }}
-						animate={{ opacity: 1, y: 0 }}
-						exit={{ opacity: 0, y: 10 }}
-						transition={{ duration: 0.2, ease: "easeOut" }}
-						className="absolute bottom-6 left-6 z-[2020] w-[min(52vw,720px)] min-w-[320px]"
-					>
-						<div className="overflow-hidden rounded-xl border border-amber-900/40 bg-black/75 shadow-lg backdrop-blur-md">
-							<div className="flex items-start">
-								<div className="shrink-0 border-r border-amber-900/30">
-									<div className="relative h-[160px] w-[120px] overflow-hidden rounded-none pt-10">
-										<Image
-											src={dialogue.portrait}
-											alt={dialogue.name}
-											fill
-											className="object-cover object-top"
-											sizes="132px"
-										/>
+					<>
+						{/* Backdrop – closes dialogue when clicked outside */}
+						<motion.div
+							initial={{ opacity: 0 }}
+							animate={{ opacity: 1 }}
+							exit={{ opacity: 0 }}
+							transition={{ duration: 0.2 }}
+							className="fixed inset-0 z-[2015] bg-black/30"
+							onClick={() => setDialogue(null)}
+						/>
+						{/* Dialogue container – stop propagation to prevent backdrop click from closing */}
+						<motion.div
+							initial={{ opacity: 0, y: 16 }}
+							animate={{ opacity: 1, y: 0 }}
+							exit={{ opacity: 0, y: 10 }}
+							transition={{ duration: 0.2, ease: "easeOut" }}
+							className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[2020] w-[min(52vw,720px)] min-w-[320px]"
+							onClick={(e) => e.stopPropagation()}
+						>
+							<div className="overflow-hidden rounded-xl border border-amber-900/40 bg-black/75 shadow-lg backdrop-blur-md relative">
+								{dialogue.dialogueType && (
+									<div className="absolute top-3 right-4 flex items-center justify-center rounded-full py-1 px-3 text-[9px] leading-none font-bold uppercase tracking-wider bg-transparent text-amber-400 border border-amber-900/40">
+										{dialogue.dialogueType === "past"
+											? "reminiscing"
+											: dialogue.dialogueType ===
+												  "current"
+												? "responding"
+												: dialogue.dialogueType ===
+													  "story"
+													? "story"
+													: ""}
 									</div>
-								</div>
-								<div className="flex min-h-[160px] flex-1 flex-col justify-between px-4 py-3">
-									<div>
-										<div className="text-[10px] uppercase tracking-[0.2em] text-amber-400/70">
-											{dialogue.role}
+								)}
+								<div className="flex items-start">
+									<div className="shrink-0 border-r border-amber-900/30">
+										<div className="relative h-[160px] w-[120px] overflow-hidden rounded-none pt-10">
+											<Image
+												src={dialogue.portrait}
+												alt={dialogue.name}
+												fill
+												className="object-cover object-top"
+												sizes="132px"
+											/>
 										</div>
-										<div className="mt-1 text-base font-bold text-amber-100">
-											{dialogue.name}
-										</div>
-										<p className="mt-3 text-sm leading-relaxed text-amber-100/80">
-											{dialogue.text}
-										</p>
 									</div>
-									<div className="mt-3 flex items-center justify-end gap-2">
-										<button
-											type="button"
-											onClick={() => setDialogue(null)}
-											className="cursor-pointer rounded-lg border border-amber-700/40 bg-amber-950/30 px-3 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-900/35 transition hover:border-amber-500/60 active:scale-[0.98]"
-										>
-											Continue
-										</button>
+									<div className="flex h-[160px] flex-1 flex-col justify-between px-4 py-3">
+										<div>
+											<div className="text-[10px] uppercase tracking-[0.2em] text-amber-400/70">
+												{dialogue.role}
+											</div>
+											<div className="flex items-center gap-2 mt-1">
+												<div className="text-base font-bold text-amber-100">
+													{dialogue.name}
+												</div>
+											</div>
+
+											{/* Spectrogram animation */}
+											<div className="mt-3 h-5 overflow-hidden">
+												<div className="flex h-full items-end gap-[3px]">
+													{Array.from({
+														length: 20,
+													}).map((_, i) => (
+														<div
+															key={i}
+															className="flex h-4 items-end"
+														>
+															<motion.div
+																className="w-[2px] rounded-full bg-amber-400/70"
+																animate={{
+																	height: [
+																		3, 12,
+																		5, 16,
+																		4,
+																	],
+																}}
+																transition={{
+																	duration: 0.8,
+																	repeat: Infinity,
+																	repeatType:
+																		"loop",
+																	delay:
+																		i *
+																		0.05,
+																	ease: "easeInOut",
+																}}
+																style={{
+																	height: 4,
+																}}
+															/>
+														</div>
+													))}
+												</div>
+											</div>
+
+											<p className="mt-2 line-clamp-2 text-sm leading-relaxed text-amber-100/80">
+												{dialogue.text}
+											</p>
+										</div>
 									</div>
 								</div>
 							</div>
-						</div>
-					</motion.div>
+						</motion.div>
+					</>
 				) : null}
 			</AnimatePresence>
 
