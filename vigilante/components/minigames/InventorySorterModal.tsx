@@ -3,7 +3,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { CheckCircle2, RotateCw, X, XCircle } from "lucide-react";
 import { ResourceGearIcon } from "@/components/game/ResourceGearIcon";
@@ -58,7 +58,8 @@ type ResourceTemplate = {
 	height: number;
 };
 
-type ModalPhase = "rules" | "playing";
+type ModalPhase = "rules" | "playing" | "reward";
+type RewardMode = "none" | "random-resource";
 
 export type InventorySorterModalProps = {
 	open: boolean;
@@ -66,6 +67,7 @@ export type InventorySorterModalProps = {
 	onWin?: (reward: RewardPayload) => void;
 	title?: string;
 	subtitle?: string;
+	rewardMode?: RewardMode;
 };
 
 const GRID_COLS = 4;
@@ -151,14 +153,17 @@ const RESOURCE_TEMPLATES: ResourceTemplate[] = [
 const RANDOM_RESOURCE_REWARD_TEXT =
 	"Random resource from the 9 shared inventory items.";
 
-function createSuccessReward(): RewardPayload {
-	const randomResource =
-		RESOURCE_TEMPLATES[Math.floor(Math.random() * RESOURCE_TEMPLATES.length)];
-
+function createRewardFromIcon(icon: ItemIconKey): RewardPayload {
 	return {
 		credits: 0,
-		items: [{ type: randomResource.icon, quantity: 1 }],
+		items: [{ type: icon, quantity: 1 }],
 	};
+}
+
+function pickRandomRewardIcon(): ItemIconKey {
+	return RESOURCE_TEMPLATES[
+		Math.floor(Math.random() * RESOURCE_TEMPLATES.length)
+	].icon;
 }
 
 // Return the active item footprint after rotation.
@@ -360,6 +365,7 @@ export default function InventorySorterModal({
 	onWin,
 	title = "Inventory Sorter",
 	subtitle = "Organize the emergency locker to recover extra supplies before time runs out.",
+	rewardMode = "none",
 }: InventorySorterModalProps) {
 	const [mounted, setMounted] = useState(false);
 	const [phase, setPhase] = useState<ModalPhase>("rules");
@@ -374,6 +380,17 @@ export default function InventorySorterModal({
 	const [now, setNow] = useState<number>(() => Date.now());
 	const [completed, setCompleted] = useState(false);
 	const [failed, setFailed] = useState(false);
+	const [reward, setReward] = useState<RewardPayload | null>(null);
+	const [drawPreviewIcon, setDrawPreviewIcon] = useState<ItemIconKey | null>(null);
+	const [isDrawingReward, setIsDrawingReward] = useState(false);
+	const drawIntervalRef = useRef<number | null>(null);
+
+	const clearDrawTimer = useCallback(() => {
+		if (drawIntervalRef.current !== null) {
+			window.clearInterval(drawIntervalRef.current);
+			drawIntervalRef.current = null;
+		}
+	}, []);
 
 	// Reset all state and start a fresh puzzle round.
 	const startNewRound = useCallback(() => {
@@ -387,6 +404,9 @@ export default function InventorySorterModal({
 		setNow(Date.now());
 		setCompleted(false);
 		setFailed(false);
+		setReward(null);
+		setDrawPreviewIcon(null);
+		setIsDrawingReward(false);
 	}, []);
 
 	// Enter the playable phase from the rules page.
@@ -416,6 +436,7 @@ export default function InventorySorterModal({
 	useEffect(() => {
 		if (!open) return;
 
+		clearDrawTimer();
 		setPhase("rules");
 		setRoundItems([]);
 		setSelectedItemId(null);
@@ -424,7 +445,16 @@ export default function InventorySorterModal({
 		setHoverCell(null);
 		setCompleted(false);
 		setFailed(false);
-	}, [open]);
+		setReward(null);
+		setDrawPreviewIcon(null);
+		setIsDrawingReward(false);
+	}, [open, clearDrawTimer]);
+
+	useEffect(() => {
+		return () => {
+			clearDrawTimer();
+		};
+	}, [clearDrawTimer]);
 
 	// Update the countdown while the round is active.
 	useEffect(() => {
@@ -553,9 +583,36 @@ export default function InventorySorterModal({
 			return;
 		}
 
-		const reward = createSuccessReward();
 		setCompleted(true);
+		setPhase("reward");
+	}
+
+	function handleDrawReward() {
+		if (rewardMode !== "random-resource") return;
+		if (isDrawingReward || reward) return;
+
+		setIsDrawingReward(true);
+
+		let spins = 0;
+		drawIntervalRef.current = window.setInterval(() => {
+			const icon = pickRandomRewardIcon();
+			setDrawPreviewIcon(icon);
+			spins += 1;
+
+			if (spins >= 14) {
+				clearDrawTimer();
+				const finalIcon = pickRandomRewardIcon();
+				setDrawPreviewIcon(finalIcon);
+				setReward(createRewardFromIcon(finalIcon));
+				setIsDrawingReward(false);
+			}
+		}, 100);
+	}
+
+	function handleClaimReward() {
+		if (!reward) return;
 		onWin?.(reward);
+		onClose();
 	}
 
 	if (!mounted || !open) return null;
@@ -677,7 +734,11 @@ export default function InventorySorterModal({
 										Rewards
 									</div>
 									<ul className="mt-3 space-y-2 text-sm leading-6 text-amber-200/75">
-										<li>• {RANDOM_RESOURCE_REWARD_TEXT}</li>
+										<li>
+											• {rewardMode === "random-resource"
+												? RANDOM_RESOURCE_REWARD_TEXT
+												: "No reward for the tab-launched practice version."}
+										</li>
 									</ul>
 								</div>
 
@@ -699,7 +760,7 @@ export default function InventorySorterModal({
 								</div>
 							</div>
 						</section>
-					) : (
+					) : phase === "playing" ? (
 						<div className="grid items-start gap-3">
 							<section className={`${PANEL_CLASS} min-w-0 p-3`}>
 								<div className="mb-2">
@@ -743,7 +804,9 @@ export default function InventorySorterModal({
 												Reward Preview
 											</div>
 											<div className="mt-1 text-xs text-amber-200/70">
-												Random resource from the 9
+												{rewardMode === "random-resource"
+													? "Random resource from the 9"
+													: "No reward"}
 											</div>
 										</div>
 
@@ -826,10 +889,10 @@ export default function InventorySorterModal({
 															disabled={isPlaced || completed || failed}
 															onClick={() => setSelectedItemId(item.id)}
 															className={`w-full rounded-lg border p-2.5 text-left transition-all duration-200 ${isPlaced
-																	? "cursor-not-allowed border-zinc-800 bg-zinc-950/40 text-zinc-500"
-																	: isSelected
-																		? "border-amber-700/50 bg-amber-950/20 text-amber-100"
-																		: "border-amber-900/50 bg-black/40 text-amber-200/80 hover:border-amber-700/40 hover:bg-amber-950/20 hover:text-amber-100 cursor-pointer"
+																? "cursor-not-allowed border-zinc-800 bg-zinc-950/40 text-zinc-500"
+																: isSelected
+																	? "border-amber-700/50 bg-amber-950/20 text-amber-100"
+																	: "border-amber-900/50 bg-black/40 text-amber-200/80 hover:border-amber-700/40 hover:bg-amber-950/20 hover:text-amber-100 cursor-pointer"
 																}`}
 														>
 															<div className="flex items-center gap-2.5">
@@ -950,10 +1013,10 @@ export default function InventorySorterModal({
 																			onClick={handlePlaceSelected}
 																			disabled={completed || failed}
 																			className={`rounded-lg border text-[10px] transition-colors ${isPreviewCell
-																					? hoverPlacementValid
-																						? "border-emerald-500/60 bg-emerald-500/10"
-																						: "border-red-500/60 bg-red-500/10"
-																					: "border-amber-900/30 bg-black/20 hover:border-amber-700/40"
+																				? hoverPlacementValid
+																					? "border-emerald-500/60 bg-emerald-500/10"
+																					: "border-red-500/60 bg-red-500/10"
+																				: "border-amber-900/30 bg-black/20 hover:border-amber-700/40"
 																				} disabled:cursor-not-allowed`}
 																			style={{
 																				width: CELL_SIZE,
@@ -1068,6 +1131,119 @@ export default function InventorySorterModal({
 								</div>
 							</section>
 						</div>
+					) : (
+						<section className={`${PANEL_CLASS} p-4 sm:p-6`}>
+							<div className="mx-auto max-w-3xl">
+								<div className="text-[10px] uppercase tracking-[0.22em] text-amber-400/70">
+									Mission Result
+								</div>
+								<h2 className="mt-2 text-2xl font-semibold text-amber-100">
+									{rewardMode === "random-resource"
+										? "Reward Draw"
+										: "Practice Complete"}
+								</h2>
+								<p className="mt-3 text-sm leading-6 text-amber-200/75">
+									{rewardMode === "random-resource"
+										? "You cleared the sorter. Draw one random resource reward before leaving."
+										: "This run was started from the tab version, so no reward is granted."}
+								</p>
+
+								{rewardMode === "random-resource" ? (
+									<>
+										<div className="mt-5 grid gap-4 md:grid-cols-3">
+											{RESOURCE_TEMPLATES.map((item) => {
+												const isActive = drawPreviewIcon === item.icon;
+
+												return (
+													<div
+														key={item.icon}
+														className={`rounded-xl border p-4 transition-all ${isActive
+																? "border-amber-400 bg-amber-950/25 shadow-lg shadow-amber-900/20"
+																: "border-amber-900/35 bg-black/30"
+															}`}
+													>
+														<div className="flex items-center gap-3">
+															<div
+																className={`flex h-10 w-10 items-center justify-center rounded-lg border ${item.colorClass}`}
+															>
+																<ResourceGearIcon
+																	resourceId={item.icon}
+																	className="h-5 w-5"
+																/>
+															</div>
+															<div>
+																<div className="text-sm font-medium text-amber-100">
+																	{item.name}
+																</div>
+																<div className="text-xs text-amber-200/60">
+																	1 item
+																</div>
+															</div>
+														</div>
+													</div>
+												);
+											})}
+										</div>
+
+										<div className="mt-5 rounded-xl border border-amber-900/35 bg-black/30 p-4">
+											{reward ? (
+												<div>
+													<div className="text-sm font-semibold text-amber-100">
+														Reward Ready
+													</div>
+													<div className="mt-1 text-sm text-amber-200/70">
+														You received {RESOURCE_TEMPLATES.find((item) => item.icon === reward.items[0]?.type)?.name}.
+													</div>
+												</div>
+											) : isDrawingReward ? (
+												<div className="text-sm text-amber-200/70">Drawing reward...</div>
+											) : (
+												<div className="text-sm text-amber-200/70">{RANDOM_RESOURCE_REWARD_TEXT}</div>
+											)}
+										</div>
+
+										<div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+											<button
+												type="button"
+												onClick={onClose}
+												className={`${BUTTON_CLASS} px-4 py-2 text-sm`}
+											>
+												Leave
+											</button>
+
+											{reward ? (
+												<button
+													type="button"
+													onClick={handleClaimReward}
+													className="rounded-lg border border-amber-700/50 bg-amber-950/20 px-4 py-2 text-sm font-medium text-amber-200 transition-colors hover:bg-amber-900/30"
+												>
+													Claim Reward
+												</button>
+											) : (
+												<button
+													type="button"
+													onClick={handleDrawReward}
+													disabled={isDrawingReward}
+													className="rounded-lg border border-amber-700/50 bg-amber-950/20 px-4 py-2 text-sm font-medium text-amber-200 transition-colors hover:bg-amber-900/30 disabled:cursor-not-allowed disabled:opacity-40"
+												>
+													{isDrawingReward ? "Drawing..." : "Draw Reward"}
+												</button>
+											)}
+										</div>
+									</>
+								) : (
+									<div className="mt-6 flex justify-end">
+										<button
+											type="button"
+											onClick={onClose}
+											className={`${BUTTON_CLASS} px-4 py-2 text-sm`}
+										>
+											Close
+										</button>
+									</div>
+								)}
+							</div>
+						</section>
 					)}
 				</div>
 			</div>

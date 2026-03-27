@@ -1,0 +1,11 @@
+{
+  "ExpandedNodes": [
+    "",
+    "\\components",
+    "\\components\\game",
+    "\\components\\menu",
+    "\\components\\minigames"
+  ],
+  "SelectedNode": "\\components\\game\\StreetMapScene.tsx",
+  "PreviewInSolutionExplorer": false
+}
