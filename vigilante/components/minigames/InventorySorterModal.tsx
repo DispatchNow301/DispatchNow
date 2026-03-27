@@ -669,77 +669,55 @@ export default function InventorySorterModal({
 								<h2 className="mt-2 text-2xl font-semibold text-amber-100">
 									Inventory Sorter Rules
 								</h2>
-								<p className="mt-3 text-sm leading-6 text-amber-200/75">
-									Before deployment, you need to reorganize a cluttered locker.
-									Place every resource into the 4 x 4 storage grid before the timer
-									runs out.
-								</p>
-
 								<div className="mt-5 grid gap-4 md:grid-cols-2">
 									<div className="rounded-xl border border-amber-900/35 bg-black/30 p-4">
 										<div className="text-sm font-semibold text-amber-100">
-											Objective
+											Mission Overview
 										</div>
-										<ul className="mt-3 space-y-2 text-sm leading-6 text-amber-200/75">
-											<li>• Fit all nine resource items into the storage grid.</li>
-											<li>• Every item must stay inside the board.</li>
-											<li>• Items cannot overlap each other.</li>
-											<li>• Submit before the timer reaches zero.</li>
-										</ul>
+										<p className="mt-3 text-sm leading-6 text-amber-200/75">
+											Fit all 9 items into the 4 x 4 locker grid before time runs out, keeping every item inside the board with no overlap.
+										</p>
 									</div>
 
 									<div className="rounded-xl border border-amber-900/35 bg-black/30 p-4">
 										<div className="text-sm font-semibold text-amber-100">
-											Controls
+											Item Sizes
 										</div>
-										<ul className="mt-3 space-y-2 text-sm leading-6 text-amber-200/75">
-											<li>• Click an item in the left panel to select it.</li>
-											<li>• Hover a grid cell to preview the placement.</li>
-											<li>• Click the grid to place the selected item.</li>
-											<li>• Press R or use the Rotate button to rotate the item.</li>
-											<li>• Click a placed item to pick it back up.</li>
-										</ul>
+										<div className="mt-3 flex flex-wrap gap-2">
+											{RESOURCE_TEMPLATES.map((item) => (
+												<div
+													key={item.icon}
+													className="inline-flex items-center gap-2 rounded-lg border border-amber-900/35 bg-black/35 px-3 py-2 text-xs text-amber-200/80"
+												>
+													<div
+														className={`flex h-6 w-6 items-center justify-center rounded-md border ${item.colorClass}`}
+													>
+														<ResourceGearIcon
+															resourceId={item.icon}
+															className="h-3.5 w-3.5"
+														/>
+													</div>
+													<span className="rounded-md border border-amber-900/35 bg-black/40 px-1.5 py-0.5 text-[10px] text-amber-300/80">
+														{item.width} x {item.height}
+													</span>
+												</div>
+											))}
+										</div>
+										<p className="mt-3 text-xs text-amber-200/60">
+											Long items can be rotated during play.
+										</p>
 									</div>
-								</div>
-
-								<div className="mt-5 rounded-xl border border-amber-900/35 bg-black/30 p-4">
-									<div className="text-sm font-semibold text-amber-100">
-										Resources in This Run
-									</div>
-									<div className="mt-3 flex flex-wrap gap-2">
-										{RESOURCE_TEMPLATES.map((item) => (
-											<div
-												key={item.icon}
-												className="inline-flex items-center gap-2 rounded-lg border border-amber-900/35 bg-black/35 px-3 py-2 text-xs text-amber-200/80"
-											>
-												<ResourceGearIcon
-													resourceId={item.icon}
-													className="h-4 w-4"
-												/>
-												<span>{item.name}</span>
-												<span className="rounded-md border border-amber-900/35 bg-black/40 px-1.5 py-0.5 text-[10px] text-amber-300/80">
-													{item.width} x {item.height}
-												</span>
-											</div>
-										))}
-									</div>
-									<p className="mt-3 text-xs text-amber-200/60">
-										Sizes shown here are the base item sizes. Long items may be
-										rotated during play.
-									</p>
 								</div>
 
 								<div className="mt-5 rounded-xl border border-amber-900/35 bg-black/30 p-4">
 									<div className="text-sm font-semibold text-amber-100">
 										Rewards
 									</div>
-									<ul className="mt-3 space-y-2 text-sm leading-6 text-amber-200/75">
-										<li>
-											• {rewardMode === "random-resource"
-												? RANDOM_RESOURCE_REWARD_TEXT
-												: "No reward for the tab-launched practice version."}
-										</li>
-									</ul>
+									<p className="mt-3 text-sm leading-6 text-amber-200/75">
+										{rewardMode === "random-resource"
+											? RANDOM_RESOURCE_REWARD_TEXT
+											: "No reward for the tab-launched practice version."}
+									</p>
 								</div>
 
 								<div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
