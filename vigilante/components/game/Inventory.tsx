@@ -22,7 +22,7 @@ import {
 	X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { FaBolt, FaBroadcastTower, FaHeart, FaUser } from "react-icons/fa";
+import { FaBolt, FaBroadcastTower, FaHeart, FaShieldAlt, FaBullseye, FaDollarSign, FaUser } from "react-icons/fa";
 import type { ResourcePoolEntry } from "@/lib/resourcePool";
 import { ResourceGearIcon } from "@/components/game/ResourceGearIcon";
 import { SHOP_RESOURCES, SHOP_UPGRADES } from "@/lib/shopCatalog";
@@ -648,9 +648,13 @@ export default function Inventory({
 	const buffIcon = (id: BuffItem["id"]) => {
 		const cls = tileIconClass;
 		if (id === "b1") return <FaBolt className={cls} aria-hidden />;
-		if (id === "b2")
-			return <FaBroadcastTower className={cls} aria-hidden />;
-		return <FaHeart className={cls} aria-hidden />;
+		if (id === "b2") return <FaBroadcastTower className={cls} aria-hidden />;
+		if (id === "b3") return <FaHeart className={cls} aria-hidden />;
+		if (id === "b4") return <FaBullseye className={cls} aria-hidden />;
+		if (id === "b5") return <FaShieldAlt className={cls} aria-hidden />;
+		if (id === "b6") return <FaShieldAlt className={cls} aria-hidden />;
+		if (id === "b7") return <FaDollarSign className={cls} aria-hidden />;
+		return <FaUser className={cls} aria-hidden />;
 	};
 
 	return (

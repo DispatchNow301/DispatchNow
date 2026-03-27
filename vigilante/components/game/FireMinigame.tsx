@@ -2,8 +2,6 @@
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
 
-const DIFFICULTY = 0; // [0, 10]
-
 // ── Layout ───────────────────────────────────────────────────────────
 const BAR_H = 550;
 const BAR_W = 100;
@@ -17,27 +15,6 @@ const GRAVITY = 0.07;
 const LIFT = -0.08;
 const BOUNCE = 0.3;
 const MAX_VEL = 6;
-
-// ── Progress (per ms × fires) ────────────────────────────────────────
-const GAIN_PER_FIRE = 0.0001;
-const DRAIN_PER_FIRE = 0.00005 + DIFFICULTY * 0.0000035;
-
-// ── Fire spread ──────────────────────────────────────────────────────
-const SPREAD_MS = 1_500;
-const MAX_FIRES = 4;
-const BASE_SPEED = 0.2 + DIFFICULTY * 0.01;
-
-// ── Fire erratic movement ────────────────────────────────────────────
-const ERRATIC = 0.2 + DIFFICULTY * 0.03;
-const ERRATIC_STRENGTH = 0.4 + DIFFICULTY * 0.02;
-
-// ── Fire health ──────────────────────────────────────────────────────
-const FIRE_HEALTH_DRAIN = 0.0006;
-const RESPAWN_MS = 600 - DIFFICULTY * 50;
-
-// ── Ember particles ──────────────────────────────────────────────────
-const EMBER_SPAWN_RATE = 0.15;
-const EMBER_SPEED = 0.4;
 
 interface FireBall {
 	y: number;
@@ -68,7 +45,7 @@ interface GameState {
 	done: boolean;
 }
 
-function makeFire(nearY?: number, health = 1.0): FireBall {
+function makeFire(baseSpeed: number, nearY?: number, health = 1.0): FireBall {
 	const y =
 		nearY !== undefined
 			? Math.max(
@@ -79,7 +56,7 @@ function makeFire(nearY?: number, health = 1.0): FireBall {
 					),
 				)
 			: Math.random() * (BAR_H - FIRE_PX);
-	const speed = BASE_SPEED * (0.7 + Math.random() * 0.7);
+	const speed = baseSpeed * (0.7 + Math.random() * 0.7);
 	return {
 		y,
 		vy: Math.random() < 0.5 ? speed : -speed,
@@ -117,19 +94,47 @@ function drawRoundRect(
 }
 
 interface Props {
+	difficulty?: number;
 	onSuccess?: () => void;
 	onFailure?: () => void;
 }
 
-export default function FireMinigame({ onSuccess, onFailure }: Props) {
+export default function FireMinigame({ difficulty = 0, onSuccess, onFailure }: Props) {
+	const onSuccessRef = useRef(onSuccess);
+	const onFailureRef = useRef(onFailure);
+	onSuccessRef.current = onSuccess;
+	onFailureRef.current = onFailure;
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const emojiCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+	const DIFFICULTY = difficulty;
+
+	// ── Progress (per ms × fires) ────────────────────────────────────────
+	const GAIN_PER_FIRE = 0.0001;
+	const DRAIN_PER_FIRE = 0.00005 + DIFFICULTY * 0.0000035;
+
+	// ── Fire spread ──────────────────────────────────────────────────────
+	const SPREAD_MS = 1_500;
+	const MAX_FIRES = 4;
+	const BASE_SPEED = 0.2 + DIFFICULTY * 0.01;
+
+	// ── Fire erratic movement ────────────────────────────────────────────
+	const ERRATIC = 0.2 + DIFFICULTY * 0.03;
+	const ERRATIC_STRENGTH = 0.4 + DIFFICULTY * 0.02;
+
+	// ── Fire health ──────────────────────────────────────────────────────
+	const FIRE_HEALTH_DRAIN = 0.0006;
+	const RESPAWN_MS = 600 - DIFFICULTY * 50;
+
+	// ── Ember particles ──────────────────────────────────────────────────
+	const EMBER_SPAWN_RATE = 0.15;
+	const EMBER_SPEED = 0.4;
 
 	const gs = useRef<GameState>({
 		rectY: BAR_H / 2 - RECT_H / 2,
 		rectVY: 0,
 		pressing: false,
-		fires: [makeFire()],
+		fires: [makeFire(BASE_SPEED)],
 		embers: [],
 		progress: 0.5,
 		lastTime: performance.now(),
@@ -212,7 +217,7 @@ export default function FireMinigame({ onSuccess, onFailure }: Props) {
 			) {
 				const parent =
 					livingFires[Math.floor(Math.random() * livingFires.length)];
-				if (parent) s.fires.push(makeFire(parent.y, parent.health));
+				if (parent) s.fires.push(makeFire(BASE_SPEED, parent.y, parent.health));
 				s.lastSpread = now;
 			}
 
@@ -240,7 +245,7 @@ export default function FireMinigame({ onSuccess, onFailure }: Props) {
 			if (s.fires.filter((f) => f.deadAt === null).length === 0) {
 				if (s.lastEmpty === null) s.lastEmpty = now;
 				else if (now - s.lastEmpty >= RESPAWN_MS) {
-					s.fires.push(makeFire());
+					s.fires.push(makeFire(BASE_SPEED));
 					s.lastEmpty = null;
 					s.lastSpread = now;
 				}
@@ -361,11 +366,11 @@ export default function FireMinigame({ onSuccess, onFailure }: Props) {
 	useEffect(() => {
 		if (!result) return;
 		const t = setTimeout(() => {
-			if (result === "win") onSuccess?.();
-			else onFailure?.();
+			if (result === "win") onSuccessRef.current?.();
+			else onFailureRef.current?.();
 		}, 1800);
 		return () => clearTimeout(t);
-	}, [result, onSuccess, onFailure]);
+	}, [result]);
 
 	const meterColor =
 		uiProgress > 0.6 ? "#d97706" : uiProgress > 0.3 ? "#b45309" : "#b91c1c";
@@ -385,7 +390,7 @@ export default function FireMinigame({ onSuccess, onFailure }: Props) {
 
 			{/* Backdrop */}
 			<div
-				className="fixed inset-0 z-50 flex items-center justify-center select-none"
+				className="fixed inset-0 z-[3000] flex items-center justify-center select-none"
 				style={{ background: "rgba(0,0,0,0.80)" }}
 				onMouseDown={phase === "playing" ? press : undefined}
 				onMouseUp={phase === "playing" ? release : undefined}
