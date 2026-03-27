@@ -33,6 +33,7 @@ type Props = {
 	onPoliceRenderUpdate?: (items: PoliceRenderItem[]) => void;
 	onPoliceEtaUpdate?: (items: PoliceEtaItem[]) => void;
 	onPoliceResolveIncident?: (incidentId: string) => void;
+	paused?: boolean;
 };
 
 const RESPONSE_RADIUS_METERS = 3200;
@@ -140,12 +141,18 @@ export default function PoliceSystem({
 	onPoliceRenderUpdate,
 	onPoliceEtaUpdate,
 	onPoliceResolveIncident,
+	paused = false,
 }: Props) {
 	const [units, setUnits] = useState<PoliceUnit[]>([]);
 	const [renderNow, setRenderNow] = useState(Date.now());
 
 	const unitsRef = useRef<PoliceUnit[]>([]);
 	const incidentsRef = useRef<PoliceIncident[]>(incidents);
+
+	// Keep a ref so interval callbacks always see the latest paused value
+	// without needing to be recreated every time paused flips.
+	const pausedRef = useRef(paused);
+	pausedRef.current = paused;
 
 	const pendingResponseUnitIdsRef = useRef<Set<string>>(new Set());
 	const pendingIncidentIdsRef = useRef<Set<string>>(new Set());
@@ -248,13 +255,16 @@ export default function PoliceSystem({
 		}
 	}, []);
 
+	// ── Render tick: frozen while paused ─────────────────────────────────────
+	// Uses pausedRef so the interval itself never needs to be recreated.
 	useEffect(() => {
 		const id = window.setInterval(() => {
+			if (pausedRef.current) return;
 			setRenderNow(Date.now());
 		}, RENDER_TICK_MS);
 
 		return () => window.clearInterval(id);
-	}, []);
+	}, []); // intentionally [] — pausedRef handles the gate
 
 	function getPatrolLoop(unit: PoliceUnit) {
 		return (
@@ -407,8 +417,11 @@ export default function PoliceSystem({
 		})();
 	}
 
+	// ── Physics tick: frozen while paused ────────────────────────────────────
+	// Uses pausedRef so the interval itself never needs to be recreated.
 	useEffect(() => {
 		const id = window.setInterval(() => {
+			if (pausedRef.current) return; // ← the actual fix
 			const now = Date.now();
 
 			setUnits((prev) => {
@@ -546,7 +559,7 @@ export default function PoliceSystem({
 		}, TICK_MS);
 
 		return () => window.clearInterval(id);
-	}, []);
+	}, []); // intentionally [] — pausedRef handles the gate
 
 	/**
 	 * Police-centric assignment:
@@ -554,6 +567,7 @@ export default function PoliceSystem({
 	 * This fits the case where incidents greatly outnumber police units.
 	 */
 	useEffect(() => {
+		if (paused) return;
 		const now = Date.now();
 		const liveUnits = unitsRef.current;
 		if (liveUnits.length === 0) return;
@@ -627,7 +641,7 @@ export default function PoliceSystem({
 
 			startResponseJob(pair.unit, pair.incident);
 		}
-	}, [incidents, units]);
+	}, [incidents, units, paused]);
 
 	const renderItems = useMemo<PoliceRenderItem[]>(() => {
 		const now = renderNow;

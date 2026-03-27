@@ -9,10 +9,7 @@ import React, {
 } from "react";
 
 // ── Difficulty [0–10] ─────────────────────────────────────────────────
-const DIFFICULTY = 0;
-const TIME_LIMIT_S = Math.round(120 - DIFFICULTY * 6); // 120s → 60s
-const MAX_WRONG = Math.round(6 - DIFFICULTY * 0.3); // 6 → 3
-const PRE_REVEAL_COUNT = Math.round(4 - DIFFICULTY * 0.3); // 4 → 1
+// Difficulty calculations moved to component
 
 // ── Seeded RNG (Mulberry32) ───────────────────────────────────────────
 function makeRng(seed: number) {
@@ -607,7 +604,7 @@ interface Puzzle {
 	preRevealed: Set<string>;
 }
 
-function buildPuzzle(seed: number): Puzzle {
+function buildPuzzle(pre_reveal: number, seed: number): Puzzle {
 	const rng = makeRng(seed);
 	const pool = [...WORD_BANK];
 	const words: string[] = [];
@@ -633,7 +630,7 @@ function buildPuzzle(seed: number): Puzzle {
 		(a, b) => phrase.split(b).length - 1 - (phrase.split(a).length - 1),
 	);
 	const preRevealed = new Set(
-		byFreq.slice(0, Math.max(1, Math.min(PRE_REVEAL_COUNT, byFreq.length))),
+		byFreq.slice(0, Math.max(1, Math.min(pre_reveal, byFreq.length))),
 	);
 
 	return { phrase, words, uniqueLetters, letterToGlyph, preRevealed };
@@ -683,15 +680,24 @@ const C = {
 // ── Component ─────────────────────────────────────────────────────────
 interface Props {
 	seed?: number;
+	difficulty?: number;
 	onSuccess?: () => void;
 	onFailure?: () => void;
 }
 
-export default function HackMinigame({ seed, onSuccess, onFailure }: Props) {
+export default function HackMinigame({ seed, difficulty = 0, onSuccess, onFailure }: Props) {
 	const [resolvedSeed] = useState(
 		() => seed ?? (Math.random() * 0xffffff) | 0,
 	);
-	const puzzle = useMemo(() => buildPuzzle(resolvedSeed), [resolvedSeed]);
+	const onSuccessRef = useRef(onSuccess);
+	const onFailureRef = useRef(onFailure);
+	onSuccessRef.current = onSuccess;
+	onFailureRef.current = onFailure;
+
+	const TIME_LIMIT_S = Math.round(120 - difficulty * 6); // 120s → 60s
+	const MAX_WRONG = Math.round(6 - difficulty * 0.3); // 6 → 3
+	const PRE_REVEAL_COUNT = Math.round(4 - difficulty * 0.3); // 4 → 1
+	const puzzle = useMemo(() => buildPuzzle(PRE_REVEAL_COUNT, resolvedSeed), [resolvedSeed]);
 
 	const [phase, setPhase] = useState<"ready" | "playing">("ready");
 	const [revealed, setRevealed] = useState<Set<string>>(
@@ -720,14 +726,13 @@ export default function HackMinigame({ seed, onSuccess, onFailure }: Props) {
 				if (prev <= 1) {
 					clearInterval(timerRef.current);
 					setResult("lose");
-					setTimeout(() => onFailure?.(), 1800);
+					setTimeout(() => onFailureRef.current?.(), 1800);
 					return 0;
 				}
 				return prev - 1;
 			});
 		}, 1000);
-		return () => clearInterval(timerRef.current);
-	}, [phase, onFailure]);
+	}, [phase]);
 
 	useEffect(() => {
 		if (result) clearInterval(timerRef.current);
@@ -802,7 +807,7 @@ export default function HackMinigame({ seed, onSuccess, onFailure }: Props) {
 			setInputValue("");
 			if ([...allLetters].every((l) => next.has(l))) {
 				setResult("win");
-				setTimeout(() => onSuccess?.(), 1800);
+				setTimeout(() => onSuccessRef.current?.(), 1800);
 			}
 		} else {
 			// Wrong — partially reveal exact-position matches
@@ -831,12 +836,12 @@ export default function HackMinigame({ seed, onSuccess, onFailure }: Props) {
 
 			if ([...allLetters].every((l) => next.has(l))) {
 				setResult("win");
-				setTimeout(() => onSuccess?.(), 1800);
+				setTimeout(() => onSuccessRef.current?.(), 1800);
 				return;
 			}
 			if (nextWrong >= MAX_WRONG) {
 				setResult("lose");
-				setTimeout(() => onFailure?.(), 1800);
+				setTimeout(() => onFailureRef.current?.(), 1800);
 			}
 		}
 	}, [
@@ -847,8 +852,6 @@ export default function HackMinigame({ seed, onSuccess, onFailure }: Props) {
 		wrongCount,
 		result,
 		allLetters,
-		onSuccess,
-		onFailure,
 	]);
 
 	// Cipher key sorted by glyph frequency (most common first)
@@ -894,7 +897,7 @@ export default function HackMinigame({ seed, onSuccess, onFailure }: Props) {
       `}</style>
 
 			<div
-				className="fixed inset-0 z-50 flex items-center justify-center select-none"
+				className="fixed inset-0 z-[3000] flex items-center justify-center select-none"
 				style={{ background: "rgba(0,0,0,0.80)" }}
 			>
 				<div
