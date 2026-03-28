@@ -53,7 +53,12 @@ import {
 	computeIncidentRollOutcome,
 	type DispatchRollBreakdown,
 } from "@/lib/incidentRoll";
-import { getTimerSlowdownMultiplier, getPoliceSlowdownMultiplier, rollScavengerSalvage, getRapidResponseBonus } from "@/lib/successModifiers";
+import {
+	getTimerSlowdownMultiplier,
+	getPoliceSlowdownMultiplier,
+	rollScavengerSalvage,
+	getRapidResponseBonus,
+} from "@/lib/successModifiers";
 import VettingMinigameModal from "@/components/game/VettingMinigameModal";
 import {
 	getSessionMarkers,
@@ -257,6 +262,8 @@ type GameState = {
 		incidentId: string;
 		difficulty: number;
 	} | null;
+	/** Reputation (0-100) */
+	reputation: number;
 };
 
 const CENTER: LatLngTuple = [40.7128, -74.006];
@@ -830,12 +837,12 @@ function makeIncidentIcon(
 	const fontSize = isResolved ? 16 : Math.round((16 * size) / 28);
 
 	const html = `<div style="
-		width:${size}px;height:${size}px;border-radius:999px;
-		border:${borderW}px solid ${border};background:${bg};
-		display:flex;align-items:center;justify-content:center;
-		color:${baseColor};font-weight:800;font-size:${fontSize};
-		text-shadow:0 0 4px rgba(0,0,0,0.9);
-		box-shadow:${glow};">!</div>`;
+    width:${size}px;height:${size}px;border-radius:999px;
+    border:${borderW}px solid ${border};background:${bg};
+    display:flex;align-items:center;justify-content:center;
+    color:${baseColor};font-weight:800;font-size:${fontSize};
+    text-shadow:0 0 4px rgba(0,0,0,0.9);
+    box-shadow:${glow};">!</div>`;
 
 	const classes = ["vigilante-incident-icon"];
 	if (pulse) classes.push("vigilante-incident-icon-pulse");
@@ -869,33 +876,33 @@ function makeCharacterIcon(initial: string, kind: CharacterKind) {
 					};
 
 	const html = `<div style="
-		width:44px;
-		height:44px;
-		display:flex;
-		align-items:center;
-		justify-content:center;
-		border-radius:999px;
-		background:transparent;
-		cursor:pointer;
-		pointer-events:auto;
-	">
-		<div style="
-			width:30px;
-			height:30px;
-			border-radius:999px;
-			border:2px solid ${palette.border};
-			background:${palette.bg};
-			display:flex;
-			align-items:center;
-			justify-content:center;
-			color:${palette.text};
-			font-weight:800;
-			font-size:14px;
-			text-shadow:0 0 4px rgba(0,0,0,0.8);
-			box-shadow:0 0 14px rgba(0,0,0,0.85);
-			pointer-events:none;
-		">${initial}</div>
-	</div>`;
+    width:44px;
+    height:44px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    border-radius:999px;
+    background:transparent;
+    cursor:pointer;
+    pointer-events:auto;
+  ">
+    <div style="
+      width:30px;
+      height:30px;
+      border-radius:999px;
+      border:2px solid ${palette.border};
+      background:${palette.bg};
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      color:${palette.text};
+      font-weight:800;
+      font-size:14px;
+      text-shadow:0 0 4px rgba(0,0,0,0.8);
+      box-shadow:0 0 14px rgba(0,0,0,0.85);
+      pointer-events:none;
+    ">${initial}</div>
+  </div>`;
 
 	return L.divIcon({
 		html,
@@ -907,32 +914,32 @@ function makeCharacterIcon(initial: string, kind: CharacterKind) {
 
 function makeRecruitIcon(initial: string) {
 	const html = `<div style="
-		width:44px;
-		height:44px;
-		display:flex;
-		align-items:center;
-		justify-content:center;
-		border-radius:999px;
-		background:transparent;
-		pointer-events:none;
-	">
-		<div style="
-			width:34px;
-			height:34px;
-			border-radius:999px;
-			border:2px solid #b45309;
-			background:rgba(120,53,15,0.86);
-			display:flex;
-			align-items:center;
-			justify-content:center;
-			color:#fde68a;
-			font-weight:800;
-			font-size:15px;
-			text-shadow:0 0 4px rgba(0,0,0,0.85);
-			box-shadow:0 0 18px rgba(120,53,15,0.55);
-			pointer-events:none;
-		">${initial}</div>
-	</div>`;
+    width:44px;
+    height:44px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    border-radius:999px;
+    background:transparent;
+    pointer-events:none;
+  ">
+    <div style="
+      width:34px;
+      height:34px;
+      border-radius:999px;
+      border:2px solid #b45309;
+      background:rgba(120,53,15,0.86);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      color:#fde68a;
+      font-weight:800;
+      font-size:15px;
+      text-shadow:0 0 4px rgba(0,0,0,0.85);
+      box-shadow:0 0 18px rgba(120,53,15,0.55);
+      pointer-events:none;
+    ">${initial}</div>
+  </div>`;
 
 	return L.divIcon({
 		html,
@@ -944,21 +951,21 @@ function makeRecruitIcon(initial: string) {
 
 function makeTheftSiteIcon() {
 	const html = `<div style="
-		width:36px;
-		height:36px;
-		border-radius:12px;
-		border:2px solid #7c3aed;
-		background:rgba(76,29,149,0.9);
-		display:flex;
-		align-items:center;
-		justify-content:center;
-		color:#f5d0fe;
-		font-weight:800;
-		font-size:17px;
-		text-shadow:0 0 4px rgba(0,0,0,0.85);
-		box-shadow:0 0 18px rgba(124,58,237,0.45);
-		cursor:pointer;
-	">▣</div>`;
+    width:36px;
+    height:36px;
+    border-radius:12px;
+    border:2px solid #7c3aed;
+    background:rgba(76,29,149,0.9);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    color:#f5d0fe;
+    font-weight:800;
+    font-size:17px;
+    text-shadow:0 0 4px rgba(0,0,0,0.85);
+    box-shadow:0 0 18px rgba(124,58,237,0.45);
+    cursor:pointer;
+  ">▣</div>`;
 
 	return L.divIcon({
 		html,
@@ -1507,6 +1514,7 @@ function initialState(): GameState {
 			sessionStartTime: Date.now(),
 		},
 		activeMinigame: null,
+		reputation: 100,
 	};
 }
 
@@ -1659,6 +1667,10 @@ function loadState(saveKey: string): GameState {
 				: [],
 			achievementProgress,
 			activeMinigame: null,
+			reputation:
+				typeof p.reputation === "number"
+					? Math.max(0, Math.min(100, p.reputation))
+					: 50,
 		};
 	} catch {
 		return initialState();
@@ -1706,6 +1718,30 @@ export default function StreetMapScene({
 		open: false,
 		capturedIds: [],
 	});
+
+	// Reputation loss notifications (floating text)
+	type ReputationNotification = {
+		id: number;
+		amount: number;
+		timestamp: number;
+	};
+
+	const [repNotifications, setRepNotifications] = useState<ReputationNotification[]>([]);
+
+	// Helper to trigger reputation loss animation
+	const triggerReputationLoss = useCallback((amount: number) => {
+		if (amount <= 0) return; // Only show for losses
+		console.log(`[Reputation] Lost ${amount} reputation - triggering animation`);
+		const id = Date.now() + Math.random();
+		setRepNotifications((prev) => [
+			...prev,
+			{ id, amount, timestamp: Date.now() },
+		]);
+		// Auto-remove after animation completes (3s)
+		setTimeout(() => {
+			setRepNotifications((prev) => prev.filter((n) => n.id !== id));
+		}, 3000);
+	}, []);
 
 	// Achievement tracking
 	const achievements = useAchievements(state, setState);
@@ -2454,7 +2490,12 @@ export default function StreetMapScene({
 			selectedIncidentId:
 				s.selectedIncidentId === id ? null : s.selectedIncidentId,
 			incidents: s.incidents.filter((i) => i.id !== id),
+			// Reputation penalty for letting an incident expire
+			reputation: Math.max(0, s.reputation - 25),
 		}));
+
+		// Trigger animation for reputation loss
+		triggerReputationLoss(25);
 	};
 
 	const handleIncidentSelect = (id: string) => {
@@ -2791,7 +2832,12 @@ export default function StreetMapScene({
 			showIncidentPanel: true,
 			showMinigamePanel: false,
 			showPolicePanel: false,
+			// Reputation penalty for theft
+			reputation: Math.max(0, s.reputation - 25),
 		}));
+
+		// Trigger animation for reputation loss
+		triggerReputationLoss(25);
 
 		if (mode === "multiplayer" && sessionId) {
 			void insertSessionMarker({
@@ -2908,6 +2954,8 @@ export default function StreetMapScene({
 				}
 			}
 			const missionCredits = rollOutcome.success ? 80 : 20;
+			// Reputation change: -33 on failure, 0 on success
+			const reputationDelta = rollOutcome.success ? 0 : -33;
 			return {
 				...s,
 				resourcePool: pool,
@@ -2954,8 +3002,17 @@ export default function StreetMapScene({
 							}
 						: x,
 				),
+				reputation: Math.max(
+					0,
+					Math.min(100, s.reputation + reputationDelta),
+				),
 			};
 		});
+
+		// Trigger animation for reputation loss
+		if (!rollOutcome.success) {
+			triggerReputationLoss(33);
+		}
 	};
 
 	const handleMinigameSuccess = () => {
@@ -3053,7 +3110,10 @@ export default function StreetMapScene({
 			vigilantes: assignedVigs.map((v) => ({ stats: v.stats })),
 			resourceIds: payload.resourceIds,
 			buffIds: state.purchasedUpgradeIds,
-			flatBonusPercent: getRapidResponseBonus(state.purchasedUpgradeIds, inc.createdAt),
+			flatBonusPercent: getRapidResponseBonus(
+				state.purchasedUpgradeIds,
+				inc.createdAt,
+			),
 		});
 
 		const minigame = getMinigameForIncident(inc);
@@ -3176,6 +3236,9 @@ export default function StreetMapScene({
 					missionCredits,
 				);
 
+				// Reputation change: -33 on failure, 0 on success
+				const reputationDelta = rollOutcome.success ? 0 : -33;
+
 				return {
 					...s,
 					resourcePool: pool,
@@ -3228,8 +3291,17 @@ export default function StreetMapScene({
 								}
 							: x,
 					),
+					reputation: Math.max(
+						0,
+						Math.min(100, s.reputation + reputationDelta),
+					),
 				};
 			});
+
+			// Trigger animation for reputation loss
+			if (!rollOutcome.success) {
+				triggerReputationLoss(33);
+			}
 
 			setChanceRollOverlay((prev) =>
 				prev && prev.incidentId === id
@@ -3476,13 +3548,16 @@ export default function StreetMapScene({
 			const s = stateForExpiryRef.current;
 
 			// Calculate timer slowdown from noir_focus buff
-			const slowdownMultiplier = getTimerSlowdownMultiplier(s.purchasedUpgradeIds);
+			const slowdownMultiplier = getTimerSlowdownMultiplier(
+				s.purchasedUpgradeIds,
+			);
 
 			if (mode === "multiplayer" && sessionId) {
 				const expiredIds = s.incidents
 					.filter((i) => {
 						if (i.status !== "active") return false;
-						const elapsedAdjusted = (now - i.createdAt) * slowdownMultiplier;
+						const elapsedAdjusted =
+							(now - i.createdAt) * slowdownMultiplier;
 						const targetDuration = i.expiresAt - i.createdAt;
 						return elapsedAdjusted >= targetDuration;
 					})
@@ -3507,7 +3582,8 @@ export default function StreetMapScene({
 					prev.incidents
 						.filter((i) => {
 							if (i.status !== "active") return false;
-							const elapsedAdjusted = (now - i.createdAt) * slowdownMultiplier;
+							const elapsedAdjusted =
+								(now - i.createdAt) * slowdownMultiplier;
 							const targetDuration = i.expiresAt - i.createdAt;
 							return elapsedAdjusted >= targetDuration;
 						})
@@ -3524,6 +3600,11 @@ export default function StreetMapScene({
 					expiredRecruitIds.size === 0
 				) {
 					return prev;
+				}
+
+				// Trigger animation for reputation loss from expired incidents
+				if (expiredIncidentIds.size > 0) {
+					triggerReputationLoss(expiredIncidentIds.size * 25);
 				}
 
 				return {
@@ -3548,8 +3629,15 @@ export default function StreetMapScene({
 										expiredIncidentIds.size,
 								}
 							: prev.careerStats,
+					// Reputation penalty for expiration handled in expireIncident, but this bypasses that.
+					// We'll add reputation penalty here for consistency.
+					reputation: Math.max(
+						0,
+						prev.reputation - expiredIncidentIds.size * 25,
+					),
 				};
 			});
+
 			if (
 				selectedRecruitLeadId &&
 				!stateForExpiryRef.current.recruitLeads.some(
@@ -3718,90 +3806,118 @@ export default function StreetMapScene({
 	return (
 		<div className="fixed inset-0">
 			<style>{`
-				.vigilante-leaflet .leaflet-tile {
-					filter: brightness(0.55) saturate(0.7) hue-rotate(200deg);
-					transition: none !important;
-					opacity: 1 !important;
-				}
-				.vigilante-leaflet .leaflet-tile-container {
-					opacity: 1 !important;
-					transition: none !important;
-				}
-				.vigilante-leaflet { background: #05070a !important; }
-				.vigilante-incident-icon,
-				.vigilante-character-icon,
-				.vigilante-recruit-icon,
-				.vigilante-theftsite-icon { background: none; border: none; }
-				.vigilante-hide-scrollbar::-webkit-scrollbar { display: none; }
-				.vigilante-hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-				.leaflet-pane.characterPane { z-index: 820 !important; }
-				.leaflet-pane.incidentPane { z-index: 940 !important; }
-				.leaflet-pane.recruitPane { z-index: 960 !important; }
-				.leaflet-pane.theftSitePane { z-index: 900 !important; }
-				.leaflet-marker-icon.vigilante-character-icon,
-				.leaflet-marker-icon.vigilante-recruit-icon,
-				.leaflet-marker-icon.vigilante-theftsite-icon {
-					pointer-events: auto !important;
-				}
+        .vigilante-leaflet .leaflet-tile {
+          filter: brightness(0.55) saturate(0.7) hue-rotate(200deg);
+          transition: none !important;
+          opacity: 1 !important;
+        }
+        .vigilante-leaflet .leaflet-tile-container {
+          opacity: 1 !important;
+          transition: none !important;
+        }
+        .vigilante-leaflet { background: #05070a !important; }
+        .vigilante-incident-icon,
+        .vigilante-character-icon,
+        .vigilante-recruit-icon,
+        .vigilante-theftsite-icon { background: none; border: none; }
+        .vigilante-hide-scrollbar::-webkit-scrollbar { display: none; }
+        .vigilante-hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .leaflet-pane.characterPane { z-index: 820 !important; }
+        .leaflet-pane.incidentPane { z-index: 940 !important; }
+        .leaflet-pane.recruitPane { z-index: 960 !important; }
+        .leaflet-pane.theftSitePane { z-index: 900 !important; }
+        .leaflet-marker-icon.vigilante-character-icon,
+        .leaflet-marker-icon.vigilante-recruit-icon,
+        .leaflet-marker-icon.vigilante-theftsite-icon {
+          pointer-events: auto !important;
+        }
 
-				.vigilante-character-icon > div,
-				.vigilante-character-icon > div > div,
-				.vigilante-recruit-icon > div,
-				.vigilante-recruit-icon > div > div,
-				.vigilante-theftsite-icon > div,
-				.vigilante-theftsite-icon > div > div {
-					cursor: pointer !important;
-					pointer-events: none !important;
-				}
-				@keyframes vigilante-pulse-soft {
-					0%   { box-shadow: 0 0 0 0 rgba(185,28,28,0.35); }
-					60%  { box-shadow: 0 0 0 10px rgba(185,28,28,0); }
-					100% { box-shadow: 0 0 0 12px rgba(185,28,28,0); }
-				}
-				@keyframes vigilante-pulse-selected {
-					0%   { box-shadow: 0 0 0 0 rgba(185,28,28,0.35), 0 0 16px rgba(0,0,0,0.9); }
-					60%  { box-shadow: 0 0 0 14px rgba(185,28,28,0), 0 0 16px rgba(0,0,0,0.9); }
-					100% { box-shadow: 0 0 0 16px rgba(185,28,28,0), 0 0 16px rgba(0,0,0,0.9); }
-				}
-				.vigilante-incident-icon-pulse > div {
-					animation-name: vigilante-pulse-soft;
-					animation-duration: 2.2s;
-					animation-timing-function: cubic-bezier(0.25, 0.1, 0.25, 1);
-					animation-iteration-count: infinite;
-					will-change: box-shadow;
-				}
-				.vigilante-incident-icon-pulse.vigilante-incident-icon-selected > div {
-					animation-name: vigilante-pulse-selected;
-					animation-duration: 2s;
-					animation-timing-function: cubic-bezier(0.25, 0.1, 0.25, 1);
-					animation-iteration-count: infinite;
-					will-change: box-shadow;
-				}
-				@keyframes vigilante-incident-fade-in {
-					from { opacity: 0; transform: scale(0.88); }
-					to { opacity: 1; transform: scale(1); }
-				}
-				.vigilante-incident-icon-fade-in > div {
-					animation: vigilante-incident-fade-in ${INCIDENT_MAP_FADE_S} cubic-bezier(0.2, 0.85, 0.2, 1) forwards;
-					will-change: opacity, transform;
-				}
-				.vigilante-incident-icon-fade-in.vigilante-incident-icon-pulse.vigilante-incident-icon-selected > div {
-					animation:
-						vigilante-incident-fade-in ${INCIDENT_MAP_FADE_S} cubic-bezier(0.2, 0.85, 0.2, 1) forwards,
-						vigilante-pulse-selected 2s cubic-bezier(0.25, 0.1, 0.25, 1) infinite;
-					animation-delay: 0s, ${INCIDENT_MAP_FADE_S};
-					will-change: opacity, transform, box-shadow;
-				}
-				@keyframes vigilante-incident-fade-out {
-					from { opacity: 1; transform: scale(1); }
-					to { opacity: 0; transform: scale(0.86); }
-				}
-				.vigilante-incident-icon-fade-out > div {
-					animation: vigilante-incident-fade-out ${INCIDENT_MAP_FADE_S} cubic-bezier(0.2, 0.85, 0.2, 1) forwards;
-					pointer-events: none;
-					will-change: opacity, transform;
-				}
-			`}</style>
+        .vigilante-character-icon > div,
+        .vigilante-character-icon > div > div,
+        .vigilante-recruit-icon > div,
+        .vigilante-recruit-icon > div > div,
+        .vigilante-theftsite-icon > div,
+        .vigilante-theftsite-icon > div > div {
+          cursor: pointer !important;
+          pointer-events: none !important;
+        }
+        @keyframes vigilante-pulse-soft {
+          0%   { box-shadow: 0 0 0 0 rgba(185,28,28,0.35); }
+          60%  { box-shadow: 0 0 0 10px rgba(185,28,28,0); }
+          100% { box-shadow: 0 0 0 12px rgba(185,28,28,0); }
+        }
+        @keyframes vigilante-pulse-selected {
+          0%   { box-shadow: 0 0 0 0 rgba(185,28,28,0.35), 0 0 16px rgba(0,0,0,0.9); }
+          60%  { box-shadow: 0 0 0 14px rgba(185,28,28,0), 0 0 16px rgba(0,0,0,0.9); }
+          100% { box-shadow: 0 0 0 16px rgba(185,28,28,0), 0 0 16px rgba(0,0,0,0.9); }
+        }
+        .vigilante-incident-icon-pulse > div {
+          animation-name: vigilante-pulse-soft;
+          animation-duration: 2.2s;
+          animation-timing-function: cubic-bezier(0.25, 0.1, 0.25, 1);
+          animation-iteration-count: infinite;
+          will-change: box-shadow;
+        }
+        .vigilante-incident-icon-pulse.vigilante-incident-icon-selected > div {
+          animation-name: vigilante-pulse-selected;
+          animation-duration: 2s;
+          animation-timing-function: cubic-bezier(0.25, 0.1, 0.25, 1);
+          animation-iteration-count: infinite;
+          will-change: box-shadow;
+        }
+        @keyframes vigilante-incident-fade-in {
+          from { opacity: 0; transform: scale(0.88); }
+          to { opacity: 1; transform: scale(1); }
+        }
+        .vigilante-incident-icon-fade-in > div {
+          animation: vigilante-incident-fade-in ${INCIDENT_MAP_FADE_S} cubic-bezier(0.2, 0.85, 0.2, 1) forwards;
+          will-change: opacity, transform;
+        }
+        .vigilante-incident-icon-fade-in.vigilante-incident-icon-pulse.vigilante-incident-icon-selected > div {
+          animation:
+            vigilante-incident-fade-in ${INCIDENT_MAP_FADE_S} cubic-bezier(0.2, 0.85, 0.2, 1) forwards,
+            vigilante-pulse-selected 2s cubic-bezier(0.25, 0.1, 0.25, 1) infinite;
+          animation-delay: 0s, ${INCIDENT_MAP_FADE_S};
+          will-change: opacity, transform, box-shadow;
+        }
+        @keyframes vigilante-incident-fade-out {
+          from { opacity: 1; transform: scale(1); }
+          to { opacity: 0; transform: scale(0.86); }
+        }
+        .vigilante-incident-icon-fade-out > div {
+          animation: vigilante-incident-fade-out ${INCIDENT_MAP_FADE_S} cubic-bezier(0.2, 0.85, 0.2, 1) forwards;
+          pointer-events: none;
+          will-change: opacity, transform;
+        }
+      `}</style>
+
+			{/* Reputation loss notifications */}
+			<AnimatePresence mode="pop">
+				{repNotifications.map((notif, idx) => (
+					<motion.div
+						key={notif.id}
+						initial={{ opacity: 0, scale: 0.8, y: 15 }}
+						animate={{ opacity: 1, scale: 1, y: 0 }}
+						exit={{ opacity: 0, scale: 0.9, y: -20 }}
+						transition={{
+							duration: 0.4,
+							ease: [0.25, 0.1, 0.25, 1],
+						}}
+						style={{
+							position: 'fixed',
+							left: 20,
+							top: 20 + idx * 60,
+							zIndex: 10000,
+							pointerEvents: 'none',
+						}}
+					>
+						<div className="flex items-center gap-1.5 rounded-md border border-red-900 bg-red-900/30 px-3 py-1.5 text-xs font-bold text-red-300 shadow backdrop-blur-sm">
+							<span className="text-red-200">Rep</span>
+							<span className="text-red-100 text-sm">-{notif.amount}</span>
+						</div>
+					</motion.div>
+				))}
+			</AnimatePresence>
 
 			<MapContainer
 				center={CENTER}
@@ -3852,7 +3968,9 @@ export default function StreetMapScene({
 					onPoliceEtaUpdate={setPoliceEtaItems}
 					onPoliceResolveIncident={handlePoliceResolveIncident}
 					paused={isGameplayPausedByMinigame}
-					timerSlowdownMultiplier={getPoliceSlowdownMultiplier(state.purchasedUpgradeIds)}
+					timerSlowdownMultiplier={getPoliceSlowdownMultiplier(
+						state.purchasedUpgradeIds,
+					)}
 				/>
 				<CharacterMarkers
 					pins={visibleDynamicPins}
@@ -4383,7 +4501,9 @@ export default function StreetMapScene({
 												<IncidentTimerBar
 													createdAt={inc.createdAt}
 													expiresAt={inc.expiresAt}
-													timerSlowdownMultiplier={getTimerSlowdownMultiplier(state.purchasedUpgradeIds)}
+													timerSlowdownMultiplier={getTimerSlowdownMultiplier(
+														state.purchasedUpgradeIds,
+													)}
 													onExpire={
 														isGameplayPausedByMinigame
 															? () => {}
@@ -4805,6 +4925,7 @@ export default function StreetMapScene({
 										showInventoryPanel: false,
 									}))
 								}
+								reputation={state.reputation}
 							/>
 						</motion.div>
 					) : (
@@ -4829,11 +4950,14 @@ export default function StreetMapScene({
 										showInventoryPanel: true,
 									}))
 								}
-								className="flex w-full cursor-pointer items-center justify-center gap-2 text-[11px] font-medium uppercase tracking-[0.14em] text-amber-200/75 transition-colors hover:text-amber-100"
+								className="flex w-full cursor-pointer items-center justify-center gap-3 text-[11px] font-medium uppercase tracking-[0.14em] text-amber-200/75 transition-colors hover:text-amber-100"
 								aria-expanded={false}
 								aria-label="Show inventory"
 							>
 								<span>Show inventory</span>
+								<span className="rounded-full border border-amber-900/40 bg-black/40 px-2 py-0.5 text-amber-200/80">
+									Rep: {state.reputation}
+								</span>
 								<ChevronUp
 									className="h-4 w-4 shrink-0"
 									strokeWidth={2.25}

@@ -187,6 +187,7 @@ type InventoryProps = {
 	purchasedUpgradeIds?: string[];
 	tab?: InventoryTab;
 	onTabChange?: (tab: InventoryTab) => void;
+	reputation?: number;
 };
 
 type InventoryHoverTip =
@@ -432,6 +433,7 @@ export default function Inventory({
 	purchasedUpgradeIds,
 	tab: controlledTab,
 	onTabChange,
+	reputation,
 }: InventoryProps) {
 	const [nowTick, setNowTick] = useState(() => Date.now());
 	useEffect(() => {
@@ -616,7 +618,7 @@ export default function Inventory({
 						</button>
 					)}
 
-					<div className="flex items-center gap-3 border-b border-amber-900/40 px-4 py-3">
+					<div className="flex items-center justify-between border-b border-amber-900/40 px-4 py-3">
 						<div
 							className="inline-flex items-center rounded-xl border border-amber-900/50 bg-black/30 p-1"
 							role="tablist"
@@ -667,6 +669,12 @@ export default function Inventory({
 								Buffs
 							</button>
 						</div>
+						{reputation !== undefined && (
+							<div className="flex items-center gap-2 rounded-lg border border-amber-900/40 bg-black/40 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.12em] text-amber-200/80">
+								<span>Reputation</span>
+								<span className="font-bold text-amber-100">{reputation}</span>
+							</div>
+						)}
 					</div>
 
 					<div className="relative px-3 py-3">
