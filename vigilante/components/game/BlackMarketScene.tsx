@@ -7,17 +7,50 @@ import {
 	SHOP_UPGRADES,
 	type ShopItem,
 } from "@/lib/shopCatalog";
+import {
+	FaClock,
+	FaUserNinja,
+	FaProjectDiagram,
+	FaFire,
+	FaPlusSquare,
+	FaMountain,
+	FaCar,
+	FaBoxOpen,
+	FaBolt,
+	FaUser,
+} from "react-icons/fa";
 
 type ItemCategory = "resource" | "upgrade";
 
-export type MarketPurchasePayload =
-	| { category: "resource"; itemId: string; cost: number }
-	| { category: "upgrade"; itemId: string; cost: number };
+export type MarketPurchasePayload = {
+	itemId: string;
+	cost: number;
+	category: "resource" | "upgrade";
+};
+
+/* ── Upgrade icon ── */
+function UpgradeIcon({ id, color }: { id: string; color: string }) {
+	const cls = "w-5 h-5 shrink-0";
+	const icon = (() => {
+		if (id === "b1") return <FaClock className={cls} aria-hidden />;        // Noir Focus — timer slows
+		if (id === "b2") return <FaUserNinja className={cls} aria-hidden />;    // Shadow Lag — police slow
+		if (id === "b3") return <FaProjectDiagram className={cls} aria-hidden />; // Street Network — crime
+		if (id === "b4") return <FaFire className={cls} aria-hidden />;         // Thermal Protocol — fire
+		if (id === "b5") return <FaPlusSquare className={cls} aria-hidden />;   // Vital Edge — medical
+		if (id === "b6") return <FaMountain className={cls} aria-hidden />;     // Catastrophe Stability — disaster
+		if (id === "b7") return <FaCar className={cls} aria-hidden />;          // Urban Flow — traffic
+		if (id === "b8") return <FaBoxOpen className={cls} aria-hidden />;      // Scavenger's Luck — salvage gear
+		if (id === "b9") return <FaBolt className={cls} aria-hidden />;         // Rapid Response — quick deploy
+		return <FaUser className={cls} aria-hidden />;
+	})();
+
+	return <span style={{ color }}>{icon}</span>;
+}
 
 /* ── Hash-based upgrade color ── */
 function upgradeColor(name: string): { color: string; bg: string; border: string; glow: string } {
 	let h = 0;
-	for (let i = 0; i < name.length; i++) h = (Math.imul(37, h) + name.charCodeAt(i)) | 0;
+	for (let i = 0; i < name.length; i++) h = (Math.imul(121, h) + name.charCodeAt(i)) | 0;
 	const hue = ((h >>> 0) % 360);
 	return {
 		color:  `hsl(${hue}, 90%, 72%)`,
@@ -128,7 +161,7 @@ export default function BlackMarketScene({
 
 	const buy = async (item: ShopItem) => {
 		if (saving) return;
-		if (item.category === "upgrade" && isUpgradeOwned(item.id)) return;
+		if (isUpgradeOwned(item.id)) return;
 		if (credits < item.cost) {
 			setNotification("Insufficient funds.");
 			setTimeout(() => setNotification(null), 1800);
@@ -136,7 +169,11 @@ export default function BlackMarketScene({
 		}
 		setSaving(true);
 		try {
-			await onPurchase({ category: item.category, itemId: item.id, cost: item.cost });
+			await onPurchase({
+				itemId: item.id,
+				cost: item.cost,
+				category: "category" in item ? item.category : "upgrade",
+			});
 			setFlash(item.id);
 			setNotification(`Acquired: ${item.name}`);
 			setTimeout(() => setFlash(null), 600);
@@ -211,7 +248,6 @@ export default function BlackMarketScene({
 
 						<div className={`h-8 w-px transition-colors ${dur} ${isUpgrades ? "bg-cyan-800/30" : "bg-green-800/30"}`} />
 
-						{/* Balance — sits in-line with header panel */}
 						<div className="shrink-0">
 							<div className={`text-[10px] uppercase tracking-[0.22em] transition-colors ${dur} ${accentLabel}`}>
 								Balance
@@ -251,6 +287,7 @@ export default function BlackMarketScene({
 							const maxed = isUpgradeOwned(item.id);
 							const canAfford = credits >= item.cost;
 							const isFlashing = flash === item.id;
+							const iconColor = maxed ? "rgba(255,255,255,0.18)" : col.color;
 
 							return (
 								<div
@@ -262,13 +299,15 @@ export default function BlackMarketScene({
 										boxShadow:   maxed ? "none" : `0 0 28px 0 ${col.glow}`,
 									}}
 								>
+									{/* Name row with icon */}
 									<div
-										className="text-base font-bold mb-2"
+										className="flex items-center gap-2.5 text-base font-bold mb-2"
 										style={{ color: maxed ? "rgba(255,255,255,0.25)" : col.color }}
 									>
-										{item.name}
+										<UpgradeIcon id={item.id} color={iconColor} />
+										<span>{item.name}</span>
 										{maxed && (
-											<span className="ml-3 text-[10px] uppercase tracking-[0.18em] text-white/25">
+											<span className="ml-1 text-[10px] uppercase tracking-[0.18em] text-white/25">
 												Owned
 											</span>
 										)}

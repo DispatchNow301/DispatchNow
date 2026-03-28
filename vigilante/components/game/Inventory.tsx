@@ -17,12 +17,15 @@ import { AnimatePresence, motion } from "framer-motion";
 import { AlertTriangle, Ban, Check, ChevronDown, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
+	FaClock,
+	FaGhost,
+	FaProjectDiagram,
+	FaFire,
+	FaPlusSquare,
+	FaMountain,
+	FaCar,
+	FaBoxOpen,
 	FaBolt,
-	FaBroadcastTower,
-	FaHeart,
-	FaShieldAlt,
-	FaBullseye,
-	FaDollarSign,
 	FaUser,
 } from "react-icons/fa";
 import type { ResourcePoolEntry } from "@/lib/resourcePool";
@@ -36,25 +39,18 @@ type VigilanteItem = {
 	id: string;
 	name: string;
 	status: VigilanteStatus;
-	/**
-	 * Public URL or bundled image `src` (from `vigilante.ts` / `public/characters`).
-	 * If missing or load fails, the default user icon is shown.
-	 */
 	portraitSrc?: string;
-	/** When set, post-incident injury recovery — cannot deploy until this time (ms). */
 	injuredUntilMs?: number;
 };
 
 type ResourceItem = {
 	id: string;
 	name: string;
-	/** One short sentence for hover tooltip only */
 	summary: string;
 	qty: number;
 	status: ResourceStatus;
 };
 
-/** Same shape as resources — buffs grid uses qty badge + status the same way */
 type BuffItem = {
 	id: string;
 	name: string;
@@ -83,7 +79,6 @@ function sheetToVigilanteItem(s: VigilanteSheet): VigilanteItem {
 	};
 }
 
-/** Stable ordering so server + first client paint match (hydration-safe). */
 function stableFiveFromSheets(sheets: VigilanteSheet[]): VigilanteItem[] {
 	return [...sheets]
 		.sort((a, b) => a.id.localeCompare(b.id))
@@ -97,7 +92,6 @@ type VigilanteSlot =
 	| { kind: "filled"; item: VigilanteItem }
 	| { kind: "empty"; index: number };
 
-/** Home-base roster: up to 5 owned vigilantes (sorted by id), rest empty slots. */
 function buildHomeBaseVigilanteSlots(
 	ownedIds: string[],
 	sheets: VigilanteSheet[],
@@ -126,7 +120,6 @@ const TAB_ORDER: Record<InventoryTab, number> = {
 	buffs: 2,
 };
 
-/** Compact countdown for injured tooltip (no prose, no “ready”). */
 function recoveryCountdownShort(untilMs: number, now: number): string {
 	const s = Math.max(0, Math.ceil((untilMs - now) / 1000));
 	const m = Math.floor(s / 60);
@@ -135,7 +128,6 @@ function recoveryCountdownShort(untilMs: number, now: number): string {
 	return `${sec}s`;
 }
 
-/** Neutral tile; status colour only on the small corner circle */
 const VIGILANTE_TILE_NEUTRAL =
 	"border-amber-900/45 bg-black/35 text-amber-200/85 hover:bg-black/45";
 
@@ -173,7 +165,6 @@ function vigilanteStatusUi(status: VigilanteStatus): {
 	}
 }
 
-/** 1 = tab index increased (panel enters from right); -1 = decreased. Small px slide — no full-width sweep. */
 const TAB_SLIDE_PX = 28;
 
 const tabPanelVariants = {
@@ -190,23 +181,11 @@ const tabPanelVariants = {
 
 type InventoryProps = {
 	onHide?: () => void;
-	/** When set, resource/buff quantities reflect pool − deployed (from map game state). */
 	resourcePool?: Record<string, ResourcePoolEntry>;
-	/**
-	 * Roster on the map (home base). When set, the Vigilantes tab shows exactly 5
-	 * slots: owned characters + grey empty slots until 5.
-	 */
 	ownedVigilanteIds?: string[];
-	/** Post-incident injury: id → recovery time (ms). Drives injured status + deploy lock. */
 	vigilanteInjuryUntil?: Record<string, number>;
-	/**
-	 * Buff ids unlocked (e.g. shop). Omitted = show full catalog (demo / legacy).
-	 * When set, Buffs tab only lists purchased entries; stock still comes from `resourcePool`.
-	 */
 	purchasedUpgradeIds?: string[];
-	/** Controlled active tab (for tab persistence across open/close). */
 	tab?: InventoryTab;
-	/** Called when user switches tabs. */
 	onTabChange?: (tab: InventoryTab) => void;
 };
 
@@ -224,7 +203,6 @@ function VigilantePortrait({
 }) {
 	const [failed, setFailed] = useState(false);
 
-	// Tab + motion can abort loads; reset so we don’t stay stuck on the fallback.
 	useEffect(() => {
 		setFailed(false);
 	}, [portraitSrc]);
@@ -235,7 +213,6 @@ function VigilantePortrait({
 		return <FaUser className={tileIconClass} aria-hidden />;
 	}
 
-	/* Native <img>: Next/Image + Framer opacity/transform sometimes leaves a blank layer after tab changes. */
 	return (
 		<img
 			src={portraitSrc}
@@ -248,8 +225,6 @@ function VigilantePortrait({
 	);
 }
 
-/** Derived from SHOP_RESOURCES — single source of truth for item names/descriptions.
- *  qty is always 0 here; live quantities always come from resourcePool in the game. */
 const BASE_RESOURCES: ResourceItem[] = SHOP_RESOURCES.map((r) => ({
 	id: r.id,
 	name: r.name,
@@ -441,8 +416,6 @@ function InventoryVigilanteDossierPane({
 	);
 }
 
-/** Derived from SHOP_UPGRADES — single source of truth for buff names/descriptions.
- *  qty is always 1 here; live quantities always come from resourcePool in the game. */
 const BASE_BUFFS: BuffItem[] = SHOP_UPGRADES.map((u) => ({
 	id: u.id,
 	name: u.name,
@@ -466,7 +439,6 @@ export default function Inventory({
 		return () => clearInterval(id);
 	}, []);
 
-	// Controlled/uncontrolled tab pattern
 	const [internalTab, setInternalTab] = useState<InventoryTab>("vigilantes");
 	const isControlled = controlledTab !== undefined;
 	const tab = isControlled ? controlledTab : internalTab;
@@ -482,13 +454,9 @@ export default function Inventory({
 	const [slideDir, setSlideDir] = useState<1 | -1>(1);
 	const [hoverTip, setHoverTip] = useState<InventoryHoverTip | null>(null);
 	const [tipPos, setTipPos] = useState({ left: 0, top: 0 });
-	/** Only bumps when navigating *to* the Vigilantes tab from another tab — unique AnimatePresence key (not roster edits). */
 	const [vigilantePanelMountId, setVigilantePanelMountId] = useState(0);
-	/** Bumps when re-entering Vigilantes or roster changes so portrait <img> nodes remount (avoids blank tiles). */
 	const [vigilantePortraitEpoch, setVigilantePortraitEpoch] = useState(0);
-	const [dossierSheet, setDossierSheet] = useState<VigilanteSheet | null>(
-		null,
-	);
+	const [dossierSheet, setDossierSheet] = useState<VigilanteSheet | null>(null);
 
 	const updateTipPos = useCallback((el: HTMLElement) => {
 		if (!el.isConnected) {
@@ -518,8 +486,6 @@ export default function Inventory({
 	const handleTabChange = (next: InventoryTab) => {
 		if (next === tab) return;
 		setSlideDir(TAB_ORDER[next] > TAB_ORDER[tab] ? 1 : -1);
-		// Must bump in the same commit as `tab` — useEffect ran one frame late, so keys
-		// stayed e.g. `*-0` on first paint and matched the initial mount (blank img layer).
 		if (next === "vigilantes" && tab !== "vigilantes") {
 			setVigilantePanelMountId((n) => n + 1);
 			setVigilantePortraitEpoch((n) => n + 1);
@@ -527,14 +493,10 @@ export default function Inventory({
 		setTab(next);
 	};
 
-	/** Home-base roster row, or catalog demo when `ownedVigilanteIds` is omitted. */
 	const vigilanteSlots: VigilanteSlot[] = useMemo(() => {
 		const base =
 			ownedVigilanteIds !== undefined
-				? buildHomeBaseVigilanteSlots(
-						ownedVigilanteIds,
-						vigilanteSheets,
-					)
+				? buildHomeBaseVigilanteSlots(ownedVigilanteIds, vigilanteSheets)
 				: stableFiveFromSheets(vigilanteSheets).map((item) => ({
 						kind: "filled" as const,
 						item,
@@ -568,8 +530,7 @@ export default function Inventory({
 		return BASE_RESOURCES.map((r) => {
 			const p = resourcePool[r.id];
 			const available = p ? Math.max(0, p.qty - p.deployed) : 0;
-			const status: ResourceStatus =
-				available <= 0 ? "cooldown" : "ready";
+			const status: ResourceStatus = available <= 0 ? "cooldown" : "ready";
 			return { ...r, qty: available, status };
 		});
 	}, [resourcePool]);
@@ -583,44 +544,29 @@ export default function Inventory({
 		return catalog.map((b) => {
 			const p = resourcePool[b.id];
 			const available = p ? Math.max(0, p.qty - p.deployed) : b.qty;
-			const status: ResourceStatus =
-				available <= 0 ? "cooldown" : "ready";
+			const status: ResourceStatus = available <= 0 ? "cooldown" : "ready";
 			return { ...b, qty: available, status };
 		});
 	}, [resourcePool, purchasedUpgradeIds]);
 
 	const tileIconClass = "w-[1.25rem] h-[1.25rem] sm:w-6 sm:h-6 md:w-7 md:h-7";
-
-	/** Larger icons for 5 vigilantes only; same min-height as other tabs so the panel doesn’t jump. */
 	const vigilanteTileClass =
 		"h-16 w-16 shrink-0 cursor-pointer rounded-3xl border transition-colors sm:h-[4.75rem] sm:w-[4.75rem] md:h-24 md:w-24";
-
 	const vigilantePortraitIconClass =
 		"w-8 h-8 sm:w-10 sm:h-10 md:w-11 md:h-11 text-amber-200/85";
-
-	/** Two rows of tiles + gap — matches 10-item grids so Buffs (fewer items) doesn’t shrink the panel.
-	 *  Equal py clears resource/buff qty (top) and vigilante status (bottom); min-h includes vertical padding (border-box). */
 	const inventoryGridClass =
 		"grid grid-cols-5 content-start gap-1.5 sm:gap-2.5 py-2 sm:py-2.5 min-h-[calc(6.375rem+1rem)] sm:min-h-[calc(7.625rem+1.25rem)] md:min-h-[calc(8.625rem+1.25rem)]";
-
-	/** `content-center` + `items-center`: vigilante row sits vertically centered in the panel (same min-h as other tabs). */
 	const vigilanteGridClass =
 		"grid grid-cols-5 content-center items-center justify-items-center gap-2.5 sm:gap-3.5 py-2 sm:py-2.5 min-h-[calc(6.375rem+1rem)] sm:min-h-[calc(7.625rem+1.25rem)] md:min-h-[calc(8.625rem+1.25rem)]";
 
-	const showVigilanteTip = (
-		e: React.MouseEvent<HTMLElement>,
-		item: VigilanteItem,
-	) => {
+	const showVigilanteTip = (e: React.MouseEvent<HTMLElement>, item: VigilanteItem) => {
 		const el = e.currentTarget;
 		const r = el.getBoundingClientRect();
 		setTipPos({ left: r.left + r.width / 2, top: r.top - 10 });
 		setHoverTip({ kind: "v", item, el });
 	};
 
-	const showResourceTip = (
-		e: React.MouseEvent<HTMLElement>,
-		item: ResourceItem,
-	) => {
+	const showResourceTip = (e: React.MouseEvent<HTMLElement>, item: ResourceItem) => {
 		const el = e.currentTarget;
 		const r = el.getBoundingClientRect();
 		setTipPos({ left: r.left + r.width / 2, top: r.top - 10 });
@@ -638,14 +584,15 @@ export default function Inventory({
 
 	const buffIcon = (id: BuffItem["id"]) => {
 		const cls = tileIconClass;
-		if (id === "b1") return <FaBolt className={cls} aria-hidden />;
-		if (id === "b2")
-			return <FaBroadcastTower className={cls} aria-hidden />;
-		if (id === "b3") return <FaHeart className={cls} aria-hidden />;
-		if (id === "b4") return <FaBullseye className={cls} aria-hidden />;
-		if (id === "b5") return <FaShieldAlt className={cls} aria-hidden />;
-		if (id === "b6") return <FaShieldAlt className={cls} aria-hidden />;
-		if (id === "b7") return <FaDollarSign className={cls} aria-hidden />;
+		if (id === "b1") return <FaClock className={cls} aria-hidden />;
+		if (id === "b2") return <FaGhost className={cls} aria-hidden />;
+		if (id === "b3") return <FaProjectDiagram className={cls} aria-hidden />;
+		if (id === "b4") return <FaFire className={cls} aria-hidden />;
+		if (id === "b5") return <FaPlusSquare className={cls} aria-hidden />;
+		if (id === "b6") return <FaMountain className={cls} aria-hidden />;
+		if (id === "b7") return <FaCar className={cls} aria-hidden />;
+		if (id === "b8") return <FaBoxOpen className={cls} aria-hidden />;
+		if (id === "b9") return <FaBolt className={cls} aria-hidden />;
 		return <FaUser className={cls} aria-hidden />;
 	};
 
@@ -689,10 +636,7 @@ export default function Inventory({
 							>
 								Vigilantes
 							</button>
-							<span
-								className="mx-0.5 h-5 w-px shrink-0 bg-amber-200/5 sm:h-6"
-								aria-hidden
-							/>
+							<span className="mx-0.5 h-5 w-px shrink-0 bg-amber-200/5 sm:h-6" aria-hidden />
 							<button
 								id="inventory-tab-resources"
 								type="button"
@@ -707,10 +651,7 @@ export default function Inventory({
 							>
 								Resources
 							</button>
-							<span
-								className="mx-0.5 h-5 w-px shrink-0 bg-amber-200/5 sm:h-6"
-								aria-hidden
-							/>
+							<span className="mx-0.5 h-5 w-px shrink-0 bg-amber-200/5 sm:h-6" aria-hidden />
 							<button
 								id="inventory-tab-buffs"
 								type="button"
@@ -729,18 +670,9 @@ export default function Inventory({
 					</div>
 
 					<div className="relative px-3 py-3">
-						{/* Grid stack: exiting + entering panels share one cell so sync mode doesn’t leave a blank gap.
-					    Equal py/px inset so resource/buff qty & vigilante status badges aren’t clipped */}
 						<div className="grid grid-cols-1 overflow-hidden px-1 py-2.5 *:col-start-1 *:row-start-1 *:min-w-0 sm:px-1.5 sm:py-3">
-							<AnimatePresence
-								initial={false}
-								mode="sync"
-								custom={slideDir}
-							>
+							<AnimatePresence initial={false} mode="sync" custom={slideDir}>
 								<motion.div
-									// Same key "vigilantes" on every re-entry lets Framer reuse the panel;
-									// opacity/transform can stick wrong so portraits vanish. Mount id only
-									// bumps on tab navigation, not on roster updates (see portrait epoch).
 									key={
 										tab === "vigilantes"
 											? `vigilantes-${vigilantePanelMountId}`
@@ -754,14 +686,12 @@ export default function Inventory({
 									animate="center"
 									exit="exit"
 									transition={{
-										// Spring for position — soft settle, no bounce
 										x: {
 											type: "spring",
 											stiffness: 260,
 											damping: 52,
 											mass: 0.95,
 										},
-										// Tween for opacity — smooth fade (springs can wobble opacity)
 										opacity: {
 											duration: 0.4,
 											ease: [0.22, 1, 0.36, 1],
@@ -791,9 +721,7 @@ export default function Inventory({
 													);
 												}
 												const v = slot.item;
-												const st = vigilanteStatusUi(
-													v.status,
-												);
+												const st = vigilanteStatusUi(v.status);
 												const StatusIcon = st.Icon;
 												return (
 													<div
@@ -804,55 +732,31 @@ export default function Inventory({
 															type="button"
 															className={`group relative m-0 flex items-center justify-center p-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/35 ${vigilanteTileClass} ${VIGILANTE_TILE_NEUTRAL}`}
 															aria-label={`${v.name}, ${st.shortLabel}. Open dossier.`}
-															onMouseEnter={(e) =>
-																showVigilanteTip(
-																	e,
-																	v,
-																)
-															}
-															onMouseLeave={
-																hideInventoryTip
-															}
+															onMouseEnter={(e) => showVigilanteTip(e, v)}
+															onMouseLeave={hideInventoryTip}
 															onClick={() => {
 																hideInventoryTip();
-																const full =
-																	vigilanteSheets.find(
-																		(s) =>
-																			s.id ===
-																			v.id,
-																	);
-																if (full)
-																	setDossierSheet(
-																		full,
-																	);
+																const full = vigilanteSheets.find((s) => s.id === v.id);
+																if (full) setDossierSheet(full);
 															}}
 														>
 															<div className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-3xl">
 																<div className="relative flex h-full w-full items-center justify-center">
 																	<VigilantePortrait
 																		key={`${v.id}-${vigilantePortraitEpoch}`}
-																		portraitSrc={
-																			v.portraitSrc
-																		}
-																		tileIconClass={
-																			vigilantePortraitIconClass
-																		}
+																		portraitSrc={v.portraitSrc}
+																		tileIconClass={vigilantePortraitIconClass}
 																	/>
 																</div>
 															</div>
-
 															<div
 																className={`absolute -right-1 -bottom-1 z-10 flex size-6 shrink-0 items-center justify-center rounded-full border sm:size-7 ${st.badgeClass}`}
 																aria-hidden
-																title={
-																	st.shortLabel
-																}
+																title={st.shortLabel}
 															>
 																<StatusIcon
 																	className={`h-3 w-3 sm:h-3.5 sm:w-3.5 ${st.iconClass}`}
-																	strokeWidth={
-																		2.75
-																	}
+																	strokeWidth={2.75}
 																/>
 															</div>
 														</button>
@@ -870,23 +774,14 @@ export default function Inventory({
 													<div
 														className="group relative flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-2xl border border-amber-900/45 bg-black/35 text-amber-200/85 transition-colors hover:bg-black/45 sm:h-14 sm:w-14 md:h-16 md:w-16"
 														aria-label={r.name}
-														onMouseEnter={(e) =>
-															showResourceTip(
-																e,
-																r,
-															)
-														}
-														onMouseLeave={
-															hideInventoryTip
-														}
+														onMouseEnter={(e) => showResourceTip(e, r)}
+														onMouseLeave={hideInventoryTip}
 													>
 														<ResourceGearIcon
 															resourceId={r.id}
-															className={
-																tileIconClass
-															}
+															className={tileIconClass}
 														/>
-
+														{/* qty badge — makes sense for consumable resources */}
 														<div
 															className={`absolute -top-1 -left-1 flex size-6 shrink-0 items-center justify-center rounded-full border border-amber-900/60 bg-black/80 text-[10px] font-semibold tabular-nums leading-none ${
 																r.qty > 0
@@ -908,28 +803,14 @@ export default function Inventory({
 													key={b.id}
 													className="relative flex min-w-0 justify-center"
 												>
+													{/* No qty badge — upgrades are permanent, a counter makes no sense */}
 													<div
 														className="group relative flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-2xl border border-amber-900/45 bg-black/35 text-amber-200/85 transition-colors hover:bg-black/45 sm:h-14 sm:w-14 md:h-16 md:w-16"
 														aria-label={b.name}
-														onMouseEnter={(e) =>
-															showBuffTip(e, b)
-														}
-														onMouseLeave={
-															hideInventoryTip
-														}
+														onMouseEnter={(e) => showBuffTip(e, b)}
+														onMouseLeave={hideInventoryTip}
 													>
 														{buffIcon(b.id)}
-
-														<div
-															className={`absolute -top-1 -left-1 flex size-6 shrink-0 items-center justify-center rounded-full border border-amber-900/60 bg-black/80 text-[10px] font-semibold tabular-nums leading-none ${
-																b.qty > 0
-																	? "text-amber-100/90"
-																	: "text-amber-200/45"
-															}`}
-															aria-hidden
-														>
-															{b.qty}
-														</div>
 													</div>
 												</div>
 											))}
@@ -970,10 +851,7 @@ export default function Inventory({
 											</span>
 											{showRecovery ? (
 												<div className="text-[10px] tabular-nums text-amber-200/60">
-													{recoveryCountdownShort(
-														item.injuredUntilMs!,
-														nowTick,
-													)}
+													{recoveryCountdownShort(item.injuredUntilMs!, nowTick)}
 												</div>
 											) : null}
 										</div>
@@ -984,7 +862,7 @@ export default function Inventory({
 									<div className="font-semibold text-amber-100/95">
 										{hoverTip.item.name}
 									</div>
-									<p className="mt-1 min-w-0 truncate text-[11px] text-amber-200/70">
+									<p className="mt-1 min-w-0 text-[11px] leading-relaxed text-amber-200/70">
 										{hoverTip.item.summary}
 									</p>
 								</div>
@@ -994,7 +872,7 @@ export default function Inventory({
 									<div className="font-semibold text-amber-100/95">
 										{hoverTip.item.name}
 									</div>
-									<p className="mt-1 min-w-0 truncate text-[11px] text-amber-200/70">
+									<p className="mt-1 min-w-0 text-[11px] leading-relaxed text-amber-200/70">
 										{hoverTip.item.summary}
 									</p>
 								</div>

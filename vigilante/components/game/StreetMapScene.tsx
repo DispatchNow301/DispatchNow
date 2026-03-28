@@ -53,6 +53,7 @@ import {
 	computeIncidentRollOutcome,
 	type DispatchRollBreakdown,
 } from "@/lib/incidentRoll";
+import { getTimerSlowdownMultiplier, getPoliceSlowdownMultiplier, rollScavengerSalvage, getRapidResponseBonus } from "@/lib/successModifiers";
 import VettingMinigameModal from "@/components/game/VettingMinigameModal";
 import {
 	getSessionMarkers,
@@ -2900,6 +2901,8 @@ export default function StreetMapScene({
 			if (deployed.length > 0) {
 				if (rollOutcome.success) {
 					pool = returnDeployment(pool, deployed);
+				} else if (rollScavengerSalvage(s.purchasedUpgradeIds)) {
+					pool = returnDeployment(pool, deployed);
 				} else {
 					pool = forfeitDeployment(pool, deployed);
 				}
@@ -3049,7 +3052,8 @@ export default function StreetMapScene({
 			archetype: inc.category,
 			vigilantes: assignedVigs.map((v) => ({ stats: v.stats })),
 			resourceIds: payload.resourceIds,
-			buffIds: [],
+			buffIds: state.purchasedUpgradeIds,
+			flatBonusPercent: getRapidResponseBonus(state.purchasedUpgradeIds, inc.createdAt),
 		});
 
 		const minigame = getMinigameForIncident(inc);
@@ -3156,6 +3160,8 @@ export default function StreetMapScene({
 				let pool = s.resourcePool;
 				if (deployed.length > 0) {
 					if (rollOutcome.success) {
+						pool = returnDeployment(pool, deployed);
+					} else if (rollScavengerSalvage(s.purchasedUpgradeIds)) {
 						pool = returnDeployment(pool, deployed);
 					} else {
 						pool = forfeitDeployment(pool, deployed);
@@ -3469,9 +3475,17 @@ export default function StreetMapScene({
 			const now = Date.now();
 			const s = stateForExpiryRef.current;
 
+			// Calculate timer slowdown from noir_focus buff
+			const slowdownMultiplier = getTimerSlowdownMultiplier(s.purchasedUpgradeIds);
+
 			if (mode === "multiplayer" && sessionId) {
 				const expiredIds = s.incidents
-					.filter((i) => i.status === "active" && now >= i.expiresAt)
+					.filter((i) => {
+						if (i.status !== "active") return false;
+						const elapsedAdjusted = (now - i.createdAt) * slowdownMultiplier;
+						const targetDuration = i.expiresAt - i.createdAt;
+						return elapsedAdjusted >= targetDuration;
+					})
 					.map((i) => i.id);
 
 				expiredIds.forEach((incidentId) => {
@@ -3491,9 +3505,12 @@ export default function StreetMapScene({
 				// No stretch needed here — already applied synchronously on unpause.
 				const expiredIncidentIds = new Set(
 					prev.incidents
-						.filter(
-							(i) => i.status === "active" && now >= i.expiresAt,
-						)
+						.filter((i) => {
+							if (i.status !== "active") return false;
+							const elapsedAdjusted = (now - i.createdAt) * slowdownMultiplier;
+							const targetDuration = i.expiresAt - i.createdAt;
+							return elapsedAdjusted >= targetDuration;
+						})
 						.map((i) => i.id),
 				);
 				const expiredRecruitIds = new Set(
@@ -3828,12 +3845,14 @@ export default function StreetMapScene({
 								: incident.status === "resolved"
 									? "resolved"
 									: "resolving",
+						createdAt: incident.createdAt,
 						expiresAt: incident.expiresAt,
 					}))}
 					onPoliceRenderUpdate={setPoliceRenderItems}
 					onPoliceEtaUpdate={setPoliceEtaItems}
 					onPoliceResolveIncident={handlePoliceResolveIncident}
 					paused={isGameplayPausedByMinigame}
+					timerSlowdownMultiplier={getPoliceSlowdownMultiplier(state.purchasedUpgradeIds)}
 				/>
 				<CharacterMarkers
 					pins={visibleDynamicPins}
@@ -4364,6 +4383,7 @@ export default function StreetMapScene({
 												<IncidentTimerBar
 													createdAt={inc.createdAt}
 													expiresAt={inc.expiresAt}
+													timerSlowdownMultiplier={getTimerSlowdownMultiplier(state.purchasedUpgradeIds)}
 													onExpire={
 														isGameplayPausedByMinigame
 															? () => {}

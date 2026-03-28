@@ -34,6 +34,7 @@ type Props = {
 	onPoliceEtaUpdate?: (items: PoliceEtaItem[]) => void;
 	onPoliceResolveIncident?: (incidentId: string) => void;
 	paused?: boolean;
+	timerSlowdownMultiplier?: number;
 };
 
 const RESPONSE_RADIUS_METERS = 3200;
@@ -151,8 +152,14 @@ function getRouteDef(routeId: "diaz" | "kim" | "chief") {
 	};
 }
 
-function isActiveIncident(incident: PoliceIncident, now: number) {
-	return incident.status === "active" && now < incident.expiresAt;
+function getAdjustedExpiresAt(incident: PoliceIncident, slowdown: number): number {
+    if (slowdown >= 1) return incident.expiresAt;  // ← flip > to 
+    const duration = incident.expiresAt - incident.createdAt;
+    return incident.createdAt + duration / slowdown;
+}
+
+function isActiveIncident(incident: PoliceIncident, now: number, slowdown = 1) {
+	return incident.status === "active" && now < getAdjustedExpiresAt(incident, slowdown);
 }
 
 function getResponseArrivalBufferMs(remainingMs: number) {
@@ -174,8 +181,9 @@ function getDispatchEstimate(
 	unit: PoliceUnit,
 	incident: PoliceIncident,
 	now: number,
+	slowdown = 1,
 ) {
-	const timeLeftMs = Math.max(incident.expiresAt - now, 0);
+	const timeLeftMs = Math.max(getAdjustedExpiresAt(incident, slowdown) - now, 0);
 	const urgencyBoost = getUrgencyBoost(timeLeftMs);
 	const maxResponseMps =
 		unit.speeds.responseMps *
@@ -489,6 +497,7 @@ export default function PoliceSystem({
 	onPoliceEtaUpdate,
 	onPoliceResolveIncident,
 	paused = false,
+	timerSlowdownMultiplier = 1,
 }: Props) {
 	const [units, setUnits] = useState<PoliceUnit[]>([]);
 	const [renderNow, setRenderNow] = useState(Date.now());
@@ -498,6 +507,9 @@ export default function PoliceSystem({
 
 	const pausedRef = useRef(paused);
 	pausedRef.current = paused;
+
+	const timerSlowdownRef = useRef(timerSlowdownMultiplier);
+    timerSlowdownRef.current = timerSlowdownMultiplier;
 
 	const pendingResponseUnitIdsRef = useRef<Set<string>>(new Set());
 	const pendingIncidentIdsRef = useRef<Set<string>>(new Set());
@@ -648,7 +660,7 @@ export default function PoliceSystem({
 					const latestIncident = incidentsRef.current.find(
 						(x) => x.id === incident.id,
 					);
-					if (!latestIncident || !isActiveIncident(latestIncident, now)) {
+					if (!latestIncident || !isActiveIncident(latestIncident, now, timerSlowdownRef.current)) {
 						return prev;
 					}
 
@@ -662,7 +674,7 @@ export default function PoliceSystem({
 					}
 
 					const pathMeters = getPathDistanceMeters(finalPath);
-					const remainingMs = Math.max(latestIncident.expiresAt - now, 0);
+					const remainingMs = Math.max(getAdjustedExpiresAt(latestIncident, timerSlowdownRef.current) - now, 0);
 					const arrivalBufferMs = getResponseArrivalBufferMs(remainingMs);
 					const targetTravelMs = Math.max(
 						remainingMs - arrivalBufferMs,
@@ -781,7 +793,7 @@ export default function PoliceSystem({
 						const stillExists = incidentsRef.current.some(
 							(incident) =>
 								incident.id === unit.assignedIncidentId &&
-								isActiveIncident(incident, now),
+								isActiveIncident(incident, now, timerSlowdownRef.current),
 						);
 
 						if (!stillExists && unit.mode !== "rejoining") {
@@ -917,7 +929,7 @@ export default function PoliceSystem({
 		if (liveUnits.length === 0) return;
 
 		const activeIncidents = incidents.filter((incident) =>
-			isActiveIncident(incident, now),
+			isActiveIncident(incident, now, timerSlowdownRef.current),
 		);
 		if (activeIncidents.length === 0) return;
 
@@ -962,7 +974,7 @@ export default function PoliceSystem({
 
 				if (d <= RESPONSE_RADIUS_METERS) {
 					const { timeLeftMs, estimatedTravelMs, slackMs } =
-						getDispatchEstimate(d, unit, incident, now);
+						getDispatchEstimate(d, unit, incident, now, timerSlowdownRef.current);
 
 					pairs.push({
 						unit,
