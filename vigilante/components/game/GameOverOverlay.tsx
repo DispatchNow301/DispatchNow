@@ -15,7 +15,6 @@ import {
 type GameOverCause =
 	| "undercover_hired"
 	| "too_many_failed_incidents"
-	| "heat_maxed"
 	| "crew_wiped"
 	| "custom";
 
@@ -24,7 +23,6 @@ type GameOverStats = {
 	completedIncidents?: number;
 	failedIncidents?: number;
 	hiredVigilantes?: number;
-	policeHeat?: number;
 	lootedResources?: number;
 };
 
@@ -75,15 +73,6 @@ function getCauseCopy(
 		};
 	}
 
-	if (cause === "heat_maxed") {
-		return {
-			title: "Pressure Closed In",
-			description:
-				"Police pressure got too high. The network could no longer move safely and your operation was forced underground.",
-			accent: "text-orange-300",
-			Icon: AlertTriangle,
-		};
-	}
 
 	if (cause === "crew_wiped") {
 		return {
@@ -161,11 +150,6 @@ export default function GameOverOverlay({
 				label: "Hired Vigilantes",
 				value: stats?.hiredVigilantes ?? 0,
 				icon: <Users className="h-5 w-5" />,
-			},
-			{
-				label: "Police Heat",
-				value: stats?.policeHeat ?? "—",
-				icon: <ShieldAlert className="h-5 w-5" />,
 			},
 			{
 				label: "Looted Resources",
@@ -319,11 +303,6 @@ export default function GameOverOverlay({
 													label="Hired Vigilantes"
 													value={stats?.hiredVigilantes ?? 0}
 													icon={<Users className="h-3.5 w-3.5" />}
-												/>
-												<StatCard
-													label="Police Heat"
-													value={stats?.policeHeat ?? "—"}
-													icon={<ShieldAlert className="h-3.5 w-3.5" />}
 												/>
 												<StatCard
 													label="Looted Resources"

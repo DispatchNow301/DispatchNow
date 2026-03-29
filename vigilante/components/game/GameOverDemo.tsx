@@ -6,7 +6,7 @@ import GameOverOverlay from "@/components/game/GameOverOverlay";
 export default function GameOverDemo() {
 	const [open, setOpen] = useState(true);
 	const [cause, setCause] = useState<
-		"undercover_hired" | "too_many_failed_incidents" | "heat_maxed" | "crew_wiped"
+		"undercover_hired" | "too_many_failed_incidents" |  "crew_wiped"
 	>("undercover_hired");
 
 	return (
@@ -48,16 +48,6 @@ export default function GameOverDemo() {
 						Failed Incidents
 					</button>
 
-					<button
-						type="button"
-						onClick={() => {
-							setCause("heat_maxed");
-							setOpen(true);
-						}}
-						className="rounded-2xl border border-amber-900/35 bg-black/30 px-4 py-2.5 text-sm text-amber-200/80 transition hover:bg-amber-950/20 hover:text-amber-100"
-					>
-						Heat Maxed
-					</button>
 
 					<button
 						type="button"
@@ -93,7 +83,6 @@ export default function GameOverDemo() {
 					completedIncidents: 12,
 					failedIncidents: 5,
 					hiredVigilantes: 6,
-					policeHeat: 9,
 					lootedResources: 14,
 				}}
 			/>

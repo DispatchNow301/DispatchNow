@@ -355,11 +355,6 @@ function InventoryVigilanteDossierPane({
 											{sheet.status}
 										</span>
 									) : null}
-									{typeof sheet.heat === "number" ? (
-										<span className="rounded-full border border-red-900/35 bg-red-950/20 px-3 py-1 text-[11px] uppercase tracking-[0.15em] text-red-300/75">
-											Heat {sheet.heat}
-										</span>
-									) : null}
 									{typeof sheet.age === "number" ? (
 										<span className="rounded-full border border-amber-900/35 bg-black/30 px-3 py-1 text-[11px] uppercase tracking-[0.15em] text-amber-200/75">
 											Age {sheet.age}
