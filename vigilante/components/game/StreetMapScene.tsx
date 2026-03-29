@@ -29,6 +29,7 @@ import PoliceCaptureModal from "./police/policeCaptureModal";
 import type { PoliceEtaItem, PoliceRenderItem } from "./police/policeTypes";
 import IncidentChanceRollOverlay from "./IncidentChanceRollOverlay";
 import IncidentDeployModal from "./IncidentDeployModal";
+import GameOverOverlay from "./GameOverOverlay";
 import { IncidentTimerBar } from "./IncidentTimerBar";
 import { vigilantes } from "@/app/components/data/vigilante";
 import {
@@ -39,12 +40,14 @@ import {
 	returnDeployment,
 	type ResourcePoolEntry,
 } from "@/lib/resourcePool";
-import {
-	DEFAULT_CAREER_STATS,
-	mergeCareerStats,
-	type CareerStats,
-} from "@/lib/careerStats";
 import { mergePurchasedBuffIds } from "@/lib/purchasedBuffs";
+import {
+	initialState,
+	loadState,
+	saveState,
+	restartRun as restartRunGame,
+} from "@/lib/gameStateUtils";
+import type { GameState, CareerStats, Incident, IncidentResolution, IncidentStatus, RecruitLead } from "@/lib/gameTypes";
 import { markCloudFlush, upsertGameSave } from "@/lib/cloudSaves";
 import { readSave, touchSave, type SaveSlotId } from "@/lib/saves";
 import { DEFAULT_ACHIEVEMENT_PROGRESS } from "@/lib/achievements";
@@ -100,7 +103,7 @@ async function callAISuccessCalc(params: {
 function calculateFallbackSuccessPercent(
 	baseChancePercent: number,
 	archetype: string,
-	vigilantes: typeof vigilantes,
+	vigilantes: Array<{ id: string; stats: { strength: number; intelligence: number; speed: number } }>,
 	resourceIds: string[],
 	buffIds: string[],
 ): number {
@@ -120,6 +123,13 @@ function calculateFallbackSuccessPercent(
 
 	// Clamp to valid range
 	return Math.max(1, Math.min(99, Math.round(adjusted)));
+}
+
+function formatDuration(ms: number): string {
+	const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+	const minutes = Math.floor(totalSeconds / 60);
+	const seconds = totalSeconds % 60;
+	return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
 }
 
 // Generate a synthetic breakdown for the UI (since AI only gives a single percentage)
@@ -317,33 +327,8 @@ type Props = {
 	sessionId?: number;
 };
 
-type IncidentStatus = "active" | "resolving" | "resolved";
-
-type IncidentResolution = {
-	success: boolean;
-	adjustedPercent: number;
-	beforeLuckPercent: number;
-	rolled: number;
-} & Partial<DispatchRollBreakdown>;
-
-type Incident = {
-	id: string;
-	category: IncidentArchetype;
-	typeLabel: string;
-	status: IncidentStatus;
-	lat: number;
-	lng: number;
-	title: string;
-	summary: string;
-	createdAt: number;
-	expiresAt: number;
-	successChance: number;
-	assignedResources: AssignedResource[];
-	/** Units out on this incident until recalled */
-	deployedResourceIds?: string[];
-	deployedVigilanteIds?: string[];
-	resolution?: IncidentResolution | null;
-};
+// Use imported types from "@/lib/gameTypes" instead of local definitions
+// Incident, IncidentResolution, IncidentStatus, RecruitLead, GameState are all imported
 
 type CharacterKind = "vigilante" | "citizen" | "police";
 type OverlayMode = "recruit" | "owned";
@@ -355,45 +340,6 @@ type CharacterPin = {
 	kind: CharacterKind;
 	lat: number;
 	lng: number;
-};
-
-type RecruitLead = {
-	id: string;
-	vigilanteId: string;
-	lat: number;
-	lng: number;
-	createdAt: number;
-	expiresAt: number;
-};
-
-type GameState = {
-	level: number;
-	selectedIncidentId: string | null;
-	incidents: Incident[];
-	showIncidentPanel: boolean;
-	showMinigamePanel: boolean;
-	showPolicePanel: boolean;
-	showInventoryPanel: boolean;
-	inventoryTab: "vigilantes" | "resources" | "buffs";
-	ownedVigilanteIds: string[];
-	recruitLeads: RecruitLead[];
-	consumedTheftSiteIds: string[];
-	resourcePool: Record<string, ResourcePoolEntry>;
-	credits: number;
-	purchasedUpgradeIds: string[];
-	vigilanteInjuryUntil: Record<string, number>;
-	careerStats: CareerStats;
-	purchasedBuffIds: string[];
-	/** Achievement tracking */
-	unlockedAchievementIds: UnlockedAchievement[];
-	achievementProgress: AchievementProgress;
-	activeMinigame: {
-		type: "fire" | "hack" | null;
-		incidentId: string;
-		difficulty: number;
-	} | null;
-	/** Reputation (0-100) */
-	reputation: number;
 };
 
 const CENTER: LatLngTuple = [40.7128, -74.006];
@@ -1500,28 +1446,29 @@ function parseIncidentResolution(raw: unknown): IncidentResolution | null {
 	if (typeof o.adjustedPercent !== "number") return null;
 	if (typeof o.beforeLuckPercent !== "number") return null;
 	if (typeof o.rolled !== "number") return null;
+
+	// Provide defaults for backward compatibility
 	const base: IncidentResolution = {
 		success: o.success,
 		adjustedPercent: o.adjustedPercent,
 		beforeLuckPercent: o.beforeLuckPercent,
 		rolled: o.rolled,
+		baseChancePercent: typeof o.baseChancePercent === "number" ? o.baseChancePercent : 50,
+		resourceMultiplier: typeof o.resourceMultiplier === "number" ? o.resourceMultiplier : 1,
+		buffMultiplier: typeof o.buffMultiplier === "number" ? o.buffMultiplier : 1,
+		incidentSpecificMultiplier: typeof o.incidentSpecificMultiplier === "number" ? o.incidentSpecificMultiplier : 1,
+		vigilanteMultiplier: typeof o.vigilanteMultiplier === "number" ? o.vigilanteMultiplier : 1,
+		avgArchetypeFit: typeof o.avgArchetypeFit === "number" ? o.avgArchetypeFit : 0,
+		luckDeltaPercent: typeof o.luckDeltaPercent === "number" ? o.luckDeltaPercent : 0,
 	};
-	if (typeof o.baseChancePercent === "number")
-		base.baseChancePercent = o.baseChancePercent;
-	if (typeof o.resourceMultiplier === "number")
-		base.resourceMultiplier = o.resourceMultiplier;
-	if (typeof o.buffMultiplier === "number")
-		base.buffMultiplier = o.buffMultiplier;
-	if (typeof o.vigilanteMultiplier === "number")
-		base.vigilanteMultiplier = o.vigilanteMultiplier;
-	if (typeof o.avgArchetypeFit === "number")
-		base.avgArchetypeFit = o.avgArchetypeFit;
+
+	// Override with any additional optional fields
 	if (typeof o.staffingSupportMultiplier === "number")
 		base.staffingSupportMultiplier = o.staffingSupportMultiplier;
 	if (typeof o.gearPresenceMultiplier === "number")
 		base.gearPresenceMultiplier = o.gearPresenceMultiplier;
-	if (typeof o.luckDeltaPercent === "number")
-		base.luckDeltaPercent = o.luckDeltaPercent;
+	if (typeof o.aiReasoning === "string")
+		base.aiReasoning = o.aiReasoning;
 	return base;
 }
 
@@ -1593,223 +1540,11 @@ function pruneExpiredInjuries(
 	return next;
 }
 
-function mergeResourcePool(
-	partial: unknown,
-): Record<string, ResourcePoolEntry> {
-	const merged: Record<string, ResourcePoolEntry> = {
-		...DEFAULT_RESOURCE_POOL,
-	};
-	if (!partial || typeof partial !== "object") return merged;
-	for (const [k, v] of Object.entries(partial)) {
-		if (!v || typeof v !== "object") continue;
-		const e = v as Record<string, unknown>;
-		if (typeof e.qty !== "number" || typeof e.deployed !== "number")
-			continue;
-		const qty = Math.max(0, e.qty);
-		merged[k] = {
-			qty,
-			deployed: Math.max(0, Math.min(e.deployed, qty)),
-		};
-	}
-	return merged;
-}
-
 function isOngoingIncident(i: Incident): boolean {
 	return i.status === "active" || i.status === "resolving";
 }
 
-function initialState(): GameState {
-	return {
-		level: 1,
-		selectedIncidentId: null,
-		incidents: [],
-		showIncidentPanel: true,
-		showMinigamePanel: false,
-		showPolicePanel: false,
-		showInventoryPanel: true,
-		inventoryTab: "vigilantes",
-		ownedVigilanteIds: ["bruce", "parya"],
-		recruitLeads: [],
-		consumedTheftSiteIds: [],
-		resourcePool: { ...DEFAULT_RESOURCE_POOL },
-		credits: 500,
-		purchasedUpgradeIds: [],
-		vigilanteInjuryUntil: {},
-		careerStats: { ...DEFAULT_CAREER_STATS },
-		purchasedBuffIds: mergePurchasedBuffIds(undefined),
-		unlockedAchievementIds: [],
-		achievementProgress: {
-			...DEFAULT_ACHIEVEMENT_PROGRESS,
-			uniqueVigilantesOwned: new Set(["bruce", "parya"]),
-			sessionStartTime: Date.now(),
-		},
-		activeMinigame: null,
-		reputation: 100,
-	};
-}
-
-function loadState(saveKey: string): GameState {
-	try {
-		const raw = localStorage.getItem(saveKey);
-		if (!raw) return initialState();
-		const p = JSON.parse(raw) as Partial<GameState>;
-		const rawShowIncidentPanel =
-			typeof p.showIncidentPanel === "boolean"
-				? p.showIncidentPanel
-				: true;
-		const rawShowMinigamePanel =
-			typeof p.showMinigamePanel === "boolean"
-				? p.showMinigamePanel
-				: false;
-		const rawShowPolicePanel =
-			typeof p.showPolicePanel === "boolean" ? p.showPolicePanel : false;
-
-		const activeLeftTab = rawShowMinigamePanel
-			? "minigame"
-			: rawShowPolicePanel
-				? "police"
-				: rawShowIncidentPanel
-					? "incident"
-					: null;
-
-		const selectedFromSave =
-			typeof p.selectedIncidentId === "string"
-				? p.selectedIncidentId
-				: null;
-
-		// Load achievement progress
-		let achievementProgress: AchievementProgress = {
-			...DEFAULT_ACHIEVEMENT_PROGRESS,
-		};
-		if (p.achievementProgress) {
-			const ap = p.achievementProgress;
-			achievementProgress = {
-				totalCreditsEarned:
-					typeof ap.totalCreditsEarned === "number"
-						? Math.max(0, ap.totalCreditsEarned)
-						: 0,
-				highestSinglePayout:
-					typeof ap.highestSinglePayout === "number"
-						? Math.max(0, ap.highestSinglePayout)
-						: 0,
-				currentStreak:
-					typeof ap.currentStreak === "number"
-						? Math.max(0, ap.currentStreak)
-						: 0,
-				bestStreak:
-					typeof ap.bestStreak === "number"
-						? Math.max(0, ap.bestStreak)
-						: 0,
-				recentResolutions: Array.isArray(ap.recentResolutions)
-					? ap.recentResolutions
-					: [],
-				dispatchesStarted:
-					typeof ap.dispatchesStarted === "number"
-						? Math.max(0, ap.dispatchesStarted)
-						: 0,
-				incidentsByArchetype:
-					typeof ap.incidentsByArchetype === "object"
-						? ap.incidentsByArchetype
-						: {},
-				maxResourceInventory:
-					typeof ap.maxResourceInventory === "object"
-						? ap.maxResourceInventory
-						: {},
-				uniqueVigilantesOwned:
-					p.ownedVigilanteIds && Array.isArray(p.ownedVigilanteIds)
-						? new Set(p.ownedVigilanteIds as string[])
-						: new Set(["bruce", "parya"]),
-				vigilanteInjuries:
-					typeof ap.vigilanteInjuries === "number"
-						? Math.max(0, ap.vigilanteInjuries)
-						: 0,
-				totalPlaytimeMs:
-					typeof ap.totalPlaytimeMs === "number"
-						? Math.max(0, ap.totalPlaytimeMs)
-						: 0,
-				sessionStartTime:
-					typeof ap.sessionStartTime === "number"
-						? ap.sessionStartTime
-						: Date.now(),
-			};
-		}
-
-		return {
-			level:
-				typeof p.level === "number" && p.level >= 1 && p.level <= 3
-					? p.level
-					: 1,
-			selectedIncidentId:
-				activeLeftTab === "incident" ? selectedFromSave : null,
-			incidents: Array.isArray(p.incidents)
-				? p.incidents
-						.map(parseStoredIncident)
-						.filter((x): x is Incident => x !== null)
-				: [],
-			showIncidentPanel: activeLeftTab === "incident",
-			showMinigamePanel: activeLeftTab === "minigame",
-			showPolicePanel: activeLeftTab === "police",
-			showInventoryPanel:
-				typeof p.showInventoryPanel === "boolean"
-					? p.showInventoryPanel
-					: true,
-			inventoryTab:
-				p.inventoryTab === "vigilantes" ||
-				p.inventoryTab === "resources" ||
-				p.inventoryTab === "buffs"
-					? p.inventoryTab
-					: "vigilantes",
-			ownedVigilanteIds: Array.isArray(p.ownedVigilanteIds)
-				? (p.ownedVigilanteIds as string[])
-				: ["bruce", "parya"],
-			recruitLeads: Array.isArray(p.recruitLeads)
-				? (p.recruitLeads as RecruitLead[])
-				: [],
-			consumedTheftSiteIds: Array.isArray(p.consumedTheftSiteIds)
-				? (p.consumedTheftSiteIds as string[]).filter(
-						(id): id is string => typeof id === "string",
-					)
-				: [],
-			resourcePool: mergeResourcePool(p.resourcePool),
-			credits:
-				typeof p.credits === "number" && Number.isFinite(p.credits)
-					? Math.max(0, Math.floor(p.credits))
-					: 500,
-			vigilanteInjuryUntil: pruneExpiredInjuries(
-				p.vigilanteInjuryUntil as Record<string, number> | undefined,
-				Date.now(),
-			),
-			careerStats: mergeCareerStats(p.careerStats),
-			purchasedUpgradeIds: Array.isArray(p.purchasedUpgradeIds)
-				? (p.purchasedUpgradeIds as string[])
-				: [],
-			purchasedBuffIds: mergePurchasedBuffIds(p.purchasedBuffIds),
-			unlockedAchievementIds: Array.isArray(p.unlockedAchievementIds)
-				? (
-						p.unlockedAchievementIds as
-							| string[]
-							| UnlockedAchievement[]
-					).map((a) =>
-						typeof a === "string"
-							? { achievementId: a, unlockedAt: Date.now() }
-							: a,
-					)
-				: [],
-			achievementProgress,
-			activeMinigame: null,
-			reputation:
-				typeof p.reputation === "number"
-					? Math.max(0, Math.min(100, p.reputation))
-					: 50,
-		};
-	} catch {
-		return initialState();
-	}
-}
-
-function saveState(saveKey: string, state: GameState) {
-	localStorage.setItem(saveKey, JSON.stringify(state));
-}
+// Game state utilities for loading, saving, and restarting are imported from '@/lib/gameStateUtils'
 
 export default function StreetMapScene({
 	saveKey,
@@ -1877,6 +1612,66 @@ export default function StreetMapScene({
 		}, 3000);
 	}, []);
 
+	// Check game over conditions
+	const checkGameOver = useCallback((currentState: GameState) => {
+		if (hasTriggeredGameOverRef.current) return;
+
+		// Game over if no vigilantes left
+		if (currentState.ownedVigilanteIds.length === 0) {
+			hasTriggeredGameOverRef.current = true;
+			setGameOverState({
+				open: true,
+				cause: "no_vigilantes",
+				startingReputation:
+					startingValuesRef.current?.reputation ?? 100,
+				startingVigilantes:
+					startingValuesRef.current?.vigilanteCount ??
+					currentState.ownedVigilanteIds.length + 1,
+			});
+			return;
+		}
+
+		// Game over if reputation reaches 0
+		if (currentState.reputation <= 0) {
+			hasTriggeredGameOverRef.current = true;
+			setGameOverState({
+				open: true,
+				cause: "reputation_depleted",
+				startingReputation:
+					startingValuesRef.current?.reputation ?? 100,
+				startingVigilantes:
+					startingValuesRef.current?.vigilanteCount ??
+					currentState.ownedVigilanteIds.length,
+			});
+			return;
+		}
+	}, []);
+
+	// Restart game - reset to initial state while preserving purchased resources/buffs
+	const restartGame = useCallback(() => {
+		hasTriggeredGameOverRef.current = false;
+		setGameOverState({
+			open: false,
+			cause: null,
+			startingReputation: 100,
+			startingVigilantes: 0,
+		});
+
+		if (saveKey) {
+			// Use the shared restart function that preserves resources, buffs, and credits
+			const preservedState = restartRunGame(saveKey);
+			setState(preservedState);
+		} else {
+			// No save key (multiplayer or testing), just reset to initial
+			setState(initialState());
+		}
+
+		// Close any open modals
+		setDeployModalOpen(false);
+		setShowVettingModal(false);
+		setPoliceCaptureState({ open: false, capturedIds: [] });
+	}, [saveKey]);
+
 	// Achievement tracking
 	const achievements = useAchievements(state, setState);
 
@@ -1903,12 +1698,33 @@ export default function StreetMapScene({
 	const [showVettingModal, setShowVettingModal] = useState(false);
 	const [dialogue, setDialogue] = useState<DialogueStateOrNull>(null);
 	const [overlayMode, setOverlayMode] = useState<OverlayMode>("recruit");
+
+	// Game Over state
+	const [gameOverState, setGameOverState] = useState<{
+		open: boolean;
+		cause: "no_vigilantes" | "reputation_depleted" | null;
+		startingReputation: number;
+		startingVigilantes: number;
+	}>({
+		open: false,
+		cause: null,
+		startingReputation: 100,
+		startingVigilantes: 0,
+	});
+
 	/** Tracks whether inventory was open before dialogue appeared (for auto-restore) */
 	const inventoryWasOpenRef = useRef(false);
 	/** Stores dialogue data while waiting for inventory to close before showing it */
 	const pendingDialogueRef = useRef<DialogueStateOrNull>(null);
 	/** Tracks if inventory is currently animating closed */
 	const inventoryIsClosingRef = useRef(false);
+
+	// Game Over tracking refs
+	const startingValuesRef = useRef<{
+		reputation: number;
+		vigilanteCount: number;
+	} | null>(null);
+	const hasTriggeredGameOverRef = useRef(false);
 
 	// TTS for NPC dialogue
 	const tts = useInWorldTTS();
@@ -1942,6 +1758,47 @@ export default function StreetMapScene({
 			}, 500); // 0.48s animation + buffer
 		});
 	};
+
+	// Track starting values on initial load (for game over stats)
+	useEffect(() => {
+		if (startingValuesRef.current === null) {
+			startingValuesRef.current = {
+				reputation: state.reputation,
+				vigilanteCount: state.ownedVigilanteIds.length,
+			};
+		}
+	}, []); // Only run once on mount
+
+	// Check for game over conditions after relevant state changes
+	useEffect(() => {
+		if (!gameOverState.open) {
+			checkGameOver(state);
+		}
+	}, [
+		state.ownedVigilanteIds.length,
+		state.reputation,
+		checkGameOver,
+		gameOverState.open,
+	]);
+
+	// Track playtime (for stats)
+	useEffect(() => {
+		if (gameOverState.open) return; // Stop tracking when game over
+
+		const startTime = Date.now();
+		const interval = setInterval(() => {
+			const elapsed = Date.now() - startTime;
+			setState((s) => ({
+				...s,
+				careerStats: {
+					...s.careerStats,
+					totalPlaytimeMs: (s.careerStats.totalPlaytimeMs ?? 0) + 1000,
+				},
+			}));
+		}, 1000);
+
+		return () => clearInterval(interval);
+	}, [gameOverState.open]);
 
 	/**
 	 * Get a random character for incident spawn dialogue.
@@ -3122,6 +2979,7 @@ export default function StreetMapScene({
 									resourceMultiplier:
 										rollOutcome.resourceMultiplier,
 									buffMultiplier: rollOutcome.buffMultiplier,
+									incidentSpecificMultiplier: rollOutcome.incidentSpecificMultiplier,
 									vigilanteMultiplier:
 										rollOutcome.vigilanteMultiplier,
 									avgArchetypeFit:
@@ -3132,7 +2990,7 @@ export default function StreetMapScene({
 										rollOutcome.gearPresenceMultiplier,
 									luckDeltaPercent:
 										rollOutcome.luckDeltaPercent,
-								},
+								} as IncidentResolution,
 							}
 						: x,
 				),
@@ -3453,7 +3311,7 @@ export default function StreetMapScene({
 											rollOutcome.gearPresenceMultiplier,
 										luckDeltaPercent:
 											rollOutcome.luckDeltaPercent,
-									},
+									} as IncidentResolution,
 								}
 							: x,
 					),
@@ -4058,7 +3916,7 @@ export default function StreetMapScene({
       `}</style>
 
 			{/* Reputation loss notifications */}
-			<AnimatePresence mode="pop">
+			<AnimatePresence mode="popLayout">
 				{repNotifications.map((notif, idx) => (
 					<motion.div
 						key={notif.id}
@@ -4821,12 +4679,9 @@ export default function StreetMapScene({
 				<IncidentChanceRollOverlay
 					rolled={chanceRollOverlay.rolled}
 					adjustedPercent={chanceRollOverlay.adjustedPercent}
-					beforeLuckPercent={chanceRollOverlay.beforeLuckPercent}
-					breakdown={chanceRollOverlay.breakdown}
 					contextLabel={chanceRollOverlay.contextLabel}
 					success={chanceRollOverlay.success}
 					phase={chanceRollOverlay.phase}
-					hadDeployedGear={chanceRollOverlay.hadDeployedGear}
 					onContinue={() => {
 						const pending = pendingHackMinigame;
 						setChanceRollOverlay(null);
@@ -5026,6 +4881,52 @@ export default function StreetMapScene({
 					onDismiss={achievements.dismissNotification}
 				/>
 			</div>
+
+			{/* Game Over Overlay */}
+			<GameOverOverlay
+				open={gameOverState.open}
+				cause={
+					gameOverState.cause === "no_vigilantes"
+						? "crew_wiped"
+						: gameOverState.cause === "reputation_depleted"
+							? "heat_maxed"
+							: "custom"
+				}
+				customTitle={
+					gameOverState.cause === "no_vigilantes"
+						? "No One Left To Send"
+						: gameOverState.cause === "reputation_depleted"
+							? "Reputation Depleted"
+							: undefined
+				}
+				customDescription={
+					gameOverState.cause === "no_vigilantes"
+						? "Your available vigilantes were exhausted, injured, or compromised. The operation could not continue."
+						: gameOverState.cause === "reputation_depleted"
+							? "Your reputation has fallen to zero. The streets have no respect for your crew anymore."
+							: undefined
+				}
+				stats={{
+					totalTime: formatDuration(
+						state.careerStats.totalPlaytimeMs ?? 0,
+					),
+					completedIncidents:
+						state.careerStats.incidentsResolvedSuccess,
+					failedIncidents: state.careerStats.incidentsResolvedFailure,
+					hiredVigilantes:
+						startingValuesRef.current?.vigilanteCount ??
+						state.ownedVigilanteIds.length,
+					policeHeat: 100 - state.reputation, // police heat as inverse of reputation
+					lootedResources: state.achievementProgress.totalCreditsEarned || 0,
+				}}
+				onQuit={() => {
+					// For now, quit goes to main menu or reloads
+					window.location.href = "/";
+				}}
+				onClose={restartGame}
+				quitLabel="Quit to Menu"
+				slot={saveSlot?.index.toString()}
+			/>
 		</div>
 	);
 }

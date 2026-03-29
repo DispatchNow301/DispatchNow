@@ -2,6 +2,8 @@ export type MarkerKind = "incident" | "theft" | "hire";
 export type MultiplayerSessionStatus = "lobby" | "active" | "finished";
 export type MultiplayerMarkerStatus = "active" | "resolved" | "failed";
 
+export type IncidentStatus = "active" | "resolving" | "resolved";
+
 export type MapMarker = {
 	id: string;
 	kind: MarkerKind;
@@ -136,20 +138,73 @@ export type CareerStats = {
 	incidentsResolvedFailure: number;
 	incidentsExpired: number;
 	vigilantesRecruited: number;
+	totalPlaytimeMs?: number;
 };
+
+export interface Incident {
+	id: string;
+	category: any;
+	typeLabel: string;
+	status: "active" | "resolving" | "resolved";
+	lat: number;
+	lng: number;
+	title: string;
+	summary: string;
+	createdAt: number;
+	expiresAt: number;
+	successChance: number;
+	assignedResources: AssignedResource[];
+	deployedResourceIds?: string[];
+	deployedVigilanteIds?: string[];
+	resolution?: IncidentResolution | null;
+}
+
+export interface IncidentResolution {
+	success: boolean;
+	adjustedPercent: number;
+	beforeLuckPercent: number;
+	rolled: number;
+	// Full breakdown (from DispatchRollBreakdown)
+	baseChancePercent: number;
+	resourceMultiplier: number;
+	buffMultiplier: number;
+	incidentSpecificMultiplier: number;
+	vigilanteMultiplier: number;
+	avgArchetypeFit: number;
+	luckDeltaPercent: number;
+	staffingSupportMultiplier?: number;
+	gearPresenceMultiplier?: number;
+	aiReasoning?: string;
+}
+
+export interface RecruitLead {
+	id: string;
+	vigilanteId: string;
+	lat: number;
+	lng: number;
+	createdAt: number;
+	expiresAt: number;
+}
+
+export interface ActiveMinigame {
+	type: "fire" | "hack" | null;
+	incidentId: string;
+	difficulty: number;
+}
 
 export type GameState = {
 	level: number;
 	selectedIncidentId: string | null;
-	incidents: any[];
+	incidents: Incident[];
 	showIncidentPanel: boolean;
 	showMinigamePanel: boolean;
 	showPolicePanel: boolean;
 	showInventoryPanel: boolean;
 	inventoryTab: "vigilantes" | "resources" | "buffs";
 	ownedVigilanteIds: string[];
-	recruitLeads: any[];
-	resourcePool: Record<string, any>;
+	recruitLeads: RecruitLead[];
+	consumedTheftSiteIds: string[];
+	resourcePool: Record<string, ResourcePoolEntry>;
 	credits: number;
 	purchasedUpgradeIds: string[];
 	vigilanteInjuryUntil: Record<string, number>;
@@ -157,4 +212,6 @@ export type GameState = {
 	purchasedBuffIds: string[];
 	unlockedAchievementIds: UnlockedAchievement[];
 	achievementProgress: AchievementProgress;
+	activeMinigame: ActiveMinigame | null;
+	reputation: number;
 };

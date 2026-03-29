@@ -45,7 +45,8 @@ function SingleplayerPlayInner() {
 	const saveSlot = useMemo((): SaveSlotId | undefined => {
 		if (!slotIndex) return undefined;
 		if (scope === "local") return { scope: "local", index: slotIndex };
-		if (user?.id) return { scope: "cloud", index: slotIndex, userId: user.id };
+		if (user?.id)
+			return { scope: "cloud", index: slotIndex, userId: user.id };
 		return undefined;
 	}, [scope, slotIndex, user?.id]);
 
@@ -103,8 +104,12 @@ function SingleplayerPlayInner() {
 		if (!user) {
 			return (
 				<div className="fixed inset-0 z-[1200] flex flex-col items-center justify-center gap-4 bg-black/80 text-amber-200/80">
-					<p className="text-sm">Sign in is required for cloud saves.</p>
-					<p className="text-xs text-amber-200/50">Redirecting to login…</p>
+					<p className="text-sm">
+						Sign in is required for cloud saves.
+					</p>
+					<p className="text-xs text-amber-200/50">
+						Redirecting to login…
+					</p>
 				</div>
 			);
 		}
@@ -141,7 +146,11 @@ function SingleplayerPlayInner() {
 
 	return (
 		<div className="fixed inset-0">
-			<StreetMapScene saveKey={saveKey} saveSlot={saveSlot} cloudSync={cloudSync} />
+			<StreetMapScene
+				saveKey={saveKey}
+				saveSlot={saveSlot}
+				cloudSync={cloudSync}
+			/>
 		</div>
 	);
 }
