@@ -14,7 +14,6 @@ import {
 type GameOverCause =
 	| "undercover_hired"
 	| "too_many_failed_incidents"
-	| "heat_maxed"
 	| "crew_wiped"
 	| "custom";
 
@@ -23,7 +22,6 @@ type GameOverStats = {
 	completedIncidents?: number;
 	failedIncidents?: number; // includes expired incidents
 	hiredVigilantes?: number;
-	policeHeat?: number;
 	lootedResources?: number;
 };
 
@@ -70,16 +68,6 @@ function getCauseCopy(
 			description:
 				"Too many incidents were failed or left to expire. Confidence in the crew collapsed and the streets turned against you.",
 			accent: "text-amber-300",
-			Icon: AlertTriangle,
-		};
-	}
-
-	if (cause === "heat_maxed") {
-		return {
-			title: "Pressure Closed In",
-			description:
-				"Police pressure got too high. The network could no longer move safely and your operation was forced underground.",
-			accent: "text-orange-300",
 			Icon: AlertTriangle,
 		};
 	}
@@ -305,39 +293,28 @@ export default function GameOverOverlay({
 											<div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
 												<StatCard
 													label="Total Time"
-													value={
-														stats?.totalTime ?? "—"
-													}
+													value={stats?.totalTime ?? "—"}
 													icon={
 														<Clock3 className="h-3.5 w-3.5" />
 													}
 												/>
 												<StatCard
 													label="Completed Incidents"
-													value={
-														stats?.completedIncidents ??
-														0
-													}
+													value={stats?.completedIncidents ?? 0}
 													icon={
 														<Trophy className="h-3.5 w-3.5" />
 													}
 												/>
 												<StatCard
 													label="Failed / Expired Incidents"
-													value={
-														stats?.failedIncidents ??
-														0
-													}
+													value={stats?.failedIncidents ?? 0}
 													icon={
 														<AlertTriangle className="h-3.5 w-3.5" />
 													}
 												/>
 												<StatCard
 													label="Hired Vigilantes"
-													value={
-														stats?.hiredVigilantes ??
-														0
-													}
+													value={stats?.hiredVigilantes ?? 0}
 													icon={
 														<Users className="h-3.5 w-3.5" />
 													}
@@ -363,9 +340,7 @@ export default function GameOverOverlay({
 
 												<button
 													type="button"
-													onClick={
-														handleGoToBlackMarket
-													}
+													onClick={handleGoToBlackMarket}
 													className="rounded-2xl border border-amber-700/40 bg-amber-950/30 px-6 py-3 text-sm font-semibold text-amber-100 transition hover:bg-amber-900/35"
 												>
 													Go To Black Market
