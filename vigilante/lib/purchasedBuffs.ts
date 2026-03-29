@@ -1,5 +1,13 @@
 /** Buff ids that exist in the inventory catalog (`BASE_BUFFS` in Inventory.tsx). */
-export const BUFF_CATALOG_IDS = ["b1", "b2", "b3"] as const;
+export const BUFF_CATALOG_IDS = [
+	"b1",
+	"b2",
+	"b3",
+	"b4",
+	"b5",
+	"b6",
+	"b7",
+] as const;
 
 const CATALOG_SET = new Set<string>(BUFF_CATALOG_IDS);
 

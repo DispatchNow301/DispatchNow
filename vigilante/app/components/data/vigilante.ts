@@ -17,25 +17,21 @@ export type VigilanteSheet = {
     age?: number;
     status?: string;
     bio?: string;
-    traits?: string[];
-    equipment?: string[];
     joinedAt?: string;
     backgroundNote?: string;
     isUndercover?: boolean;
     trueIdentity?: string;
     stats: {
-      combat: number;
-      stealth: number;
-      tactics: number;
-      nerve: number;
+      strength: number;
+      intelligence: number;
+      speed: number;
     };
   };
 
 const defaultStats = {
-  combat: 1,
-  stealth: 1,
-  tactics: 1,
-  nerve: 1,
+  strength: 1,
+  intelligence: 1,
+  speed: 1,
 };
 
 export const vigilantes: VigilanteSheet[] = [ 
@@ -49,16 +45,13 @@ export const vigilantes: VigilanteSheet[] = [
         status: "Available",
         joinedAt: "Joined 3 days ago",
         backgroundNote: "Claims freelance security and convoy work across state lines. Records are sparse.",
-        bio: "Quiet, capable, and strangely polished for someone allegedly operating solo this long. Keeps answers short and avoids specifics about old crews.",
-        traits: ["Disciplined", "Low-profile", "Reserved"],
-        equipment: ["Radio earpiece", "Utility jacket", "Tactical gloves"],
+        bio: "Quiet freelancer with sparse records. Keeps answers brief and avoids discussing past crews.",
         isUndercover: true,
         trueIdentity: "Undercover Officer",
         stats: {
-          combat: 4,
-          stealth: 1,
-          tactics: 3,
-          nerve: 5,
+          strength: 4,
+          intelligence: 3,
+          speed: 3,
         },
       },
       {
@@ -71,16 +64,13 @@ export const vigilantes: VigilanteSheet[] = [
         status: "Available",
         joinedAt: "Joined 2 weeks ago",
         backgroundNote: "Background checks out on paper. Former investigator for private insurance fraud cases.",
-        bio: "Keeps a measured tone, asks smart questions, and seems unusually interested in how your crew communicates. Nothing on the sheet is obviously wrong.",
-        traits: ["Observant", "Collected", "Methodical"],
-        equipment: ["Plain coat", "Burner phone", "Notebook"],
+        bio: "Measured, asks smart questions about crew structure. Paperwork checks out but overly focused on internal operations.",
         isUndercover: true,
         trueIdentity: "Detective Kim",
         stats: {
-          combat: 3,
-          stealth: 3,
-          tactics: 4,
-          nerve: 4,
+          strength: 3,
+          intelligence: 4,
+          speed: 4,
         },
       },
       {
@@ -93,16 +83,13 @@ export const vigilantes: VigilanteSheet[] = [
         status: "Available",
         joinedAt: "Joined yesterday",
         backgroundNote: "Says she drifted in from another city after a crew breakup. No names given.",
-        bio: "Competent enough on paper, but the story is thin and the timing is convenient. Seems more interested in your roster than the actual missions.",
-        traits: ["Adaptable", "Calm", "Unreadable"],
-        equipment: ["Light vest", "Messenger pouch", "Phone with cracked case"],
+        bio: "Competent on paper but story is thin. More interested in crew roster than missions. Flag for monitoring.",
         isUndercover: true,
         trueIdentity: "Undercover Officer",
         stats: {
-          combat: 3,
-          stealth: 1,
-          tactics: 5,
-          nerve: 3,
+          strength: 3,
+          intelligence: 5,
+          speed: 2,
         },
       },
       {
@@ -115,16 +102,13 @@ export const vigilantes: VigilanteSheet[] = [
         status: "Available",
         joinedAt: "Joined 5 days ago",
         backgroundNote: "Former warehouse guard. Says he knows how to stay out of sight. Employment history feels unusually neat.",
-        bio: "Looks the part and says the right things, but the timeline is a little too tidy. Comes across like someone trained to blend in fast.",
-        traits: ["Patient", "Steady hands", "Clean habits"],
-        equipment: ["Leather jacket", "Chain necklace", "Pocket flashlight"],
+        bio: "Polished presentation with an unnaturally clean employment history. Trained to blend in quickly. Needs deeper vetting.",
         isUndercover: true,
         trueIdentity: "Undercover Officer",
         stats: {
-          combat: 1,
-          stealth: 4,
-          tactics: 5,
-          nerve: 3,
+          strength: 1,
+          intelligence: 5,
+          speed: 4,
         },
       },
       
@@ -137,14 +121,11 @@ export const vigilantes: VigilanteSheet[] = [
     age: 28,
     status: "Available",
     joinedAt: "Joined 4 months ago",
-    bio: "Adam was a freelance infiltrator who built his reputation by ghosting through back entrances, rooftops, and service corridors that heavier crews never noticed. He has the look of someone who prefers silence to spectacle and spent years working alone because being tied to a team meant being slowed down. He finally agreed to join up after realizing your organization could give him what he never had before: real intel, better gear, and people who could capitalize on the openings he creates.",
-    traits: ["Stealthy", "Independent", "Precise"],
-    equipment: ["Tinted glasses", "Suppressed sidearm", "Lock bypass kit"],
+    bio: "Freelance infiltrator specializing in back entries and rooftops. Prefers working alone but joined for better gear and support.",
     stats: {
-      combat: 2,
-      stealth: 5,
-      tactics: 4,
-      nerve: 3,
+      strength: 2,
+      intelligence: 4,
+      speed: 5,
     },
   },
   {
@@ -156,14 +137,11 @@ export const vigilantes: VigilanteSheet[] = [
     age: 35,
     status: "Available",
     joinedAt: "Joined 7 months ago",
-    bio: "Kevin is a former private contractor who burned out on escort jobs and corporate protection work after realizing he was risking his life for people who treated whole neighborhoods like collateral. He is cool under pressure, physically capable, and carries himself like someone who has spent a long time in bad situations without panicking. Kevin is not especially subtle, but he is disciplined, reliable, and good at holding a line when a mission starts to collapse.",
-    traits: ["Disciplined", "Reliable", "Composed"],
-    equipment: ["Tactical vest", "Encrypted radio", "Flashlight baton"],
+    bio: "Former private contractor who left after growing disillusioned. Cool under pressure, disciplined, and reliable in a crisis.",
     stats: {
-      combat: 4,
-      stealth: 2,
-      tactics: 3,
-      nerve: 4,
+      strength: 4,
+      intelligence: 3,
+      speed: 3,
     },
   },
   {
@@ -175,14 +153,11 @@ export const vigilantes: VigilanteSheet[] = [
     age: 30,
     status: "Available",
     joinedAt: "Joined 5 months ago",
-    bio: "Jen came out of the city’s underground music and nightlife scene, where she learned that people say far more than they mean to when they think nobody important is listening. She turned that into a talent for gathering rumors, reading shifting social dynamics, and moving easily between different circles without drawing too much suspicion. Jen is sharp, adaptable, and better at sensing a trap before it closes than most of the crew.",
-    traits: ["Street-connected", "Perceptive", "Adaptive"],
-    equipment: ["Signal headphones", "Messenger satchel", "Compact taser"],
+    bio: "Jen came out of the city’s underground music and nightlife scene, learned gathering rumors and reading social dynamics. Adaptable and perceptive, excels at spotting traps.",
     stats: {
-      combat: 2,
-      stealth: 3,
-      tactics: 4,
-      nerve: 3,
+      strength: 2,
+      intelligence: 4,
+      speed: 4,
     },
   },
   {
@@ -194,14 +169,11 @@ export const vigilantes: VigilanteSheet[] = [
     age: 27,
     status: "Available",
     joinedAt: "Joined 3 months ago",
-    bio: "Iris used to run lookout and courier work for neighborhood crews before deciding she was tired of helping the wrong people stay one step ahead of everyone else. She is calm, observant, and very good at looking harmless right up until she has already mapped out every exit in the room. Iris is the kind of operative who keeps missions stable: quick enough to react, quiet enough to avoid notice, and smart enough to know when the crew should back off.",
-    traits: ["Observant", "Calm", "Quick-thinking"],
-    equipment: ["Goggles", "Utility harness", "Compact med pouch"],
+    bio: "Former lookout and courier for neighborhood crews. Calm, observant, and excellent at mapping exits. Keeps missions stable with quick reactions and good judgment on when to back off.",
     stats: {
-      combat: 2,
-      stealth: 4,
-      tactics: 4,
-      nerve: 3,
+      strength: 2,
+      intelligence: 4,
+      speed: 4,
     },
   },
   {
@@ -213,14 +185,11 @@ export const vigilantes: VigilanteSheet[] = [
     age: 48,
     status: "Available",
     joinedAt: "Joined 1 year ago",
-    bio: "Bruce is an old hand by vigilante standards, a hard-bitten survivor who has seen too many crews rise and fall because they confused aggression with discipline. He used to work armed escort and neighborhood protection jobs before city corruption and gang money made that line impossible to walk cleanly. Bruce is blunt, intimidating, and built for direct confrontation, but behind the rough edges is someone who takes responsibility seriously and refuses to abandon people once he has decided they are his own.",
-    traits: ["Intimidating", "Experienced", "Protective"],
-    equipment: ["Heavy radio", "Reinforced jacket", "Combat knife"],
+    bio: "Veteran of armed escort and neighborhood protection. Blunt, intimidating, and built for confrontation. Takes responsibility seriously and won't abandon his own.",
     stats: {
-      combat: 5,
-      stealth: 1,
-      tactics: 3,
-      nerve: 5,
+      strength: 5,
+      intelligence: 3,
+      speed: 3,
     },
   },
   {
@@ -232,14 +201,11 @@ export const vigilantes: VigilanteSheet[] = [
     age: 28,
     status: "Available",
     joinedAt: "Joined 2 months ago",
-    bio: "Zonaka made a name as a fast-moving solo operator who specialized in recon, sabotage, and getting into places where nobody expected trouble to come from. Their style is modern, unconventional, and a little theatrical, but that only hides how careful they actually are. Zonaka thrives on mobility, misdirection, and hitting a target’s weak point before the fight has even properly started, making them one of the crew’s best picks for disruption and infiltration.",
-    traits: ["Stylish", "Unpredictable", "Tech-savvy"],
-    equipment: ["Purple-lens glasses", "Signal scrambler", "Slim blade"],
+    bio: "Zonaka made a name as a fast-moving solo operator specializing in recon and sabotage. Their style is modern and unconventional with careful planning. Excels at disruption, and hitting a target’s weak point before the fight has even properly started, making them one of the crew’s excels at disruption and infiltration.",
     stats: {
-      combat: 2,
-      stealth: 4,
-      tactics: 4,
-      nerve: 4,
+      strength: 2,
+      intelligence: 4,
+      speed: 4,
     },
   },
   {
@@ -251,14 +217,11 @@ export const vigilantes: VigilanteSheet[] = [
     age: 25,
     status: "Available",
     joinedAt: "Joined 6 months ago",
-    bio: "Ashley is one of the younger recruits but does not carry herself like someone unsure of her place. She spent years running messages, supplies, and people across unstable parts of the city, which taught her how to move fast, keep her head clear, and commit without hesitation when the moment finally came. Ashley brings energy and adaptability to the group, and while she is not the most polished planner, she is fearless enough to make bold plays when others start second-guessing themselves.",
-    traits: ["Fearless", "Fast", "Resourceful"],
-    equipment: ["Aviator goggles", "Layered hoodie", "Grip gloves"],
+    bio: "Young recruit with years of experience running supplies through unstable zones. Moves fast, keeps clearheaded, and commits without hesitation. Fearless and energetic, though not the most polished planner.",
     stats: {
-      combat: 3,
-      stealth: 3,
-      tactics: 2,
-      nerve: 4,
+      strength: 3,
+      intelligence: 2,
+      speed: 4,
     },
   },
   {
@@ -269,14 +232,11 @@ export const vigilantes: VigilanteSheet[] = [
     portrait: Z,
     status: "Available",
     joinedAt: "Joined 3 weeks ago",
-    bio: "Z is an unknown vigilante who worked alone but is now willing to join the group because your operation finally has the reach and resources to matter. Almost nothing verifiable exists about where Z came from, who trained them, or how long they have really been active, only scattered reports of a masked figure appearing in places where people much more dangerous suddenly stopped feeling untouchable. Not much else is known about this enigmatic vigilante, but everyone who has crossed paths with Z agrees on one thing: they move like a ghost and fight like someone who expects no second chances.",
-    traits: ["Enigmatic", "Ghostlike", "Lethal"],
-    equipment: ["Skull mask", "Red signal scarf", "Concealed blades"],
+    bio: "Mysterious masked vigilante who worked alone. Moves like a ghost and fights with lethal efficiency. Joined because the crew's resources and reach finally match their capabilities.",
     stats: {
-      combat: 4,
-      stealth: 5,
-      tactics: 4,
-      nerve: 5,
+      strength: 4,
+      intelligence: 4,
+      speed: 5,
     },
   },
   {
@@ -288,14 +248,11 @@ export const vigilantes: VigilanteSheet[] = [
     age: 33,
     status: "Available",
     joinedAt: "Joined 1 year 2 months ago",
-    bio: "Parya worked alone for years as a watcher, courier, and occasional fixer, building a reputation for showing up where she was needed and disappearing before anyone could ask too many questions. She is guarded, intelligent, and more comfortable dealing in observation and timing than brute force, which makes her especially valuable in a crew that increasingly needs precision over chaos. Parya joined because the group gives her access to information, logistics, and protection she could never maintain by herself, but she still carries the instincts of someone used to relying on nobody but her own judgment.",
-    traits: ["Guarded", "Perceptive", "Self-reliant"],
-    equipment: ["Face wrap", "Silent boots", "Compact radio"],
+    bio: "Long-time solo watcher and courier. Guarded and intelligent, excels at observation and timing. Brings precision to the crew while maintaining self-reliance.",
     stats: {
-      combat: 2,
-      stealth: 5,
-      tactics: 5,
-      nerve: 4,
+      strength: 2,
+      intelligence: 5,
+      speed: 5,
     },
   },
 ];

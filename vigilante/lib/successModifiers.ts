@@ -7,12 +7,12 @@
  */
 
 import type { IncidentArchetype } from "@/lib/incidentTemplates";
+import { getIncidentSpecificBonus } from "./incidentSpecificBonuses";
 
 export type VigilanteStats = {
-	combat: number;
-	stealth: number;
-	tactics: number;
-	nerve: number;
+	strength: number;
+	intelligence: number;
+	speed: number;
 };
 
 /** Stats-only slice (e.g. from VigilanteSheet) */
@@ -30,11 +30,11 @@ export const STAT_WEIGHTS: Record<
 	IncidentArchetype,
 	Partial<Record<keyof VigilanteStats, number>>
 > = {
-	crime: { combat: 0.4, stealth: 0.3, tactics: 0.2, nerve: 0.1 },
-	fire_rescue: { nerve: 0.4, tactics: 0.3, combat: 0.2, stealth: 0.1 },
-	medical: { tactics: 0.4, nerve: 0.35, combat: 0.15, stealth: 0.1 },
-	disaster: { tactics: 0.35, nerve: 0.35, combat: 0.2, stealth: 0.1 },
-	traffic: { tactics: 0.4, stealth: 0.2, combat: 0.2, nerve: 0.2 },
+	crime: { strength: 0.4, speed: 0.3, intelligence: 0.3 },
+	fire_rescue: { intelligence: 0.4, strength: 0.3, speed: 0.3 },
+	medical: { intelligence: 0.5, speed: 0.3, strength: 0.2 },
+	disaster: { intelligence: 0.4, strength: 0.3, speed: 0.3 },
+	traffic: { speed: 0.4, intelligence: 0.35, strength: 0.25 },
 };
 
 /**
@@ -120,30 +120,61 @@ export const RESOURCE_ARCHETYPE_MULTIPLIER: Record<
 /** Buffs — lighter touch than gear */
 export const BUFF_ARCHETYPE_MULTIPLIER: Record<
 	string,
-	Record<IncidentArchetype, number>
+	Partial<Record<IncidentArchetype, number>>
 > = {
-	noir_focus: {
-		crime: 1.04,
-		fire_rescue: 1.05,
-		medical: 1.04,
-		disaster: 1.04,
-		traffic: 1.05,
-	},
 	street_network: {
-		crime: 1.05,
-		fire_rescue: 1.06,
-		medical: 1.05,
-		disaster: 1.05,
-		traffic: 1.08,
+		crime: 1.3,
 	},
-	adrenal_surge: {
-		crime: 1.08,
-		fire_rescue: 1.12,
-		medical: 1.06,
-		disaster: 1.1,
-		traffic: 1.12,
+	thermal_protocol: {
+		fire_rescue: 1.3,
+	},
+	vital_edge: {
+		medical: 1.3,
+	},
+	forensic_edge: {
+		medical: 1.3,
+	},
+	catastrophe_stability: {
+		disaster: 1.3,
+	},
+	urban_flow: {
+		traffic: 1.3,
 	},
 };
+
+export function getTimerSlowdownMultiplier(upgradeIds: string[]): number {
+    if (upgradeIds.includes("b1")) return 0.8;
+    return 1;
+}
+
+export function getPoliceSlowdownMultiplier(upgradeIds: string[]): number {
+    if (upgradeIds.includes("b2")) return 0.8;
+    return 1;
+}
+
+/**
+ * Scavenger's Luck (b8): on mission failure, 20% chance resources are returned
+ * instead of forfeited. Returns true if the lucky salvage triggers.
+ */
+export function rollScavengerSalvage(upgradeIds: string[]): boolean {
+    if (!upgradeIds.includes("b8")) return false;
+    return Math.random() < 0.2;
+}
+
+/**
+ * Rapid Response (b9): deploying within 10 seconds of an incident spawning
+ * grants a flat +15 percentage-point bonus to the adjusted success chance.
+ * Pass the incident's createdAt timestamp and the current time.
+ */
+export function getRapidResponseBonus(
+    upgradeIds: string[],
+    incidentCreatedAt: number,
+    nowMs: number = Date.now(),
+): number {
+    if (!upgradeIds.includes("b9")) return 0;
+    const elapsedMs = nowMs - incidentCreatedAt;
+    return elapsedMs <= 10_000 ? 15 : 0;
+}
 
 /** Map Inventory UI ids (r1..r10, b1..b3) to semantic keys */
 export const RESOURCE_ID_TO_KEY: Record<string, string> = {
@@ -158,8 +189,12 @@ export const RESOURCE_ID_TO_KEY: Record<string, string> = {
 	r9: "rescue_tool",
 	r10: "armored_vehicle",
 	b1: "noir_focus",
-	b2: "street_network",
-	b3: "adrenal_surge",
+	b2: "shadow_lag",
+	b3: "street_network",
+	b4: "thermal_protocol",
+	b5: "vital_edge",
+	b6: "catastrophe_stability",
+	b7: "urban_flow",
 };
 
 const PER_ITEM_FACTOR_MIN = 0.72;
@@ -193,6 +228,8 @@ export type ComputeAdjustedSuccessInput = {
 	/** Base % from incident (0–100) */
 	baseChancePercent: number;
 	archetype: IncidentArchetype;
+	/** Incident type label (e.g. "Kitchen fire") for specific resource relevance */
+	incidentTypeLabel?: string;
 	vigilantes: VigilanteForSuccess[];
 	/** Inventory ids (e.g. r2) and/or semantic keys (fire_extinguisher) */
 	resourceIds: string[];
@@ -205,6 +242,11 @@ export type ComputeAdjustedSuccessInput = {
 	luckHalfWidthPercentPoints?: number;
 	/** RNG in [0,1); default Math.random — inject for tests */
 	rng?: () => number;
+	/**
+	 * Flat additive bonus applied after all multipliers (e.g. Rapid Response).
+	 * Added before luck jitter, clamped with everything else to 5–95.
+	 */
+	flatBonusPercent?: number;
 };
 
 export type ComputeAdjustedSuccessResult = {
@@ -216,6 +258,8 @@ export type ComputeAdjustedSuccessResult = {
 	resourceMultiplier: number;
 	/** Product of buff factors */
 	buffMultiplier: number;
+	/** Incident-specific resource relevance multiplier (from incident type) */
+	incidentSpecificMultiplier: number;
 	/** 1 + vigilante bonus capped */
 	vigilanteMultiplier: number;
 	/**
@@ -283,9 +327,60 @@ function vigilanteStatFit(
 	return { multiplier: 1 + bonus, avgArchetypeFit };
 }
 
+const PER_BUFF_FACTOR_MIN = 0.5;
+const PER_BUFF_FACTOR_MAX = 10;  // allow strong buff values
+
+function productBuffMultipliers(
+    archetype: IncidentArchetype,
+    keys: string[],
+): number {
+    if (keys.length === 0) return 1;
+    let p = 1;
+    for (const raw of keys) {
+        const key = resolveResourceKey(raw);
+        const row = BUFF_ARCHETYPE_MULTIPLIER[key];
+        const factor = row?.[archetype] ?? 1;
+        const clamped = Math.max(
+            PER_BUFF_FACTOR_MIN,
+            Math.min(PER_BUFF_FACTOR_MAX, factor),
+        );
+        p *= clamped;
+    }
+    return p;
+}
+
+/**
+ * Compute incident-specific resource relevance multiplier.
+ * applies bonuses for bringing the right tools for this specific incident type.
+ */
+function computeIncidentSpecificMultiplier(
+    incidentTypeLabel: string | undefined,
+    resourceIds: string[],
+): number {
+    if (!incidentTypeLabel || resourceIds.length === 0) return 1;
+
+    const specificBonuses = getIncidentSpecificBonus(incidentTypeLabel);
+    if (Object.keys(specificBonuses).length === 0) return 1;
+
+    let p = 1;
+    for (const raw of resourceIds) {
+        const key = resolveResourceKey(raw);
+        const bonus = specificBonuses[key];
+        if (bonus !== undefined) {
+            // Apply same clamping as other multipliers for consistency
+            const clamped = Math.max(
+                PER_ITEM_FACTOR_MIN,
+                Math.min(PER_ITEM_FACTOR_MAX, bonus),
+            );
+            p *= clamped;
+        }
+    }
+    return p;
+}
+
 /**
  * Combined success %: base × gear × buffs × vigilante fit × staffing × kit
- * presence, then small luck jitter.
+ * presence, then small luck jitter, then flat bonus (e.g. Rapid Response).
  */
 export function computeAdjustedSuccessChance(
 	input: ComputeAdjustedSuccessInput,
@@ -293,11 +388,13 @@ export function computeAdjustedSuccessChance(
 	const {
 		baseChancePercent,
 		archetype,
+		incidentTypeLabel,
 		vigilantes,
 		resourceIds,
 		buffIds = [],
 		luckHalfWidthPercentPoints = 1.25,
 		rng = Math.random,
+		flatBonusPercent = 0,
 	} = input;
 
 	const resourceMultiplier = productMultipliers(
@@ -305,10 +402,10 @@ export function computeAdjustedSuccessChance(
 		resourceIds,
 		RESOURCE_ARCHETYPE_MULTIPLIER,
 	);
-	const buffMultiplier = productMultipliers(
-		archetype,
-		buffIds,
-		BUFF_ARCHETYPE_MULTIPLIER,
+	const buffMultiplier = productBuffMultipliers(archetype, buffIds);
+	const incidentSpecificMultiplier = computeIncidentSpecificMultiplier(
+		incidentTypeLabel,
+		resourceIds,
 	);
 	const { multiplier: vigilanteMultiplier, avgArchetypeFit } = vigilanteStatFit(
 		archetype,
@@ -324,6 +421,7 @@ export function computeAdjustedSuccessChance(
 		baseChancePercent *
 		resourceMultiplier *
 		buffMultiplier *
+		incidentSpecificMultiplier *
 		vigilanteMultiplier *
 		staffingSupportMultiplier *
 		gearPresenceMultiplier;
@@ -334,7 +432,7 @@ export function computeAdjustedSuccessChance(
 
 	const jitter = (rng() - 0.5) * 2 * luckHalfWidthPercentPoints;
 	const adjustedPercent = Math.round(
-		Math.max(5, Math.min(95, beforeLuckPercent + jitter)),
+		Math.max(5, Math.min(95, beforeLuckPercent + jitter + flatBonusPercent)),
 	);
 
 	return {
@@ -342,6 +440,7 @@ export function computeAdjustedSuccessChance(
 		beforeLuckPercent,
 		resourceMultiplier,
 		buffMultiplier,
+		incidentSpecificMultiplier,
 		vigilanteMultiplier,
 		avgArchetypeFit,
 		staffingSupportMultiplier,

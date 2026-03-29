@@ -6,11 +6,14 @@ export const IncidentTimerBar = React.memo(function IncidentTimerBar({
     expiresAt,
     onExpire,
     paused = false,
+    timerSlowdownMultiplier = 1,
 }: {
     createdAt: number;
     expiresAt: number;
     onExpire: () => void;
     paused?: boolean;
+    /** Multiplier for timer speed (e.g., 0.75 = 75% speed). Default 1 (normal speed). */
+    timerSlowdownMultiplier?: number;
 }) {
     const totalMs = Math.max(1, expiresAt - createdAt);
     const [displayNow, setDisplayNow] = useState(() => Date.now());
@@ -21,20 +24,30 @@ export const IncidentTimerBar = React.memo(function IncidentTimerBar({
     expiresAtRef.current = expiresAt;
     const onExpireRef = useRef(onExpire);
     onExpireRef.current = onExpire;
+    const createdAtRef = useRef(createdAt);
+    createdAtRef.current = createdAt;
+    const slowdownRef = useRef(timerSlowdownMultiplier);
+    slowdownRef.current = timerSlowdownMultiplier;
 
     useEffect(() => {
         if (paused) return;
         const id = window.setInterval(() => {
             const t = Date.now();
             setDisplayNow(t);
-            if (!pausedRef.current && t >= expiresAtRef.current) {
-                onExpireRef.current();
+            if (!pausedRef.current) {
+                // Check expiry with slowdown multiplier applied
+                const elapsedAdjusted = (t - createdAtRef.current) * slowdownRef.current;
+                const targetDuration = expiresAtRef.current - createdAtRef.current;
+                if (elapsedAdjusted >= targetDuration) {
+                    onExpireRef.current();
+                }
             }
         }, 100);
         return () => window.clearInterval(id);
     }, [paused]);
 
-    const remainingMs = Math.max(0, expiresAt - displayNow);
+    const elapsedAdjusted = (displayNow - createdAt) * timerSlowdownMultiplier;
+    const remainingMs = Math.max(0, totalMs - elapsedAdjusted);
     const ratio = Math.max(0, Math.min(1, remainingMs / totalMs));
 
     return (

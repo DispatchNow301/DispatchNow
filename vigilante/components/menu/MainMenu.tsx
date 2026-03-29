@@ -27,10 +27,12 @@ export default function MainMenu() {
 
 	const handleMultiplayer = () => {
 		if (!isSignedIn) return;
+		play("uiClick");
 		setMultiplayerOpen(true);
 	};
 
 	const handleSingleplayer = () => {
+		play("uiClick");
 		setSingleplayerOpen(true);
 	};
 

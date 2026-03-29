@@ -13,6 +13,10 @@ import { sliderToSfxGain } from "./audioGain";
  */
 const UI_SOUND = "/audio/sfx/click.ogg";
 const GAME_SOUND = "/audio/sfx/alert.ogg";
+const POSITIVE_SOUND = "/audio/sfx/powerup.ogg";
+const NEGATIVE_SOUND = "/audio/sfx/incorrect.ogg";
+const NOTIFICATION_SOUND = "/audio/sfx/question.ogg";
+const TRANSACTION_SOUND = "/audio/sfx/close.ogg";
 
 /**
  * Logical keys used in the app — many share one file on purpose.
@@ -26,6 +30,13 @@ const GAME_SOUND = "/audio/sfx/alert.ogg";
  * | incidentSelect | Pick incident on map or list         | UI_SOUND     |
  * | incidentAlert  | New incident spawned                 | GAME_SOUND   |
  * | incidentExpire | Incident timer ended / removed       | GAME_SOUND   |
+ * | incidentResolve| Incident resolved (success/fail)    | TRANSACTION_SOUND |
+ * | purchase       | Buying resources/upgrades            | POSITIVE_SOUND |
+ * | recruit        | Hiring vigilantes                    | POSITIVE_SOUND |
+ * | reputationLoss | Reputation decreased                 | NEGATIVE_SOUND |
+ * | achievement    | Achievement unlocked                 | NOTIFICATION_SOUND |
+ * | gameOver       | Game over trigger                    | GAME_SOUND   |
+ * | restart        | Restart run button                   | UI_SOUND     |
  */
 export const SFX = {
 	uiClick: UI_SOUND,
@@ -36,6 +47,13 @@ export const SFX = {
 	incidentExpire: GAME_SOUND,
 	panelToggle: UI_SOUND,
 	zoomTier: UI_SOUND,
+	incidentResolve: TRANSACTION_SOUND,
+	purchase: POSITIVE_SOUND,
+	recruit: POSITIVE_SOUND,
+	reputationLoss: NEGATIVE_SOUND,
+	achievement: NOTIFICATION_SOUND,
+	gameOver: GAME_SOUND,
+	restart: UI_SOUND,
 } as const;
 
 export type SfxKey = keyof typeof SFX;

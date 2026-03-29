@@ -1,12 +1,8 @@
 "use client";
 
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import * as THREE from "three";
-import {
-	ROLL_CREW_CORRELATION_STRENGTH,
-	type DispatchRollBreakdown,
-} from "@/lib/incidentRoll";
 
 function ChanceRollCube({ active }: { active: boolean }) {
 	const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -91,34 +87,18 @@ function RollStrip({
 	rolled: number;
 	adjustedPercent: number;
 }) {
-	const stripId = useId();
 	const target = Math.min(100, Math.max(0, adjustedPercent));
 	const rollPos = Math.min(100, Math.max(0, rolled));
 
 	return (
-		<div className="space-y-1.5">
-			<div className="flex justify-between text-[10px] text-amber-200/45">
-				<span>0</span>
-				<span className="max-w-[58%] text-center text-amber-200/65">
-					green = success (roll must stay &lt; threshold)
-				</span>
-				<span>100</span>
-			</div>
-			<div
-				className="relative h-3 w-full overflow-hidden rounded-full border border-amber-900/50 bg-rose-950/70"
-				role="img"
-				aria-labelledby={stripId}
-			>
-				<p id={stripId} className="sr-only">
-					Chance strip from 0 to 100. Green zone from 0 to {target}
-					percent. Your roll is {rollPos.toFixed(1)}.
-				</p>
+		<div className="space-y-2">
+			<div className="relative h-4 w-full overflow-hidden rounded-full border border-amber-900/50 bg-rose-950/70">
 				<div
-					className="absolute inset-y-0 left-0 bg-linear-to-r from-emerald-700/55 to-emerald-600/35"
+					className="absolute inset-y-0 left-0 bg-linear-to-r from-emerald-700/70 to-emerald-500/45"
 					style={{ width: `${target}%` }}
 				/>
 				<motion.div
-					className="absolute top-1/2 z-10 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-amber-100 bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.45)]"
+					className="absolute top-1/2 z-10 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-amber-100 bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.45)]"
 					initial={{ left: "0%" }}
 					animate={{ left: `${rollPos}%` }}
 					transition={{ duration: 1.35, ease: [0.22, 1, 0.36, 1] }}
@@ -128,178 +108,28 @@ function RollStrip({
 	);
 }
 
-function RollBreakdownPanel({
-	breakdown,
-	beforeLuckPercent,
-	adjustedPercent,
-}: {
-	breakdown: DispatchRollBreakdown;
-	beforeLuckPercent: number;
-	adjustedPercent: number;
-}) {
-	const fmt = (n: number) => n.toFixed(2);
-	const {
-		baseChancePercent,
-		resourceMultiplier,
-		buffMultiplier,
-		vigilanteMultiplier,
-		avgArchetypeFit,
-		luckDeltaPercent,
-	} = breakdown;
-	const staffingSupportMultiplier = breakdown.staffingSupportMultiplier ?? 1;
-	const gearPresenceMultiplier = breakdown.gearPresenceMultiplier ?? 1;
-	const rollBlend = Math.min(
-		1,
-		ROLL_CREW_CORRELATION_STRENGTH * avgArchetypeFit,
-	);
-	const luckStr =
-		luckDeltaPercent === 0
-			? "0"
-			: luckDeltaPercent > 0
-				? `+${luckDeltaPercent}`
-				: `${luckDeltaPercent}`;
-
-	return (
-		<div className="rounded-lg border border-amber-900/40 bg-black/40 px-3 py-2.5 text-left">
-			<p className="text-[10px] font-medium uppercase tracking-[0.14em] text-amber-500/70">
-				How we got this target
-			</p>
-			<p className="mt-1.5 font-mono text-[10px] leading-relaxed text-amber-100/90 tabular-nums">
-				<span className="text-amber-200/60">base</span>{" "}
-				{baseChancePercent}%{" "}
-				<span className="text-amber-200/45">×</span> gear{" "}
-				{fmt(resourceMultiplier)}{" "}
-				<span className="text-amber-200/45">×</span> buffs{" "}
-				{fmt(buffMultiplier)}{" "}
-				<span className="text-amber-200/45">×</span> crew{" "}
-				{fmt(vigilanteMultiplier)}
-			</p>
-			<p className="mt-1 font-mono text-[10px] leading-relaxed text-amber-100/90 tabular-nums">
-				<span className="text-amber-200/45">×</span> staffing{" "}
-				{fmt(staffingSupportMultiplier)}{" "}
-				<span className="text-amber-200/50">(ref. 2 people = 1.00)</span>
-				{" "}
-				<span className="text-amber-200/45">×</span> kit presence{" "}
-				{fmt(gearPresenceMultiplier)}
-			</p>
-			<p className="mt-1.5 font-mono text-[10px] leading-relaxed text-amber-200/80 tabular-nums">
-				→ {beforeLuckPercent}% before luck · luck {luckStr} →{" "}
-				<span className="font-semibold text-emerald-300/95">
-					{adjustedPercent}%
-				</span>{" "}
-				<span className="text-amber-200/55">final threshold</span>
-			</p>
-			<p className="mt-2 font-mono text-[10px] leading-relaxed text-amber-200/75 tabular-nums">
-				Crew archetype fit {(avgArchetypeFit * 100).toFixed(0)}%
-				<span className="text-amber-200/45"> (stats vs this type)</span>
-				{" · "}
-				<span className="text-amber-200/55">
-					roll mix {(100 - rollBlend * 100).toFixed(0)}% chaos /{" "}
-					{(rollBlend * 100).toFixed(0)}% tight execution
-				</span>
-			</p>
-			<p className="mt-2 text-[9px] leading-snug text-amber-200/50">
-				Base is from when the incident spawned. Multiply gear × buffs × crew
-				fit × staffing × kit presence, round, then a small luck tweak →{" "}
-				<span className="font-semibold text-amber-200/65">
-					threshold (roll under this)
-				</span>
-				. The 0–100 resolution draw is{" "}
-				<span className="text-amber-200/65">not</span> pure noise: higher
-				fit pulls it toward low “execution” rolls (still not deterministic).{" "}
-				<span className="text-amber-300/55">
-					Unlike “meet or beat a DC,” a lower draw is better here.
-				</span>
-			</p>
-		</div>
-	);
-}
-
-/** Makes roll-under explicit: many players read “70%” as “roll ≥ 70”. */
-function RollVerdictLine({
-	rolled,
-	adjustedPercent,
-	success,
-}: {
-	rolled: number;
-	adjustedPercent: number;
-	success: boolean;
-}) {
-	const cmp = success ? "<" : "≥";
-	const margin = success
-		? adjustedPercent - rolled
-		: rolled - adjustedPercent;
-
-	return (
-		<div className="mt-2 rounded-lg border border-amber-800/40 bg-amber-950/30 px-3 py-2.5 text-left">
-			<p className="text-[10px] font-medium uppercase tracking-[0.12em] text-amber-500/70">
-				How your roll is read
-			</p>
-			<p className="mt-1 font-mono text-[12px] leading-snug text-amber-50/95 tabular-nums">
-				{rolled.toFixed(1)} {cmp} {adjustedPercent}{" "}
-				<span className="text-amber-200/55">→</span>{" "}
-				<span
-					className={
-						success ? "font-semibold text-emerald-400" : "font-semibold text-rose-400"
-					}
-				>
-					{success ? "Success" : "Failure"}
-				</span>
-			</p>
-			<p className="mt-1.5 text-[10px] leading-snug text-amber-200/55">
-				{success ? (
-					<>
-						<span className="text-emerald-400/90">
-							{margin.toFixed(1)} pts of room
-						</span>{" "}
-						under the threshold — a low draw is good here, not bad.
-					</>
-				) : (
-					<>
-						Missed by{" "}
-						<span className="text-rose-400/90">
-							{margin.toFixed(1)} pts
-						</span>
-						. You needed a roll{" "}
-						<span className="font-semibold text-amber-100/80">
-							strictly below {adjustedPercent}
-						</span>
-						.
-					</>
-				)}
-			</p>
-		</div>
-	);
-}
-
 type Props = {
 	rolled: number;
 	adjustedPercent: number;
 	success: boolean;
-	/** After multipliers, before ±luck jitter */
-	beforeLuckPercent: number;
-	breakdown: DispatchRollBreakdown;
-	/** e.g. &quot;Allergic reaction · Medical&quot; */
 	contextLabel: string;
-	/** Rolling: only the sim. Outcome: gear message + continue. */
 	phase: "rolling" | "outcome";
-	/** Whether resources were staged on this dispatch (for gear copy). */
-	hadDeployedGear: boolean;
 	onContinue: () => void;
 };
 
 /**
- * Full-screen chance roll: spinning 3D cube + 0–100 strip; outcome phase explains gear.
+ * Clean chance roll overlay:
+ * - Animated 3D cube
+ * - Chance %
+ * - Success / Failure
+ * - Continue button
  */
 export default function IncidentChanceRollOverlay({
 	rolled,
 	adjustedPercent,
-	beforeLuckPercent,
-	breakdown,
-	contextLabel,
 	success,
+	contextLabel,
 	phase,
-	hadDeployedGear,
 	onContinue,
 }: Props) {
 	const isRolling = phase === "rolling";
@@ -318,128 +148,54 @@ export default function IncidentChanceRollOverlay({
 				className="w-full max-w-md rounded-2xl border border-amber-800/45 bg-[#080706]/95 px-5 py-5 text-center shadow-[0_24px_80px_rgba(0,0,0,0.75)]"
 			>
 				<p className="text-[11px] font-medium uppercase tracking-[0.22em] text-amber-500/75">
-					Chance roll
+					Chance Roll
 				</p>
-				<p className="mt-2 text-[11px] leading-snug text-amber-200/65">
+
+				<p className="mt-2 text-[11px] leading-snug text-amber-200/55">
 					{contextLabel}
 				</p>
-				<div className="mt-3 text-left">
-					<RollBreakdownPanel
-						breakdown={breakdown}
-						beforeLuckPercent={beforeLuckPercent}
-						adjustedPercent={adjustedPercent}
-					/>
-				</div>
-				{isRolling ? (
-					<p className="mt-3 text-xs leading-snug text-amber-200/70">
-						<span className="text-amber-100/95">Roll-under check:</span> we
-						draw 0–100. Success means the number is{" "}
-						<span className="font-semibold text-emerald-300/90">
-							strictly less
-						</span>{" "}
-						than the threshold (green zone).{" "}
-						<span className="text-amber-200/55">
-							A small number is a good draw, not a bad one.
-						</span>
-					</p>
-				) : (
-					<p className="mt-3 text-xs leading-snug text-amber-200/70">
-						Roll locked in — see how it compares below. Gear outcome after
-						that.
-					</p>
-				)}
 
-				<div className="mt-3">
+				<div className="mt-4">
 					<ChanceRollCube active />
 				</div>
 
-				<div className="mt-4 space-y-2">
-					<div className="flex flex-wrap items-baseline justify-center gap-x-1.5 gap-y-0.5 text-sm">
-						<span className="text-amber-200/60">Threshold (roll under)</span>
-						<span className="font-bold tabular-nums text-amber-100">
-							{adjustedPercent}%
-						</span>
-						<span className="text-[11px] text-amber-200/45">
-							not “at least”
-						</span>
+				<div className="mt-4">
+					<p className="text-[11px] uppercase tracking-[0.18em] text-amber-200/45">
+						Chance
+					</p>
+					<div className="mt-1 text-5xl font-black tracking-tight text-amber-50 tabular-nums">
+						{adjustedPercent}%
 					</div>
-
-					<RollStrip rolled={rolled} adjustedPercent={adjustedPercent} />
-
-					<div className="pt-1">
-						<span className="text-[10px] uppercase tracking-[0.14em] text-amber-200/45">
-							Your roll
-						</span>
-						<div className="mt-0.5 text-2xl font-bold tabular-nums tracking-tight text-amber-50">
-							{rolled.toFixed(1)}
-						</div>
-						<RollVerdictLine
-							rolled={rolled}
-							adjustedPercent={adjustedPercent}
-							success={success}
-						/>
-					</div>
-
-					{isRolling ? (
-						<div className="rounded-lg border border-amber-900/50 bg-black/30 px-3 py-2 text-xs text-amber-200/65">
-							Resolving dispatch…
-						</div>
-					) : (
-						<>
-							<div
-								className={`rounded-lg border px-3 py-2.5 text-left text-xs leading-snug ${
-									success
-										? "border-emerald-800/40 bg-emerald-950/25 text-emerald-200/90"
-										: "border-rose-900/40 bg-rose-950/20 text-rose-200/85"
-								}`}
-							>
-								{success ? (
-									hadDeployedGear ? (
-										<>
-											<span className="font-semibold text-emerald-100/95">
-												Returning gear
-											</span>{" "}
-											— staged equipment is being added
-											back to your pool now.
-										</>
-									) : (
-										<>
-											<span className="font-semibold text-emerald-100/95">
-												Crew-only dispatch.
-											</span>{" "}
-											No gear was staged, so there is
-											nothing to return.
-										</>
-									)
-								) : hadDeployedGear ? (
-									<>
-										<span className="font-semibold text-rose-100/95">
-											Gear not recovered.
-										</span>{" "}
-										Staged equipment stays lost: it is
-										removed from your inventory (not
-										returned to the pool).
-									</>
-								) : (
-									<>
-										<span className="font-semibold text-rose-100/95">
-											No gear at risk.
-										</span>{" "}
-										Nothing was staged, so no equipment was
-										lost.
-									</>
-								)}
-							</div>
-							<button
-								type="button"
-								onClick={onContinue}
-								className="mt-1 w-full cursor-pointer rounded-lg border border-amber-600/50 bg-amber-950/35 py-2.5 text-sm font-medium text-amber-50 transition hover:bg-amber-900/30"
-							>
-								Continue
-							</button>
-						</>
-					)}
 				</div>
+
+				<div className="mt-5">
+					<RollStrip
+						rolled={rolled}
+						adjustedPercent={adjustedPercent}
+					/>
+				</div>
+
+				<div className="mt-6">
+					<div
+						className={`rounded-xl border px-4 py-4 text-2xl font-black tracking-[0.18em] ${
+							success
+								? "border-emerald-800/40 bg-emerald-950/25 text-emerald-300"
+								: "border-rose-900/40 bg-rose-950/20 text-rose-300"
+						}`}
+					>
+						{success ? "SUCCESS" : "FAILURE"}
+					</div>
+				</div>
+
+				{!isRolling && (
+					<button
+						type="button"
+						onClick={onContinue}
+						className="mt-5 w-full cursor-pointer rounded-lg border border-amber-600/50 bg-amber-950/35 py-3 text-sm font-medium text-amber-50 transition hover:bg-amber-900/30"
+					>
+						Continue
+					</button>
+				)}
 			</motion.div>
 		</div>
 	);

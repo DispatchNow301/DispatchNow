@@ -15,16 +15,13 @@ type CharacterLike = {
 	status?: string;
 	joinedAt?: string;
 	backgroundNote?: string;
-	traits?: string[];
-	equipment?: string[];
 	bio?: string;
 	isUndercover?: boolean;
 	trueIdentity?: string;
 	stats?: {
-		combat: number;
-		stealth: number;
-		tactics: number;
-		nerve: number;
+		strength: number;
+		intelligence: number;
+		speed: number;
 	};
 };
 
@@ -415,66 +412,21 @@ export default function VettingMinigameModal({
 											</div>
 										</div>
 
-										<div className="mt-6 grid grid-cols-2 gap-3">
+										<div className="mt-6 grid grid-cols-3 gap-3">
 											<StatCard
-												label="Combat"
-												value={character.stats?.combat ?? 0}
+												label="Strength"
+												value={character.stats?.strength ?? 0}
 											/>
 											<StatCard
-												label="Stealth"
-												value={character.stats?.stealth ?? 0}
+												label="Intelligence"
+												value={character.stats?.intelligence ?? 0}
 											/>
 											<StatCard
-												label="Tactics"
-												value={character.stats?.tactics ?? 0}
-											/>
-											<StatCard
-												label="Nerve"
-												value={character.stats?.nerve ?? 0}
+												label="Speed"
+												value={character.stats?.speed ?? 0}
 											/>
 										</div>
 
-										<div className="mt-6 grid gap-4">
-											<div className="rounded-xl border border-amber-900/30 bg-black/25 p-4">
-												<div className="text-[11px] uppercase tracking-[0.24em] text-amber-400/70">
-													Traits
-												</div>
-												<div className="mt-3 flex flex-wrap gap-2">
-													{(character.traits ?? []).length > 0 ? (
-														character.traits?.map((trait) => (
-															<span
-																key={trait}
-																className="rounded-full border border-amber-900/30 bg-black/30 px-3 py-1 text-xs text-amber-100/80"
-															>
-																{trait}
-															</span>
-														))
-													) : (
-														<span className="text-sm text-amber-200/45">
-															No listed traits.
-														</span>
-													)}
-												</div>
-											</div>
-
-											<div className="rounded-xl border border-amber-900/30 bg-black/25 p-4">
-												<div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.24em] text-amber-400/70">
-													<Shield className="h-3.5 w-3.5" />
-													Equipment
-												</div>
-												<ul className="mt-3 space-y-2 text-sm text-amber-100/75">
-													{(character.equipment ?? []).length > 0 ? (
-														character.equipment?.map((item) => (
-															<li key={item}>• {item}</li>
-														))
-													) : (
-														<li className="text-amber-200/45">
-															No recorded equipment.
-														</li>
-													)}
-												</ul>
-											</div>
-										</div>
 									</div>
 								</div>
 							</div>

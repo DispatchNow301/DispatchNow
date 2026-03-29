@@ -22,6 +22,7 @@ type Props = {
 	open: boolean;
 	speaker: DialogueSpeaker | null;
 	text: string;
+	dialogueType?: "past" | "current" | "story" | "unknown";
 	onClose?: () => void;
 	onNext?: () => void;
 	nextLabel?: string;
@@ -39,6 +40,7 @@ export default function NPCDialogueBox({
 	open,
 	speaker,
 	text,
+	dialogueType,
 	onClose,
 	onNext,
 	nextLabel = "Roger that",
@@ -87,6 +89,25 @@ export default function NPCDialogueBox({
 	const btnPrimary =
 		"cursor-pointer rounded-lg border border-amber-900/45 bg-black/50 px-5 py-2.5 text-sm font-medium text-amber-100/90 transition-all hover:bg-amber-950/40 hover:border-amber-500/60 active:scale-[0.98]";
 
+	// Badge styling - consistent amber theme with border-only design
+	const getBadgeClass = (type?: string) => {
+		// All dialogue types use the same amber border theme
+		return "bg-transparent text-amber-400 border border-amber-500/70";
+	};
+
+	const getBadgeLabel = (type?: string) => {
+		switch (type) {
+			case "past":
+				return "reminiscing";
+			case "current":
+				return "responding";
+			case "story":
+				return "story";
+			default:
+				return "";
+		}
+	};
+
 	return (
 		<AnimatePresence mode="wait">
 			{open ? (
@@ -102,6 +123,13 @@ export default function NPCDialogueBox({
 					className={shellClass}
 				>
 					<div className="overflow-hidden rounded-xl border border-amber-900/40 bg-black/85">
+						{dialogueType && (
+							<div
+								className={`absolute right-3 top-3 z-10 rounded px-2 py-1 text-[10px] font-bold uppercase tracking-wider shadow-lg ${getBadgeClass(dialogueType)}`}
+							>
+								{getBadgeLabel(dialogueType)}
+							</div>
+						)}
 						<div className="flex items-stretch">
 							<div className="relative min-h-[152px] w-32 shrink-0 self-stretch overflow-hidden">
 								<div className="absolute inset-0">
@@ -116,14 +144,14 @@ export default function NPCDialogueBox({
 								</div>
 							</div>
 
-							<div className="flex min-h-[152px] flex-1 flex-col justify-between px-4 py-3">
+							<div className="flex h-[152px] flex-1 flex-col justify-between px-4 py-3">
 								<div>
-									<div className="flex items-center gap-2">
+									<div className="flex items-center justify-between">
 										<div className="text-[10px] uppercase tracking-[0.2em] text-amber-400/65">
 											{speaker.role}
 										</div>
 										<div
-											className={`ml-auto transition-opacity duration-200 ${
+											className={`transition-opacity duration-200 ${
 												isSpeaking
 													? "opacity-100"
 													: "opacity-0"
@@ -132,12 +160,38 @@ export default function NPCDialogueBox({
 											<Volume2 className="h-3.5 w-3.5 text-amber-400/60" />
 										</div>
 									</div>
-
-									<div className="mt-0.5 text-lg font-semibold leading-snug text-amber-50/95">
-										{speaker.name}
+									<div className="flex items-center gap-2 mt-0.5">
+										<div className="text-lg font-semibold leading-snug text-amber-50/95">
+											{speaker.name}
+										</div>
 									</div>
 
-									<p className="mt-3 text-sm leading-relaxed text-amber-100/85">
+									{/* Spectrogram animation when speaking */}
+									{isSpeaking && (
+										<div className="mt-3 flex items-center gap-1">
+											{Array.from({ length: 20 }).map(
+												(_, i) => (
+													<motion.div
+														key={i}
+														className="w-1 bg-amber-400/70 rounded-full"
+														animate={{
+															height: [
+																4, 16, 8, 20, 4,
+															],
+														}}
+														transition={{
+															duration: 0.8,
+															repeat: Infinity,
+															repeatType: "loop",
+															delay: i * 0.05,
+														}}
+													/>
+												),
+											)}
+										</div>
+									)}
+
+									<p className="mt-3 line-clamp-2 text-sm leading-relaxed text-amber-100/85">
 										{text}
 									</p>
 								</div>

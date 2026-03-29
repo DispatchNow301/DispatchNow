@@ -34,6 +34,7 @@ type Props = {
 	onPoliceEtaUpdate?: (items: PoliceEtaItem[]) => void;
 	onPoliceResolveIncident?: (incidentId: string) => void;
 	paused?: boolean;
+	timerSlowdownMultiplier?: number;
 };
 
 const RESPONSE_RADIUS_METERS = 3200;
@@ -42,7 +43,26 @@ const RENDER_TICK_MS = 1000 / 30;
 const REASSIGN_COOLDOWN_MS = 1000;
 const TARGET_PRE_EXPIRY_ARRIVAL_MS = 5000;
 const RESPONSE_SPEED_MIN_MULTIPLIER = 0.75;
-const RESPONSE_SPEED_MAX_MULTIPLIER = 2.35;
+const RESPONSE_SPEED_MAX_MULTIPLIER = 10;
+
+const POLICE_ROUTE_MIN_POINT_SPACING_METERS = 8;
+const POLICE_ROUTE_HAIRPIN_RETURN_PROXIMITY_METERS = 40;
+const POLICE_ROUTE_HAIRPIN_MIN_LEG_METERS = 40;
+const POLICE_ROUTE_HAIRPIN_COS_THRESHOLD = -0.2;
+const POLICE_ROUTE_DIRECT_SHORTCUT_MAX_DISTANCE_METERS = 420;
+const POLICE_ROUTE_DIRECT_SHORTCUT_RATIO_THRESHOLD = 1.35;
+const POLICE_ROUTE_HOOK_LOOKAHEAD_POINTS = 10;
+const POLICE_ROUTE_HOOK_DETOUR_MIN_METERS = 30;
+const POLICE_ROUTE_HOOK_RETURN_TO_START_METERS = 42;
+const POLICE_ROUTE_HOOK_AWAY_FROM_TARGET_MARGIN_METERS = 14;
+const POLICE_ROUTE_HOOK_MIN_REJOIN_GAP_METERS = 20;
+
+/* Detect non-adjacent points that come back near each other, then remove the
+   detour section between them. */
+const POLICE_ROUTE_REVISIT_PROXIMITY_METERS = 30;
+const POLICE_ROUTE_REVISIT_MIN_SKIPPED_POINTS = 2;
+const POLICE_ROUTE_REVISIT_MIN_SAVED_METERS = 50;
+const POLICE_ROUTE_REVISIT_SEARCH_AHEAD_POINTS = 20;
 
 const LOCAL_PATROL_ANCHORS = {
 	diaz: [
@@ -132,8 +152,343 @@ function getRouteDef(routeId: "diaz" | "kim" | "chief") {
 	};
 }
 
-function isActiveIncident(incident: PoliceIncident, now: number) {
-	return incident.status === "active" && now < incident.expiresAt;
+function getAdjustedExpiresAt(incident: PoliceIncident, slowdown: number): number {
+    if (slowdown >= 1) return incident.expiresAt;  // ← flip > to 
+    const duration = incident.expiresAt - incident.createdAt;
+    return incident.createdAt + duration / slowdown;
+}
+
+function isActiveIncident(incident: PoliceIncident, now: number, slowdown = 1) {
+	return incident.status === "active" && now < getAdjustedExpiresAt(incident, slowdown);
+}
+
+function getResponseArrivalBufferMs(remainingMs: number) {
+	if (remainingMs <= 6000) return 600;
+	if (remainingMs <= 10000) return 1000;
+	if (remainingMs <= 16000) return 1600;
+	if (remainingMs <= 24000) return 2200;
+	return TARGET_PRE_EXPIRY_ARRIVAL_MS;
+}
+
+function getUrgencyBoost(remainingMs: number) {
+	if (remainingMs <= 8000) return 1.2;
+	if (remainingMs <= 14000) return 1.1;
+	return 1;
+}
+
+function getDispatchEstimate(
+	distance: number,
+	unit: PoliceUnit,
+	incident: PoliceIncident,
+	now: number,
+	slowdown = 1,
+) {
+	const timeLeftMs = Math.max(getAdjustedExpiresAt(incident, slowdown) - now, 0);
+	const urgencyBoost = getUrgencyBoost(timeLeftMs);
+	const maxResponseMps =
+		unit.speeds.responseMps *
+		RESPONSE_SPEED_MAX_MULTIPLIER *
+		urgencyBoost;
+	const estimatedTravelMs =
+		(distance / Math.max(maxResponseMps, 0.1)) * 1000;
+	const slackMs = timeLeftMs - estimatedTravelMs;
+
+	return {
+		timeLeftMs,
+		estimatedTravelMs,
+		slackMs,
+	};
+}
+
+function meterVector(from: LatLngTuple, to: LatLngTuple) {
+	const avgLatRad = (((from[0] + to[0]) / 2) * Math.PI) / 180;
+	const metersPerLat = 111_320;
+	const metersPerLng = 111_320 * Math.cos(avgLatRad);
+
+	return {
+		x: (to[1] - from[1]) * metersPerLng,
+		y: (to[0] - from[0]) * metersPerLat,
+	};
+}
+
+function cosineBetweenSegments(
+	a: LatLngTuple,
+	b: LatLngTuple,
+	c: LatLngTuple,
+) {
+	const v1 = meterVector(a, b);
+	const v2 = meterVector(b, c);
+
+	const mag1 = Math.hypot(v1.x, v1.y);
+	const mag2 = Math.hypot(v2.x, v2.y);
+
+	if (mag1 === 0 || mag2 === 0) return 1;
+
+	return (v1.x * v2.x + v1.y * v2.y) / (mag1 * mag2);
+}
+
+function dedupeAdjacentPolicePath(path: LatLngTuple[]) {
+	if (path.length <= 2) return path.slice();
+
+	const result: LatLngTuple[] = [path[0]];
+
+	for (let i = 1; i < path.length; i += 1) {
+		const point = path[i];
+		const last = result[result.length - 1];
+		const isLastPoint = i === path.length - 1;
+
+		if (
+			distanceMeters(last, point) >= POLICE_ROUTE_MIN_POINT_SPACING_METERS
+		) {
+			result.push(point);
+			continue;
+		}
+
+		if (isLastPoint) {
+			result[result.length - 1] = point;
+		}
+	}
+
+	return result.length >= 2 ? result : path.slice();
+}
+
+function isLocalHairpin(
+	a: LatLngTuple,
+	b: LatLngTuple,
+	c: LatLngTuple,
+) {
+	const ab = distanceMeters(a, b);
+	const bc = distanceMeters(b, c);
+	const ac = distanceMeters(a, c);
+
+	if (ab < POLICE_ROUTE_HAIRPIN_MIN_LEG_METERS) return false;
+	if (bc < POLICE_ROUTE_HAIRPIN_MIN_LEG_METERS) return false;
+	if (ac > POLICE_ROUTE_HAIRPIN_RETURN_PROXIMITY_METERS) return false;
+
+	const cos = cosineBetweenSegments(a, b, c);
+	return cos <= POLICE_ROUTE_HAIRPIN_COS_THRESHOLD;
+}
+
+function collapsePoliceHairpins(path: LatLngTuple[]) {
+	if (path.length < 3) return path.slice();
+
+	const stack: LatLngTuple[] = [];
+
+	for (const point of path) {
+		stack.push(point);
+
+		let changed = true;
+
+		while (changed && stack.length >= 3) {
+			changed = false;
+
+			const c = stack[stack.length - 1];
+			const b = stack[stack.length - 2];
+			const a = stack[stack.length - 3];
+
+			if (isLocalHairpin(a, b, c)) {
+				stack.splice(stack.length - 2, 1);
+				changed = true;
+			}
+		}
+	}
+
+	return stack.length >= 2 ? stack : path.slice();
+}
+
+function getSubPathDistance(
+	path: LatLngTuple[],
+	startIndex: number,
+	endIndex: number,
+) {
+	let total = 0;
+
+	for (let i = startIndex; i < endIndex; i += 1) {
+		total += distanceMeters(path[i], path[i + 1]);
+	}
+
+	return total;
+}
+
+function collapsePoliceNearbyRevisits(path: LatLngTuple[]) {
+	if (path.length < 4) return path.slice();
+
+	let next = path.slice();
+	let changed = true;
+
+	while (changed) {
+		changed = false;
+
+		outer: for (let i = 0; i < next.length - 3; i += 1) {
+			const maxJ = Math.min(
+				next.length - 1,
+				i + POLICE_ROUTE_REVISIT_SEARCH_AHEAD_POINTS,
+			);
+
+			for (
+				let j = i + POLICE_ROUTE_REVISIT_MIN_SKIPPED_POINTS + 1;
+				j <= maxJ;
+				j += 1
+			) {
+				const revisitDistance = distanceMeters(next[i], next[j]);
+
+				if (
+					revisitDistance >
+					POLICE_ROUTE_REVISIT_PROXIMITY_METERS
+				) {
+					continue;
+				}
+
+				const skippedDistance = getSubPathDistance(next, i, j);
+				const savedDistance = skippedDistance - revisitDistance;
+
+				if (savedDistance < POLICE_ROUTE_REVISIT_MIN_SAVED_METERS) {
+					continue;
+				}
+
+				next = [
+					...next.slice(0, i + 1),
+					...next.slice(j),
+				];
+				changed = true;
+				break outer;
+			}
+		}
+	}
+
+	return next.length >= 2 ? next : path.slice();
+}
+
+function ensurePoliceEndpoints(
+	path: LatLngTuple[],
+	start: LatLngTuple,
+	end: LatLngTuple,
+) {
+	const result = path.slice();
+
+	if (result.length === 0) {
+		return [start, end];
+	}
+
+	if (distanceMeters(result[0], start) > 1) {
+		result.unshift(start);
+	} else {
+		result[0] = start;
+	}
+
+	if (distanceMeters(result[result.length - 1], end) > 1) {
+		result.push(end);
+	} else {
+		result[result.length - 1] = end;
+	}
+
+	return result.length >= 2 ? result : [start, end];
+}
+
+function hasEarlyReturnHook(
+	path: LatLngTuple[],
+	start: LatLngTuple,
+	end: LatLngTuple,
+) {
+	const crowDistance = distanceMeters(start, end);
+	if (crowDistance > POLICE_ROUTE_DIRECT_SHORTCUT_MAX_DISTANCE_METERS) {
+		return false;
+	}
+
+	const startToEndDistance = distanceMeters(start, end);
+	const lookaheadEnd = Math.min(
+		path.length - 1,
+		POLICE_ROUTE_HOOK_LOOKAHEAD_POINTS,
+	);
+
+	for (let i = 1; i < lookaheadEnd; i += 1) {
+		const detourPoint = path[i];
+		const detourFromStart = distanceMeters(start, detourPoint);
+		const detourToEnd = distanceMeters(detourPoint, end);
+
+		if (detourFromStart < POLICE_ROUTE_HOOK_DETOUR_MIN_METERS) {
+			continue;
+		}
+
+		if (
+			detourToEnd <
+			startToEndDistance + POLICE_ROUTE_HOOK_AWAY_FROM_TARGET_MARGIN_METERS
+		) {
+			continue;
+		}
+
+		for (let j = i + 1; j <= lookaheadEnd; j += 1) {
+			const returnPoint = path[j];
+			const returnToStart = distanceMeters(start, returnPoint);
+			const gap = distanceMeters(detourPoint, returnPoint);
+			const stillNeedsTravel = distanceMeters(returnPoint, end);
+
+			if (
+				returnToStart <= POLICE_ROUTE_HOOK_RETURN_TO_START_METERS &&
+				gap >= POLICE_ROUTE_HOOK_MIN_REJOIN_GAP_METERS &&
+				stillNeedsTravel > 8
+			) {
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
+function maybeShortcutPoliceRoute(
+	path: LatLngTuple[],
+	start: LatLngTuple,
+	end: LatLngTuple,
+) {
+	const crowDistance = distanceMeters(start, end);
+	if (crowDistance <= 0) return path;
+
+	const routeDistance = getPathDistanceMeters(path);
+	const ratio = routeDistance / crowDistance;
+
+	if (hasEarlyReturnHook(path, start, end)) {
+		return [start, end];
+	}
+
+	if (
+		crowDistance <= POLICE_ROUTE_DIRECT_SHORTCUT_MAX_DISTANCE_METERS &&
+		ratio >= POLICE_ROUTE_DIRECT_SHORTCUT_RATIO_THRESHOLD
+	) {
+		return [start, end];
+	}
+
+	return path;
+}
+
+function optimizePoliceRoutePath(
+	rawPath: LatLngTuple[],
+	start: LatLngTuple,
+	end: LatLngTuple,
+) {
+	let path = rawPath.length >= 2 ? rawPath.slice() : [start, end];
+	path = ensurePoliceEndpoints(path, start, end);
+	path = dedupeAdjacentPolicePath(path);
+
+	for (let i = 0; i < 4; i += 1) {
+		const collapsedHairpins = collapsePoliceHairpins(path);
+		const collapsedRevisits =
+			collapsePoliceNearbyRevisits(collapsedHairpins);
+		const deduped = dedupeAdjacentPolicePath(collapsedRevisits);
+
+		if (deduped.length === path.length) {
+			path = deduped;
+			break;
+		}
+
+		path = deduped;
+	}
+
+	path = ensurePoliceEndpoints(path, start, end);
+	path = maybeShortcutPoliceRoute(path, start, end);
+	path = ensurePoliceEndpoints(path, start, end);
+
+	return path.length >= 2 ? path : [start, end];
 }
 
 export default function PoliceSystem({
@@ -142,6 +497,7 @@ export default function PoliceSystem({
 	onPoliceEtaUpdate,
 	onPoliceResolveIncident,
 	paused = false,
+	timerSlowdownMultiplier = 1,
 }: Props) {
 	const [units, setUnits] = useState<PoliceUnit[]>([]);
 	const [renderNow, setRenderNow] = useState(Date.now());
@@ -149,10 +505,11 @@ export default function PoliceSystem({
 	const unitsRef = useRef<PoliceUnit[]>([]);
 	const incidentsRef = useRef<PoliceIncident[]>(incidents);
 
-	// Keep a ref so interval callbacks always see the latest paused value
-	// without needing to be recreated every time paused flips.
 	const pausedRef = useRef(paused);
 	pausedRef.current = paused;
+
+	const timerSlowdownRef = useRef(timerSlowdownMultiplier);
+    timerSlowdownRef.current = timerSlowdownMultiplier;
 
 	const pendingResponseUnitIdsRef = useRef<Set<string>>(new Set());
 	const pendingIncidentIdsRef = useRef<Set<string>>(new Set());
@@ -255,8 +612,6 @@ export default function PoliceSystem({
 		}
 	}, []);
 
-	// ── Render tick: frozen while paused ─────────────────────────────────────
-	// Uses pausedRef so the interval itself never needs to be recreated.
 	useEffect(() => {
 		const id = window.setInterval(() => {
 			if (pausedRef.current) return;
@@ -264,7 +619,7 @@ export default function PoliceSystem({
 		}, RENDER_TICK_MS);
 
 		return () => window.clearInterval(id);
-	}, []); // intentionally [] — pausedRef handles the gate
+	}, []);
 
 	function getPatrolLoop(unit: PoliceUnit) {
 		return (
@@ -281,6 +636,7 @@ export default function PoliceSystem({
 		pendingIncidentIdsRef.current.add(incident.id);
 
 		const currentPos = getUnitPosition(unit, Date.now());
+		const incidentPoint: LatLngTuple = [incident.lat, incident.lng];
 
 		void (async () => {
 			try {
@@ -289,10 +645,11 @@ export default function PoliceSystem({
 					{ lat: incident.lat, lng: incident.lng },
 				);
 
-				const finalPath =
-					route.length >= 2
-						? route
-						: [currentPos, [incident.lat, incident.lng] as LatLngTuple];
+				const finalPath = optimizePoliceRoutePath(
+					route,
+					currentPos,
+					incidentPoint,
+				);
 
 				setUnits((prev) => {
 					const idx = prev.findIndex((x) => x.pinId === unit.pinId);
@@ -303,7 +660,7 @@ export default function PoliceSystem({
 					const latestIncident = incidentsRef.current.find(
 						(x) => x.id === incident.id,
 					);
-					if (!latestIncident || !isActiveIncident(latestIncident, now)) {
+					if (!latestIncident || !isActiveIncident(latestIncident, now, timerSlowdownRef.current)) {
 						return prev;
 					}
 
@@ -317,10 +674,11 @@ export default function PoliceSystem({
 					}
 
 					const pathMeters = getPathDistanceMeters(finalPath);
-					const remainingMs = Math.max(latestIncident.expiresAt - now, 0);
+					const remainingMs = Math.max(getAdjustedExpiresAt(latestIncident, timerSlowdownRef.current) - now, 0);
+					const arrivalBufferMs = getResponseArrivalBufferMs(remainingMs);
 					const targetTravelMs = Math.max(
-						remainingMs - TARGET_PRE_EXPIRY_ARRIVAL_MS,
-						1200,
+						remainingMs - arrivalBufferMs,
+						700,
 					);
 
 					const desiredResponseMps =
@@ -329,8 +687,11 @@ export default function PoliceSystem({
 					const baseResponseMps = currentUnit.speeds.responseMps;
 					const minResponseMps =
 						baseResponseMps * RESPONSE_SPEED_MIN_MULTIPLIER;
+					const urgencyBoost = getUrgencyBoost(remainingMs);
 					const maxResponseMps =
-						baseResponseMps * RESPONSE_SPEED_MAX_MULTIPLIER;
+						baseResponseMps *
+						RESPONSE_SPEED_MAX_MULTIPLIER *
+						urgencyBoost;
 
 					const tunedResponseMps =
 						desiredResponseMps > 0
@@ -379,11 +740,13 @@ export default function PoliceSystem({
 		void (async () => {
 			try {
 				const built = await buildRejoinPatrolPaths(currentPos, patrolLoop);
+				const patrolEntry = built.rotatedLoop[0] ?? currentPos;
 
-				const connectorPath =
-					built.connectorPath.length >= 2
-						? built.connectorPath
-						: [currentPos, built.rotatedLoop[0] ?? currentPos];
+				const connectorPath = optimizePoliceRoutePath(
+					built.connectorPath,
+					currentPos,
+					patrolEntry,
+				);
 
 				const loopPath =
 					built.rotatedLoop.length >= 2 ? built.rotatedLoop : patrolLoop;
@@ -417,11 +780,9 @@ export default function PoliceSystem({
 		})();
 	}
 
-	// ── Physics tick: frozen while paused ────────────────────────────────────
-	// Uses pausedRef so the interval itself never needs to be recreated.
 	useEffect(() => {
 		const id = window.setInterval(() => {
-			if (pausedRef.current) return; // ← the actual fix
+			if (pausedRef.current) return;
 			const now = Date.now();
 
 			setUnits((prev) => {
@@ -432,7 +793,7 @@ export default function PoliceSystem({
 						const stillExists = incidentsRef.current.some(
 							(incident) =>
 								incident.id === unit.assignedIncidentId &&
-								isActiveIncident(incident, now),
+								isActiveIncident(incident, now, timerSlowdownRef.current),
 						);
 
 						if (!stillExists && unit.mode !== "rejoining") {
@@ -559,13 +920,8 @@ export default function PoliceSystem({
 		}, TICK_MS);
 
 		return () => window.clearInterval(id);
-	}, []); // intentionally [] — pausedRef handles the gate
+	}, []);
 
-	/**
-	 * Police-centric assignment:
-	 * each available police unit looks for the nearest active incident.
-	 * This fits the case where incidents greatly outnumber police units.
-	 */
 	useEffect(() => {
 		if (paused) return;
 		const now = Date.now();
@@ -573,7 +929,7 @@ export default function PoliceSystem({
 		if (liveUnits.length === 0) return;
 
 		const activeIncidents = incidents.filter((incident) =>
-			isActiveIncident(incident, now),
+			isActiveIncident(incident, now, timerSlowdownRef.current),
 		);
 		if (activeIncidents.length === 0) return;
 
@@ -605,6 +961,9 @@ export default function PoliceSystem({
 			unit: PoliceUnit;
 			incident: PoliceIncident;
 			distance: number;
+			timeLeftMs: number;
+			estimatedTravelMs: number;
+			slackMs: number;
 		}> = [];
 
 		for (const unit of availableUnits) {
@@ -614,10 +973,16 @@ export default function PoliceSystem({
 				const d = distanceMeters(unitPos, [incident.lat, incident.lng]);
 
 				if (d <= RESPONSE_RADIUS_METERS) {
+					const { timeLeftMs, estimatedTravelMs, slackMs } =
+						getDispatchEstimate(d, unit, incident, now, timerSlowdownRef.current);
+
 					pairs.push({
 						unit,
 						incident,
 						distance: d,
+						timeLeftMs,
+						estimatedTravelMs,
+						slackMs,
 					});
 				}
 			}
@@ -625,7 +990,28 @@ export default function PoliceSystem({
 
 		if (pairs.length === 0) return;
 
-		pairs.sort((a, b) => a.distance - b.distance);
+		pairs.sort((a, b) => {
+			const aCatchable = a.slackMs >= 0;
+			const bCatchable = b.slackMs >= 0;
+
+			if (aCatchable !== bCatchable) {
+				return aCatchable ? -1 : 1;
+			}
+
+			if (aCatchable && bCatchable && a.slackMs !== b.slackMs) {
+				return a.slackMs - b.slackMs;
+			}
+
+			if (!aCatchable && !bCatchable && a.slackMs !== b.slackMs) {
+				return b.slackMs - a.slackMs;
+			}
+
+			if (a.timeLeftMs !== b.timeLeftMs) {
+				return a.timeLeftMs - b.timeLeftMs;
+			}
+
+			return a.distance - b.distance;
+		});
 
 		const usedUnits = new Set<string>();
 		const usedIncidents = new Set<string>();

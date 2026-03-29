@@ -181,11 +181,18 @@ export default function SingleplayerModal({
 							{localSlots.map((slot) => {
 								const save = readSave(slot);
 								return (
-									<button
+									<div
 										key={`local-${slot.index}`}
-										type="button"
 										onClick={() => handleSlot(slot)}
 										className="group relative overflow-hidden flex flex-col items-start justify-between py-5 px-4 rounded-xl border border-amber-900/40 bg-linear-to-b from-black/40 to-black/20 text-amber-200/85 hover:border-amber-700/50 hover:shadow-lg hover:shadow-black/30 transition-all min-h-[108px] cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-600/40 text-left"
+										role="button"
+										tabIndex={0}
+										onKeyDown={(e) => {
+											if (e.key === "Enter" || e.key === " ") {
+												e.preventDefault();
+												handleSlot(slot);
+											}
+										}}
 									>
 										<div
 											className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -196,16 +203,25 @@ export default function SingleplayerModal({
 											aria-hidden
 										/>
 										{save && (
-											<button
-												type="button"
-												onClick={(e) =>
-													handleDelete(e, slot)
-												}
+											<div
+												onClick={(e) => {
+													e.stopPropagation();
+													handleDelete(e, slot);
+												}}
 												className="absolute top-2 right-2 z-10 p-2 rounded-lg bg-red-950/40 text-red-400 hover:bg-red-900/60 hover:text-red-300 border border-red-900/50 transition-all shadow-md hover:shadow-red-900/30 opacity-100 sm:opacity-0 group-hover:opacity-100 focus:opacity-100 cursor-pointer"
+												role="button"
 												aria-label="Delete save"
+												tabIndex={0}
+												onKeyDown={(e) => {
+													if (e.key === "Enter" || e.key === " ") {
+														e.stopPropagation();
+														e.preventDefault();
+														handleDelete(e, slot);
+													}
+												}}
 											>
 												<Trash2 className="w-4 h-4" />
-											</button>
+											</div>
 										)}
 										<div className="relative w-full">
 											<div className="text-[11px] uppercase tracking-[0.22em] text-amber-400/70">
@@ -234,7 +250,7 @@ export default function SingleplayerModal({
 												</>
 											)}
 										</div>
-									</button>
+									</div>
 								);
 							})}
 						</div>

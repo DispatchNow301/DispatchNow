@@ -1,0 +1,331 @@
+// Complete rewrite of handleDeployConfirm function
+const handleDeployConfirm = async (payload: {
+	vigilanteIds: string[];
+	resourceIds: string[];
+}) => {
+	const id = state.selectedIncidentId;
+	if (!id) return;
+	const inc = state.incidents.find((i) => i.id === id);
+	if (!inc || inc.status !== "active") return;
+	if (payload.vigilanteIds.length < 1) return;
+	if (
+		!payload.vigilanteIds.every((vid) =>
+			state.ownedVigilanteIds.includes(vid),
+		)
+	) {
+		return;
+	}
+	if (!canStageDeployment(state.resourcePool, payload.resourceIds))
+		return;
+
+	// Track quick response
+	const deploymentTimeMs = inc.expiresAt
+		? inc.expiresAt - Date.now() - 30000
+		: 0;
+	if (deploymentTimeMs > 0) {
+		// achievements.trackDeployment(deploymentTimeMs);
+	}
+
+	const assignedVigs = vigilantes.filter((v) =>
+		payload.vigilanteIds.includes(v.id),
+	);
+
+	// Calculate totals for synthetic breakdown
+	const totalStrength = assignedVigs.reduce((sum, v) => sum + v.stats.strength, 0);
+	const totalIntelligence = assignedVigs.reduce((sum, v) => sum + v.stats.intelligence, 0);
+	const totalSpeed = assignedVigs.reduce((sum, v) => sum + v.stats.speed, 0);
+	const avgStats = {
+		strength: totalStrength / assignedVigs.length,
+		intelligence: totalIntelligence / assignedVigs.length,
+		speed: totalSpeed / assignedVigs.length,
+	};
+
+	// Call AI to calculate success chance
+	const aiResult = await callAISuccessCalc({
+		incidentType: inc.category,
+		incidentDescription: inc.summary,
+		vigilantes: assignedVigs.map((v) => ({
+			name: v.name,
+			stats: v.stats,
+		})),
+		resources: payload.resourceIds,
+		buffIds: state.purchasedUpgradeIds,
+	});
+
+	let successPercent: number;
+	let rawOutput: string | undefined;
+
+	if (aiResult) {
+		successPercent = aiResult.successPercent;
+		rawOutput = aiResult.rawOutput;
+	} else {
+		// Fallback to deterministic if AI fails
+		console.warn("[Deploy] AI calc failed, falling back to deterministic");
+		const fallback = computeIncidentRollOutcome({
+			baseChancePercent: inc.successChance,
+			archetype: inc.category,
+			vigilantes: assignedVigs.map((v) => ({ stats: v.stats })),
+			resourceIds: payload.resourceIds,
+			buffIds: state.purchasedUpgradeIds,
+			flatBonusPercent: getRapidResponseBonus(
+				state.purchasedUpgradeIds,
+				inc.createdAt,
+			),
+		});
+		successPercent = fallback.adjustedPercent;
+	}
+
+	// Clamp to game limits (1-99)
+	successPercent = Math.max(1, Math.min(99, successPercent));
+
+	// Generate synthetic breakdown for UI
+	const breakdown = makeSyntheticBreakdown(
+		inc.successChance,
+		successPercent,
+		payload.resourceIds.length,
+		state.purchasedUpgradeIds.length,
+		avgStats,
+		{ strength: totalStrength, intelligence: totalIntelligence, speed: totalSpeed },
+	);
+
+	// Generate a correlated roll
+	const rolled = generateRoll(successPercent, breakdown.avgArchetypeFit);
+	const success = rolled < successPercent;
+
+	// Determine beforeLuck by reverse-engineering (synthetic breakdown already does this)
+	// But we'll recalculate it properly
+	const beforeLuckPercent = Math.round(
+		inc.successChance *
+		breakdown.resourceMultiplier *
+		breakdown.buffMultiplier *
+		breakdown.vigilanteMultiplier *
+		 breakdown.staffingSupportMultiplier *
+		breakdown.gearPresenceMultiplier,
+	);
+	const luckDeltaPercent = successPercent - beforeLuckPercent;
+
+	// Store full roll outcome for UI and resolution
+	const rollOutcome: IncidentRollResolution = {
+		success,
+		adjustedPercent: successPercent,
+		beforeLuckPercent,
+		rolled,
+		baseChancePercent: inc.successChance,
+		resourceMultiplier: breakdown.resourceMultiplier,
+		buffMultiplier: breakdown.buffMultiplier,
+		vigilanteMultiplier: breakdown.vigilanteMultiplier,
+		avgArchetypeFit: breakdown.avgArchetypeFit,
+		staffingSupportMultiplier: breakdown.staffingSupportMultiplier,
+		gearPresenceMultiplier: breakdown.gearPresenceMultiplier,
+		luckDeltaPercent,
+	};
+
+	const minigame = getMinigameForIncident(inc);
+	if (minigame) {
+		if (resolveIncidentTimeoutRef.current) {
+			clearTimeout(resolveIncidentTimeoutRef.current);
+		}
+		setDeployModalOpen(false);
+		setState((s) => {
+			const i = s.incidents.find((x) => x.id === id);
+			if (!i || i.status !== "active") return s;
+			const pool = applyDeployment(
+				s.resourcePool,
+				payload.resourceIds,
+			);
+			return {
+				...s,
+				resourcePool: pool,
+				incidents: s.incidents.map((x) =>
+					x.id === id
+						? {
+								...x,
+								status: "resolving" as const,
+								deployedResourceIds: [
+									...payload.resourceIds,
+								],
+								deployedVigilanteIds: [
+									...payload.vigilanteIds,
+								],
+							}
+						: x,
+				),
+				activeMinigame: {
+					type: minigame.type,
+					incidentId: id,
+					difficulty: minigame.difficulty,
+				},
+			};
+		});
+		return;
+	}
+
+	if (resolveIncidentTimeoutRef.current) {
+		clearTimeout(resolveIncidentTimeoutRef.current);
+	}
+	setDeployModalOpen(false);
+	setChanceRollOverlay({
+		incidentId: id,
+		rolled: rollOutcome.rolled,
+		adjustedPercent: rollOutcome.adjustedPercent,
+		beforeLuckPercent: rollOutcome.beforeLuckPercent,
+		success: rollOutcome.success,
+		phase: "rolling",
+		hadDeployedGear: payload.resourceIds.length > 0,
+		breakdown: {
+			baseChancePercent: rollOutcome.baseChancePercent,
+			resourceMultiplier: rollOutcome.resourceMultiplier,
+			buffMultiplier: rollOutcome.buffMultiplier,
+			vigilanteMultiplier: rollOutcome.vigilanteMultiplier,
+			avgArchetypeFit: rollOutcome.avgArchetypeFit,
+			staffingSupportMultiplier:
+				rollOutcome.staffingSupportMultiplier,
+			gearPresenceMultiplier: rollOutcome.gearPresenceMultiplier,
+			luckDeltaPercent: rollOutcome.luckDeltaPercent,
+		},
+		contextLabel: `${inc.typeLabel} · ${fallbackTypeLabel(inc.category)}`,
+	});
+	setState((s) => {
+		const i = s.incidents.find((x) => x.id === id);
+		if (!i || i.status !== "active") return s;
+		const pool = applyDeployment(s.resourcePool, payload.resourceIds);
+		return {
+			...s,
+			resourcePool: pool,
+			incidents: s.incidents.map((x) =>
+				x.id === id
+					? {
+							...x,
+							status: "resolving" as const,
+							deployedResourceIds: [...payload.resourceIds],
+							deployedVigilanteIds: [...payload.vigilanteIds],
+						}
+					: x,
+			),
+		};
+	});
+
+	const RESOLVE_MS = 2600;
+	const finishIncidentResolution = () => {
+		resolveIncidentTimeoutRef.current = null;
+		resolveIncidentDueAtRef.current = null;
+		resolveIncidentResumeFnRef.current = null;
+		pausedResolveRemainingMsRef.current = null;
+
+		if (mode === "multiplayer" && sessionId) {
+			void deleteSessionMarkerByMarkerId(sessionId, id);
+			return;
+		}
+
+		setState((s) => {
+			const cur = s.incidents.find((x) => x.id === id);
+			if (!cur || cur.status !== "resolving") return s;
+			const deployed = cur.deployedResourceIds ?? [];
+			let pool = s.resourcePool;
+			if (deployed.length > 0) {
+				if (rollOutcome.success) {
+					pool = returnDeployment(pool, deployed);
+				} else if (rollScavengerSalvage(s.purchasedUpgradeIds)) {
+					pool = returnDeployment(pool, deployed);
+				} else {
+					pool = forfeitDeployment(pool, deployed);
+				}
+			}
+			const missionCredits = rollOutcome.success ? 80 : 20;
+
+			// Get achievement progress updates
+			const achievementUpdates = achievements.trackIncidentResolution(
+				inc.category,
+				rollOutcome.success,
+				missionCredits,
+			);
+
+			// Reputation change: -33 on failure, 0 on success
+			const reputationDelta = rollOutcome.success ? 0 : -33;
+
+			return {
+				...s,
+				resourcePool: pool,
+				credits: Math.max(0, s.credits + missionCredits),
+				careerStats: {
+					...s.careerStats,
+					dispatchesCompleted:
+						s.careerStats.dispatchesCompleted + 1,
+					incidentsResolvedSuccess:
+						s.careerStats.incidentsResolvedSuccess +
+						(rollOutcome.success ? 1 : 0),
+					incidentsResolvedFailure:
+						s.careerStats.incidentsResolvedFailure +
+						(rollOutcome.success ? 0 : 1),
+				},
+				achievementProgress: {
+					...s.achievementProgress,
+					...achievementUpdates,
+				},
+				incidents: s.incidents.map((x) =>
+					x.id === id
+						? {
+								...x,
+								status: "resolved" as const,
+								deployedResourceIds: [],
+								resolution: {
+									success: rollOutcome.success,
+									adjustedPercent:
+										rollOutcome.adjustedPercent,
+									beforeLuckPercent:
+										rollOutcome.beforeLuckPercent,
+									rolled: rollOutcome.rolled,
+									baseChancePercent:
+										rollOutcome.baseChancePercent,
+									resourceMultiplier:
+										rollOutcome.resourceMultiplier,
+									buffMultiplier:
+										rollOutcome.buffMultiplier,
+									vigilanteMultiplier:
+										rollOutcome.vigilanteMultiplier,
+									avgArchetypeFit:
+										rollOutcome.avgArchetypeFit,
+									staffingSupportMultiplier:
+										rollOutcome.staffingSupportMultiplier,
+									gearPresenceMultiplier:
+										rollOutcome.gearPresenceMultiplier,
+									luckDeltaPercent:
+										rollOutcome.luckDeltaPercent,
+								},
+							}
+						: x,
+				),
+				reputation: Math.max(
+					0,
+					Math.min(100, s.reputation + reputationDelta),
+				),
+			};
+		});
+
+		// Trigger animation for reputation loss
+		if (!rollOutcome.success) {
+			triggerReputationLoss(33);
+		}
+
+		setChanceRollOverlay((prev) =>
+			prev && prev.incidentId === id
+				? { ...prev, phase: "outcome" }
+				: prev,
+		);
+
+		if (
+			inc.category === "disaster" &&
+			rollOutcome.success &&
+			Math.random() <= 1
+		) {
+			setPendingHackMinigame({ incidentId: id });
+		}
+	};
+	resolveIncidentResumeFnRef.current = finishIncidentResolution;
+	resolveIncidentDueAtRef.current = Date.now() + RESOLVE_MS;
+
+	resolveIncidentTimeoutRef.current = window.setTimeout(
+		finishIncidentResolution,
+		RESOLVE_MS,
+	);
+};

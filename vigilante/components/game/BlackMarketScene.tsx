@@ -1,79 +1,77 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { type LucideIcon } from "lucide-react";
+import { ResourceGearIcon } from "@/components/game/ResourceGearIcon";
 import {
-	SHOP_ITEMS,
 	SHOP_RESOURCES,
 	SHOP_UPGRADES,
 	type ShopItem,
-	type ShopResourceItem,
-	type ShopUpgradeItem,
 } from "@/lib/shopCatalog";
+import {
+	FaClock,
+	FaUserNinja,
+	FaProjectDiagram,
+	FaFire,
+	FaPlusSquare,
+	FaMountain,
+	FaCar,
+	FaBoxOpen,
+	FaBolt,
+	FaUser,
+} from "react-icons/fa";
 
-/* ─────────────────────────────────────────────
-   Types
-───────────────────────────────────────────── */
 type ItemCategory = "resource" | "upgrade";
 
-export type MarketPurchasePayload =
-	| { category: "resource"; itemId: string; cost: number }
-	| { category: "upgrade"; itemId: string; cost: number };
-
-/* ─────────────────────────────────────────────
-   Upgrade tag palette
-───────────────────────────────────────────── */
-const UPGRADE_TAG_META: Record<
-	string,
-	{ label: string; color: string; glow: string; bg: string; border: string }
-> = {
-	comms: {
-		label: "Comms",
-		color: "#67e8f9",
-		glow: "rgba(103,232,249,0.25)",
-		bg: "rgba(8,145,178,0.10)",
-		border: "rgba(103,232,249,0.28)",
-	},
-	intel: {
-		label: "Intel",
-		color: "#fde047",
-		glow: "rgba(253,224,71,0.22)",
-		bg: "rgba(161,138,0,0.10)",
-		border: "rgba(253,224,71,0.28)",
-	},
-	defense: {
-		label: "Defense",
-		color: "#fb923c",
-		glow: "rgba(251,146,60,0.22)",
-		bg: "rgba(154,52,18,0.12)",
-		border: "rgba(251,146,60,0.28)",
-	},
-	economy: {
-		label: "Economy",
-		color: "#c084fc",
-		glow: "rgba(192,132,252,0.22)",
-		bg: "rgba(107,33,168,0.12)",
-		border: "rgba(192,132,252,0.28)",
-	},
+export type MarketPurchasePayload = {
+	itemId: string;
+	cost: number;
+	category: "resource" | "upgrade";
 };
 
-/* ─────────────────────────────────────────────
-   Lerp helper
-───────────────────────────────────────────── */
-function lerp(a: number, b: number, t: number) {
-	return a + (b - a) * t;
+/* ── Upgrade icon ── */
+function UpgradeIcon({ id, color }: { id: string; color: string }) {
+	const cls = "w-5 h-5 shrink-0";
+	const icon = (() => {
+		if (id === "b1") return <FaClock className={cls} aria-hidden />;
+		if (id === "b2") return <FaUserNinja className={cls} aria-hidden />;
+		if (id === "b3")
+			return <FaProjectDiagram className={cls} aria-hidden />;
+		if (id === "b4") return <FaFire className={cls} aria-hidden />;
+		if (id === "b5") return <FaPlusSquare className={cls} aria-hidden />;
+		if (id === "b6") return <FaMountain className={cls} aria-hidden />;
+		if (id === "b7") return <FaCar className={cls} aria-hidden />;
+		if (id === "b8") return <FaBoxOpen className={cls} aria-hidden />;
+		if (id === "b9") return <FaBolt className={cls} aria-hidden />;
+		return <FaUser className={cls} aria-hidden />;
+	})();
+	return <span style={{ color }}>{icon}</span>;
 }
 
-/* ─────────────────────────────────────────────
-   Canvas hook — unchanged
-───────────────────────────────────────────── */
+/* ── Hash-based upgrade color ── */
+function upgradeColor(name: string) {
+	let h = 0;
+	for (let i = 0; i < name.length; i++)
+		h = (Math.imul(121, h) + name.charCodeAt(i)) | 0;
+	const hue = (h >>> 0) % 360;
+	return {
+		color: `hsl(${hue}, 90%, 72%)`,
+		bg: `hsla(${hue}, 70%, 20%, 0.12)`,
+		border: `hsla(${hue}, 80%, 60%, 0.28)`,
+		glow: `hsla(${hue}, 80%, 60%, 0.22)`,
+	};
+}
+
+/* ── Lerp ── */
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+
+/* ── Canvas background ── */
 function useMarketCanvas(size: { w: number; h: number }, targetT: number) {
 	const canvasRef = useRef<HTMLCanvasElement>(null);
-	const currentTRef = useRef(targetT);
-	const targetTRef = useRef(targetT);
+	const curT = useRef(targetT);
+	const tgtT = useRef(targetT);
 
 	useEffect(() => {
-		targetTRef.current = targetT;
+		tgtT.current = targetT;
 	}, [targetT]);
 
 	useEffect(() => {
@@ -81,13 +79,12 @@ function useMarketCanvas(size: { w: number; h: number }, targetT: number) {
 		if (!canvas) return;
 		const ctx = canvas.getContext("2d");
 		if (!ctx) return;
-
-		let raf = 0;
-		let frame = 0;
+		let raf = 0,
+			frame = 0;
 
 		const draw = () => {
-			currentTRef.current = lerp(currentTRef.current, targetTRef.current, 0.08);
-			const t = currentTRef.current;
+			curT.current = lerp(curT.current, tgtT.current, 0.08);
+			const t = curT.current;
 			const { w, h } = size;
 			canvas.width = w;
 			canvas.height = h;
@@ -96,39 +93,46 @@ function useMarketCanvas(size: { w: number; h: number }, targetT: number) {
 			ctx.fillRect(0, 0, w, h);
 
 			const pulse = 0.5 + Math.sin(frame * 0.018) * 0.5;
-			const ar = Math.round(lerp(15, 10, t));
-			const ag = Math.round(lerp(50, 40, t));
-			const ab = Math.round(lerp(25, 60, t));
+			const ar = Math.round(lerp(15, 10, t)),
+				ag = Math.round(lerp(50, 40, t)),
+				ab = Math.round(lerp(25, 60, t));
 			ctx.fillStyle = `rgba(${ar},${ag},${ab},${lerp(0.12, 0.14, t) + pulse * 0.06})`;
 			ctx.fillRect(0, 0, w, h);
 
-			const gr = Math.round(lerp(50, 50, t));
-			const gg = Math.round(lerp(190, 180, t));
-			const gb = Math.round(lerp(70, 220, t));
 			ctx.save();
-			ctx.strokeStyle = `rgba(${gr},${gg},${gb},${lerp(0.07, 0.085, t)})`;
+			ctx.strokeStyle = `rgba(${Math.round(lerp(50, 50, t))},${Math.round(lerp(190, 180, t))},${Math.round(lerp(70, 220, t))},${lerp(0.07, 0.085, t)})`;
 			ctx.lineWidth = 1;
-			const step = 48;
-			for (let x = 0; x <= w; x += step) {
-				ctx.beginPath(); ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, h); ctx.stroke();
+			for (let x = 0; x <= w; x += 48) {
+				ctx.beginPath();
+				ctx.moveTo(x + 0.5, 0);
+				ctx.lineTo(x + 0.5, h);
+				ctx.stroke();
 			}
-			for (let y = 0; y <= h; y += step) {
-				ctx.beginPath(); ctx.moveTo(0, y + 0.5); ctx.lineTo(w, y + 0.5); ctx.stroke();
+			for (let y = 0; y <= h; y += 48) {
+				ctx.beginPath();
+				ctx.moveTo(0, y + 0.5);
+				ctx.lineTo(w, y + 0.5);
+				ctx.stroke();
 			}
 			ctx.restore();
 
 			ctx.save();
-			const sr = Math.round(lerp(0, 80, t));
-			const sg = Math.round(lerp(255, 220, t));
-			const sb = Math.round(lerp(80, 255, t));
 			ctx.globalAlpha = 0.045;
-			for (let y = frame % 3; y < h; y += 3) {
-				ctx.fillStyle = `rgba(${sr},${sg},${sb},1)`;
-				ctx.fillRect(0, y, w, 1);
-			}
+			const sr = Math.round(lerp(0, 80, t)),
+				sg = Math.round(lerp(255, 220, t)),
+				sb = Math.round(lerp(80, 255, t));
+			ctx.fillStyle = `rgba(${sr},${sg},${sb},1)`;
+			for (let y = frame % 3; y < h; y += 3) ctx.fillRect(0, y, w, 1);
 			ctx.restore();
 
-			const vg = ctx.createRadialGradient(w / 2, h / 2, h * 0.3, w / 2, h / 2, h * 0.9);
+			const vg = ctx.createRadialGradient(
+				w / 2,
+				h / 2,
+				h * 0.3,
+				w / 2,
+				h / 2,
+				h * 0.9,
+			);
 			vg.addColorStop(0, "rgba(0,0,0,0)");
 			vg.addColorStop(1, "rgba(0,0,0,0.85)");
 			ctx.fillStyle = vg;
@@ -137,45 +141,21 @@ function useMarketCanvas(size: { w: number; h: number }, targetT: number) {
 			frame++;
 			raf = requestAnimationFrame(draw);
 		};
-
 		raf = requestAnimationFrame(draw);
 		return () => cancelAnimationFrame(raf);
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [size]);
 
 	return canvasRef;
 }
 
-/* ─────────────────────────────────────────────
-   Props
-───────────────────────────────────────────── */
 type Props = {
 	onClose: () => void;
-	/** Current player credits from game state */
 	credits: number;
-	/**
-	 * Live resource pool from the save. Shop resources are stored here under
-	 * their own IDs (e.g. "smoke", "medkit") once purchased — separate from
-	 * the base inventory items (r1–r10).
-	 */
 	resourcePool: Record<string, { qty: number; deployed: number }>;
-	/**
-	 * IDs of one-time upgrades already purchased (e.g. ["radio", "van"]).
-	 * Stored as `purchasedUpgradeIds` in the save.
-	 */
 	purchasedUpgradeIds: string[];
-	/**
-	 * Called when the player confirms a purchase. The parent is responsible
-	 * for deducting credits and persisting to Supabase.
-	 *
-	 * Optimistic UI is applied locally; if the promise rejects the UI rolls back.
-	 */
 	onPurchase: (payload: MarketPurchasePayload) => Promise<void>;
 };
 
-/* ─────────────────────────────────────────────
-   Component
-───────────────────────────────────────────── */
 export default function BlackMarketScene({
 	onClose,
 	credits = 0,
@@ -185,66 +165,48 @@ export default function BlackMarketScene({
 }: Props) {
 	const wrapRef = useRef<HTMLDivElement>(null);
 	const [size, setSize] = useState({ w: 800, h: 600 });
-	const [activeCategory, setActiveCategory] = useState<ItemCategory>("resource");
-
+	const [activeCategory, setActiveCategory] =
+		useState<ItemCategory>("resource");
 	const [flash, setFlash] = useState<string | null>(null);
 	const [notification, setNotification] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
 
-	/* ── Derived display values ── */
-	const displayCredits = credits;
-
-	/** How many of a shop resource item the player currently has. */
-	const getResourceCount = (id: string): number => {
-		return resourcePool[id]?.qty ?? 0;
-	};
-
-	/** Whether an upgrade is owned. */
-	const isUpgradeOwned = (id: string): boolean =>
-		purchasedUpgradeIds.includes(id);
-
 	const isUpgrades = activeCategory === "upgrade";
 	const canvasRef = useMarketCanvas(size, isUpgrades ? 1 : 0);
 
-	/* ── Resize observer ── */
+	const getResourceCount = (id: string) => resourcePool[id]?.qty ?? 0;
+	const isUpgradeOwned = (id: string) => purchasedUpgradeIds.includes(id);
+
 	useEffect(() => {
 		const el = wrapRef.current;
 		if (!el) return;
 		const ro = new ResizeObserver((entries) => {
 			const cr = entries[0]?.contentRect;
-			if (!cr) return;
-			setSize({
-				w: Math.max(320, Math.floor(cr.width)),
-				h: Math.max(320, Math.floor(cr.height)),
-			});
+			if (cr)
+				setSize({
+					w: Math.max(320, Math.floor(cr.width)),
+					h: Math.max(320, Math.floor(cr.height)),
+				});
 		});
 		ro.observe(el);
 		return () => ro.disconnect();
 	}, []);
 
-	/* ── Buy handler ── */
 	const buy = async (item: ShopItem) => {
 		if (saving) return;
-
-		// Guard: upgrades can't be re-purchased
-		if (item.category === "upgrade" && isUpgradeOwned(item.id)) return;
-
-		// Guard: affordability check
-		if (displayCredits < item.cost) {
+		if (isUpgradeOwned(item.id)) return;
+		if (credits < item.cost) {
 			setNotification("Insufficient funds.");
 			setTimeout(() => setNotification(null), 1800);
 			return;
 		}
-
-		// ── Persist via parent ──
 		setSaving(true);
 		try {
 			await onPurchase({
-				category: item.category,
 				itemId: item.id,
 				cost: item.cost,
+				category: "category" in item ? item.category : "upgrade",
 			});
-			// Success: show feedback
 			setFlash(item.id);
 			setNotification(`Acquired: ${item.name}`);
 			setTimeout(() => setFlash(null), 600);
@@ -258,17 +220,18 @@ export default function BlackMarketScene({
 		}
 	};
 
-	// CSS theming
+	// CSS theme vars
 	const dur = "duration-500";
-	const outerBorder = isUpgrades ? "border-cyan-900/30" : "border-green-900/30";
-	const panelBorder = isUpgrades ? "border-cyan-900/40" : "border-green-900/40";
+	const outerBorder = isUpgrades
+		? "border-cyan-900/30"
+		: "border-green-900/30";
+	const panelBorder = isUpgrades
+		? "border-cyan-900/40"
+		: "border-green-900/40";
 	const accentLabel = isUpgrades ? "text-cyan-500/55" : "text-green-500/55";
 	const headerText = isUpgrades ? "text-cyan-100/90" : "text-green-100/90";
 	const quoteText = isUpgrades ? "text-cyan-200/35" : "text-green-200/35";
 	const balanceText = isUpgrades ? "text-cyan-300" : "text-green-300";
-	const closeBtnText = isUpgrades
-		? "text-cyan-200/50 hover:text-cyan-200/90 hover:bg-cyan-950/20"
-		: "text-green-200/50 hover:text-green-200/90 hover:bg-green-950/20";
 	const toastStyle = isUpgrades
 		? "border-cyan-700/50 text-cyan-300"
 		: "border-green-700/50 text-green-300";
@@ -278,30 +241,43 @@ export default function BlackMarketScene({
 			className={`fixed inset-0 z-[1100] border bg-black/80 overflow-hidden transition-colors ${dur} ${outerBorder}`}
 			style={{ fontFamily: "'JetBrains Mono', 'Fira Mono', monospace" }}
 		>
-			{/* Canvas */}
 			<div ref={wrapRef} className="absolute inset-0">
-				<canvas ref={canvasRef} className="absolute inset-0 w-full h-full" aria-hidden />
+				<canvas
+					ref={canvasRef}
+					className="absolute inset-0 w-full h-full"
+					aria-hidden
+				/>
 			</div>
 
-			{/* ── Top-left: header + tabs ── */}
+			{/* ── Header: label + tabs + balance (inline) ── */}
 			<div className="absolute left-4 top-4 z-10">
-				<div className={`rounded-xl border bg-black/40 backdrop-blur-md px-4 py-3 transition-colors ${dur} ${panelBorder}`}>
+				<div
+					className={`rounded-xl border bg-black/40 backdrop-blur-md px-4 py-3 transition-colors ${dur} ${panelBorder}`}
+				>
 					<div className="flex items-center gap-4 flex-wrap">
+						{/* Title */}
 						<div className="shrink-0">
-							<div className={`text-[10px] uppercase tracking-[0.28em] transition-colors ${dur} ${accentLabel}`}>
+							<div
+								className={`text-[10px] uppercase tracking-[0.28em] transition-colors ${dur} ${accentLabel}`}
+							>
 								⚠ Restricted Access
 							</div>
-							<div className={`mt-0.5 text-base font-bold transition-colors ${dur} ${headerText}`}>
+							<div
+								className={`mt-0.5 text-base font-bold transition-colors ${dur} ${headerText}`}
+							>
 								Black Market
 							</div>
 						</div>
 
-						<div className={`h-8 w-px transition-colors ${dur} ${isUpgrades ? "bg-cyan-800/30" : "bg-green-800/30"}`} />
+						<div
+							className={`h-8 w-px transition-colors ${dur} ${isUpgrades ? "bg-cyan-800/30" : "bg-green-800/30"}`}
+						/>
 
+						{/* Tabs */}
 						<div className="flex gap-2">
 							{(["resource", "upgrade"] as const).map((cat) => {
 								const active = activeCategory === cat;
-								const isUp = cat === "upgrade";
+								const up = cat === "upgrade";
 								return (
 									<button
 										key={cat}
@@ -309,57 +285,58 @@ export default function BlackMarketScene({
 										onClick={() => setActiveCategory(cat)}
 										className={`text-[12px] uppercase tracking-[0.22em] font-semibold px-5 py-2 rounded-lg border transition-all ${dur} cursor-pointer ${
 											active
-												? isUp
+												? up
 													? "border-cyan-600/70 bg-cyan-950/50 text-cyan-200"
 													: "border-green-600/70 bg-green-950/50 text-green-200"
-												: isUp
+												: up
 													? "border-cyan-900/30 bg-black/20 text-cyan-200/35 hover:text-cyan-200/65 hover:border-cyan-800/45"
 													: "border-green-900/30 bg-black/20 text-green-200/35 hover:text-green-200/65 hover:border-green-800/45"
 										}`}
 									>
-										{cat === "resource" ? "Resources" : "Upgrades"}
+										{cat === "resource"
+											? "Resources"
+											: "Upgrades"}
 									</button>
 								);
 							})}
 						</div>
+
+						<div
+							className={`h-8 w-px transition-colors ${dur} ${isUpgrades ? "bg-cyan-800/30" : "bg-green-800/30"}`}
+						/>
+
+						<div className="shrink-0">
+							<div
+								className={`text-[10px] uppercase tracking-[0.22em] transition-colors ${dur} ${accentLabel}`}
+							>
+								Balance
+							</div>
+							<div
+								className={`mt-0.5 text-xl font-bold transition-colors ${dur} ${balanceText}`}
+							>
+								₵ {credits.toLocaleString()}
+							</div>
+						</div>
 					</div>
 
-					<p className={`mt-2 text-[11px] italic transition-colors ${dur} ${quoteText}`}>
+					<p
+						className={`mt-2 text-[11px] italic transition-colors ${dur} ${quoteText}`}
+					>
 						"Don't ask. Don't tell. Pay up."
 					</p>
 				</div>
 			</div>
 
-			{/* ── Top-right: credits + close ── */}
-			<div className="absolute right-4 top-4 z-10 flex items-start gap-2">
-				<div className={`rounded-xl border bg-black/40 backdrop-blur-md px-4 py-3 transition-colors ${dur} ${panelBorder}`}>
-					<div className={`text-[10px] uppercase tracking-[0.22em] transition-colors ${dur} ${accentLabel}`}>
-						Balance
-					</div>
-					<div className={`mt-0.5 text-base font-bold transition-colors ${dur} ${balanceText}`}>
-						₵ {displayCredits.toLocaleString()}
-					</div>
-				</div>
-				<button
-					type="button"
-					onClick={onClose}
-					className={`rounded-xl border bg-black/40 backdrop-blur-md px-3 py-3 transition-all ${dur} cursor-pointer ${panelBorder} ${closeBtnText}`}
-					aria-label="Close market"
-				>
-					✕
-				</button>
-			</div>
-
-			{/* ── Saving indicator ── */}
 			{saving && (
 				<div className="absolute left-4 bottom-4 z-20">
-					<div className={`text-[10px] uppercase tracking-[0.2em] ${isUpgrades ? "text-cyan-400/50" : "text-green-400/50"}`}>
+					<div
+						className={`text-[10px] uppercase tracking-[0.2em] ${isUpgrades ? "text-cyan-400/50" : "text-green-400/50"}`}
+					>
 						Saving…
 					</div>
 				</div>
 			)}
 
-			{/* ── Notification toast ── */}
 			{notification && (
 				<div
 					className={`absolute left-1/2 top-4 z-20 -translate-x-1/2 rounded-lg border bg-black/75 backdrop-blur-md px-4 py-2 text-xs tracking-[0.14em] whitespace-nowrap ${toastStyle}`}
@@ -368,61 +345,63 @@ export default function BlackMarketScene({
 				</div>
 			)}
 
-			{/* ── Scrollable item grid ── */}
+			{/* ── Item grid ── */}
 			<div className="absolute inset-x-0 bottom-0 top-[120px] overflow-y-auto px-4 pb-6 z-10 pt-2">
 				{isUpgrades ? (
-					/* ── Upgrade cards ── */
 					<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
 						{SHOP_UPGRADES.map((item) => {
-							const meta = UPGRADE_TAG_META[item.tag];
+							const col = upgradeColor(item.name);
 							const maxed = isUpgradeOwned(item.id);
-							const canAfford = displayCredits >= item.cost;
+							const canAfford = credits >= item.cost;
 							const isFlashing = flash === item.id;
+							const iconColor = maxed
+								? "rgba(255,255,255,0.18)"
+								: col.color;
 
 							return (
 								<div
 									key={item.id}
-									className={`relative rounded-xl border backdrop-blur-sm transition-all duration-300 p-5 ${
-										maxed
-											? "opacity-80"
-											: isFlashing
-												? "scale-[1.01]"
-												: "hover:scale-[1.01]"
-									}`}
+									className={`relative rounded-xl border backdrop-blur-sm transition-all duration-300 p-5 ${maxed ? "opacity-80" : isFlashing ? "scale-[1.01]" : "hover:scale-[1.01]"}`}
 									style={{
-										borderColor: maxed ? "rgba(255,255,255,0.06)" : meta.border,
-										background: maxed ? "rgba(0,0,0,0.18)" : meta.bg,
-										boxShadow: maxed ? "none" : `0 0 28px 0 ${meta.glow}`,
+										borderColor: maxed
+											? "rgba(255,255,255,0.06)"
+											: col.border,
+										background: maxed
+											? "rgba(0,0,0,0.18)"
+											: col.bg,
+										boxShadow: maxed
+											? "none"
+											: `0 0 28px 0 ${col.glow}`,
 									}}
 								>
-									<div className="flex items-center gap-2 mb-3">
-										<span
-											className="text-[10px] uppercase tracking-[0.22em] font-bold px-2 py-0.5 rounded"
-											style={{
-												color: meta.color,
-												background: meta.bg,
-												border: `1px solid ${meta.border}`,
-											}}
-										>
-											{meta.label}
-										</span>
+									{/* Name row with icon */}
+									<div
+										className="flex items-center gap-2.5 text-base font-bold mb-2"
+										style={{
+											color: maxed
+												? "rgba(255,255,255,0.25)"
+												: col.color,
+										}}
+									>
+										<UpgradeIcon
+											id={item.id}
+											color={iconColor}
+										/>
+										<span>{item.name}</span>
 										{maxed && (
-											<span className="text-[10px] uppercase tracking-[0.18em] text-white/25">
+											<span className="ml-1 text-[10px] uppercase tracking-[0.18em] text-white/25">
 												Owned
 											</span>
 										)}
 									</div>
 
-									<div
-										className="text-base font-bold mb-2"
-										style={{ color: maxed ? "rgba(255,255,255,0.25)" : meta.color }}
-									>
-										{item.name}
-									</div>
-
 									<p
 										className="text-xs leading-relaxed mb-5"
-										style={{ color: maxed ? "rgba(255,255,255,0.2)" : "rgba(210,240,255,0.60)" }}
+										style={{
+											color: maxed
+												? "rgba(255,255,255,0.2)"
+												: "rgba(210,240,255,0.60)",
+										}}
 									>
 										{item.description}
 									</p>
@@ -434,13 +413,12 @@ export default function BlackMarketScene({
 												color: maxed
 													? "rgba(255,255,255,0.18)"
 													: canAfford
-														? meta.color
+														? col.color
 														: "rgba(255,255,255,0.22)",
 											}}
 										>
 											₵ {item.cost.toLocaleString()}
 										</span>
-
 										{!maxed && (
 											<button
 												type="button"
@@ -449,16 +427,26 @@ export default function BlackMarketScene({
 												className="text-[12px] uppercase tracking-[0.16em] font-bold px-5 py-2.5 rounded-lg border transition-all cursor-pointer"
 												style={
 													canAfford && !saving
-														? { color: "#050810", background: meta.color, borderColor: meta.color }
+														? {
+																color: "#050810",
+																background:
+																	col.color,
+																borderColor:
+																	col.color,
+															}
 														: {
 																color: "rgba(255,255,255,0.18)",
-																background: "rgba(0,0,0,0.25)",
-																borderColor: "rgba(255,255,255,0.08)",
+																background:
+																	"rgba(0,0,0,0.25)",
+																borderColor:
+																	"rgba(255,255,255,0.08)",
 																cursor: "not-allowed",
 															}
 												}
 											>
-												{canAfford ? "Acquire" : "No Funds"}
+												{canAfford
+													? "Acquire"
+													: "No Funds"}
 											</button>
 										)}
 									</div>
@@ -467,11 +455,10 @@ export default function BlackMarketScene({
 						})}
 					</div>
 				) : (
-					/* ── Resource cards (all available) ── */
 					<div className="flex flex-col gap-5">
 						{SHOP_RESOURCES.map((resource) => {
 							const count = getResourceCount(resource.id);
-							const canAfford = displayCredits >= resource.cost;
+							const canAfford = credits >= resource.cost;
 							const isFlashing = flash === resource.id;
 
 							return (
@@ -483,46 +470,32 @@ export default function BlackMarketScene({
 											: "border-green-900/35 bg-black/30 hover:border-green-800/50 hover:bg-green-950/10"
 									}`}
 								>
-									{/* Icon slot */}
-									<div className="shrink-0 w-16 h-16 rounded-xl border border-green-800/40 bg-green-950/30 flex items-center justify-center">
-										<span className="text-2xl">📦</span>
+									<div className="shrink-0 w-8 h-8">
+										<ResourceGearIcon
+											resourceId={resource.id}
+										/>
 									</div>
-
-									{/* Name + description */}
-									<div className="flex-1 min-w-0">
-										<div className="text-lg font-bold text-green-100/90 mb-1">
+									<div className="flex-1">
+										<div className="text-sm font-bold">
 											{resource.name}
 										</div>
-										<p className="text-sm text-green-200/50 leading-relaxed">
-											{resource.description}
-										</p>
-									</div>
-
-									{/* Price + count + button */}
-									<div className="shrink-0 flex items-center gap-6">
-										<div className="text-right">
-											<div className={`text-xl font-bold ${canAfford ? "text-green-300/90" : "text-green-200/28"}`}>
-												₵ {resource.cost.toLocaleString()}
-											</div>
-											{count > 0 && (
-												<div className="text-xs text-green-400/50 tracking-wide mt-0.5">
-													×{count} held
-												</div>
-											)}
+										<div className="text-[10px] text-white/30">
+											Qty: {count} | Cost: ₵{" "}
+											{resource.cost.toLocaleString()}
 										</div>
-										<button
-											type="button"
-											onClick={() => buy(resource)}
-											disabled={!canAfford || saving}
-											className={`text-sm uppercase tracking-[0.14em] font-semibold px-6 py-3 rounded-lg border transition-all ${
-												canAfford && !saving
-													? "border-green-400/70 bg-green-500/20 text-green-200 hover:bg-green-500/35 hover:border-green-400/90 cursor-pointer"
-													: "border-green-900/20 bg-black/20 text-green-200/20 cursor-not-allowed"
-											}`}
-										>
-											{canAfford ? "Acquire" : "No Funds"}
-										</button>
 									</div>
+									<button
+										type="button"
+										onClick={() => buy(resource)}
+										disabled={!canAfford || saving}
+										className={`px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] rounded-lg border transition ${
+											canAfford && !saving
+												? "text-black bg-green-300 border-green-300 hover:bg-green-400 hover:border-green-400"
+												: "text-white/25 bg-black/30 border-white/20 cursor-not-allowed"
+										}`}
+									>
+										Buy
+									</button>
 								</div>
 							);
 						})}
@@ -530,26 +503,16 @@ export default function BlackMarketScene({
 				)}
 			</div>
 
-			{/* ── Legend (upgrades only) ── */}
-			{isUpgrades && (
-				<div className="absolute bottom-4 left-4 z-10 flex gap-4">
-					{["comms", "intel", "defense", "economy"].map(
-						(tag) => {
-							const meta = UPGRADE_TAG_META[tag];
-							return (
-								<div
-									key={tag}
-									className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.18em]"
-									style={{ color: meta.color + "88" }}
-								>
-									<span className="inline-block w-2 h-2 rounded-full" style={{ background: meta.color }} />
-									{meta.label}
-								</div>
-							);
-						}
-					)}
-				</div>
-			)}
-	</div>
+			{/* ── Floating Restart Button ── */}
+			<div className="absolute bottom-6 right-6 z-[1200]">
+				<button
+					type="button"
+					onClick={onClose}
+					className="rounded-2xl border border-green-500/30 bg-black/70 px-5 py-3 text-sm font-semibold text-green-300 transition hover:bg-green-950/25 hover:text-green-200"
+				>
+					Restart Run
+				</button>
+			</div>
+		</div>
 	);
 }

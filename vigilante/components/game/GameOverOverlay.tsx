@@ -5,7 +5,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
 	AlertTriangle,
 	Clock3,
-	Package,
 	ShieldAlert,
 	Trophy,
 	Users,
@@ -21,7 +20,7 @@ type GameOverCause =
 type GameOverStats = {
 	totalTime?: string;
 	completedIncidents?: number;
-	failedIncidents?: number;
+	failedIncidents?: number; // includes expired incidents
 	hiredVigilantes?: number;
 	lootedResources?: number;
 };
@@ -29,13 +28,13 @@ type GameOverStats = {
 type Props = {
 	open: boolean;
 	cause: GameOverCause;
+	scope?: "local" | "cloud";
+	slot?: string;
 	customTitle?: string;
 	customDescription?: string;
 	stats?: GameOverStats;
 	onClose?: () => void;
-	onContinue?: () => void;
 	onQuit?: () => void;
-	continueLabel?: string;
 	quitLabel?: string;
 };
 
@@ -67,12 +66,11 @@ function getCauseCopy(
 		return {
 			title: "The City Slipped Away",
 			description:
-				"Too many incidents were left unresolved. Confidence in the crew collapsed and the streets turned against you.",
+				"Too many incidents were failed or left to expire. Confidence in the crew collapsed and the streets turned against you.",
 			accent: "text-amber-300",
 			Icon: AlertTriangle,
 		};
 	}
-
 
 	if (cause === "crew_wiped") {
 		return {
@@ -109,7 +107,9 @@ function StatCard({
 				{icon}
 				<span>{label}</span>
 			</div>
-			<div className="mt-3 text-2xl font-bold text-amber-100">{value}</div>
+			<div className="mt-3 text-2xl font-bold text-amber-100">
+				{value}
+			</div>
 		</div>
 	);
 }
@@ -117,17 +117,23 @@ function StatCard({
 export default function GameOverOverlay({
 	open,
 	cause,
+	scope,
+	slot,
 	customTitle,
 	customDescription,
 	stats,
 	onClose,
-	onContinue,
 	onQuit,
-	continueLabel = "To Black Market",
 	quitLabel = "Quit",
 }: Props) {
 	const copy = getCauseCopy(cause, customTitle, customDescription);
 	const CauseIcon = copy.Icon;
+
+	// Fallbacks so bad parent props never create broken URLs
+	const resolvedScope: "local" | "cloud" =
+		scope === "cloud" || scope === "local" ? scope : "local";
+	const resolvedSlot =
+		slot && slot !== "undefined" && slot !== "null" ? slot : "1";
 
 	const statItems = useMemo<RevealStat[]>(
 		() => [
@@ -142,7 +148,7 @@ export default function GameOverOverlay({
 				icon: <Trophy className="h-5 w-5" />,
 			},
 			{
-				label: "Failed Incidents",
+				label: "Failed / Expired Incidents",
 				value: stats?.failedIncidents ?? 0,
 				icon: <AlertTriangle className="h-5 w-5" />,
 			},
@@ -150,11 +156,6 @@ export default function GameOverOverlay({
 				label: "Hired Vigilantes",
 				value: stats?.hiredVigilantes ?? 0,
 				icon: <Users className="h-5 w-5" />,
-			},
-			{
-				label: "Looted Resources",
-				value: stats?.lootedResources ?? 0,
-				icon: <Package className="h-5 w-5" />,
 			},
 		],
 		[stats],
@@ -188,6 +189,10 @@ export default function GameOverOverlay({
 
 	const activeReveal = statItems[Math.min(revealIndex, statItems.length - 1)];
 
+	const handleGoToBlackMarket = () => {
+		window.location.href = `/black-market?scope=${resolvedScope}&slot=${resolvedSlot}`;
+	};
+
 	return (
 		<AnimatePresence>
 			{open ? (
@@ -207,20 +212,13 @@ export default function GameOverOverlay({
 									initial={{ opacity: 0, scale: 0.96, y: 16 }}
 									animate={{ opacity: 1, scale: 1, y: 0 }}
 									exit={{ opacity: 0, scale: 1.02, y: -14 }}
-									transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+									transition={{
+										duration: 0.55,
+										ease: [0.22, 1, 0.36, 1],
+									}}
 									className="absolute inset-0 flex items-center justify-center p-6"
 								>
 									<div className="w-full max-w-3xl text-center">
-										<div className="flex justify-end">
-											<button
-												type="button"
-												onClick={() => setPhase("summary")}
-												className="rounded-xl border border-amber-900/35 bg-black/30 px-4 py-2 text-sm text-amber-200/75 transition hover:bg-amber-950/20 hover:text-amber-100"
-											>
-												Skip
-											</button>
-										</div>
-
 										<div className="mx-auto mt-6 flex h-20 w-20 items-center justify-center rounded-3xl border border-amber-800/35 bg-black/35 text-amber-300">
 											{activeReveal.icon}
 										</div>
@@ -239,10 +237,17 @@ export default function GameOverOverlay({
 							) : (
 								<motion.div
 									key="summary"
-									initial={{ opacity: 0, y: 20, scale: 0.985 }}
+									initial={{
+										opacity: 0,
+										y: 20,
+										scale: 0.985,
+									}}
 									animate={{ opacity: 1, y: 0, scale: 1 }}
 									exit={{ opacity: 0, y: 12, scale: 0.985 }}
-									transition={{ duration: 0.35, ease: "easeOut" }}
+									transition={{
+										duration: 0.35,
+										ease: "easeOut",
+									}}
 									className="absolute inset-0 flex items-center justify-center p-6"
 								>
 									<div className="w-full max-w-5xl overflow-hidden rounded-3xl border border-amber-900/40 bg-black/75 text-amber-100 shadow-[0_24px_100px_rgba(0,0,0,0.65)]">
@@ -250,7 +255,9 @@ export default function GameOverOverlay({
 											<div className="flex items-start justify-between gap-6">
 												<div className="flex items-start gap-4">
 													<div className="mt-1 flex h-12 w-12 items-center justify-center rounded-2xl border border-amber-800/35 bg-black/30">
-														<CauseIcon className={`h-6 w-6 ${copy.accent}`} />
+														<CauseIcon
+															className={`h-6 w-6 ${copy.accent}`}
+														/>
 													</div>
 
 													<div>
@@ -283,31 +290,34 @@ export default function GameOverOverlay({
 												Run Summary
 											</div>
 
-											<div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+											<div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
 												<StatCard
 													label="Total Time"
 													value={stats?.totalTime ?? "—"}
-													icon={<Clock3 className="h-3.5 w-3.5" />}
+													icon={
+														<Clock3 className="h-3.5 w-3.5" />
+													}
 												/>
 												<StatCard
 													label="Completed Incidents"
 													value={stats?.completedIncidents ?? 0}
-													icon={<Trophy className="h-3.5 w-3.5" />}
+													icon={
+														<Trophy className="h-3.5 w-3.5" />
+													}
 												/>
 												<StatCard
-													label="Failed Incidents"
+													label="Failed / Expired Incidents"
 													value={stats?.failedIncidents ?? 0}
-													icon={<AlertTriangle className="h-3.5 w-3.5" />}
+													icon={
+														<AlertTriangle className="h-3.5 w-3.5" />
+													}
 												/>
 												<StatCard
 													label="Hired Vigilantes"
 													value={stats?.hiredVigilantes ?? 0}
-													icon={<Users className="h-3.5 w-3.5" />}
-												/>
-												<StatCard
-													label="Looted Resources"
-													value={stats?.lootedResources ?? 0}
-													icon={<Package className="h-3.5 w-3.5" />}
+													icon={
+														<Users className="h-3.5 w-3.5" />
+													}
 												/>
 											</div>
 										</div>
@@ -328,15 +338,13 @@ export default function GameOverOverlay({
 													</button>
 												) : null}
 
-												{onContinue ? (
-													<button
-														type="button"
-														onClick={onContinue}
-														className="rounded-2xl border border-amber-700/40 bg-amber-950/30 px-6 py-3 text-sm font-semibold text-amber-100 transition hover:bg-amber-900/35"
-													>
-														{continueLabel}
-													</button>
-												) : null}
+												<button
+													type="button"
+													onClick={handleGoToBlackMarket}
+													className="rounded-2xl border border-amber-700/40 bg-amber-950/30 px-6 py-3 text-sm font-semibold text-amber-100 transition hover:bg-amber-900/35"
+												>
+													Go To Black Market
+												</button>
 											</div>
 										</div>
 									</div>

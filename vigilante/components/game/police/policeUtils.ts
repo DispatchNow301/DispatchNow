@@ -1,6 +1,13 @@
 ﻿import type { LatLngTuple } from "leaflet";
 import type { PoliceMode, PoliceUnit } from "./policeTypes";
 
+const RESPONSE_MIN_SEGMENT_MS = 180;
+const RESPONSE_MAX_SEGMENT_MS = 3200;
+const REJOIN_MIN_SEGMENT_MS = 260;
+const REJOIN_MAX_SEGMENT_MS = 4600;
+const PATROL_MIN_SEGMENT_MS = 520;
+const PATROL_MAX_SEGMENT_MS = 6200;
+
 export function clamp01(x: number) {
 	return Math.max(0, Math.min(1, x));
 }
@@ -56,8 +63,8 @@ export function normalizePath(path: LatLngTuple[]) {
 }
 
 /**
- * Resample the path so the segment lengths are more uniform.
- * This makes movement look smoother instead of speeding up and slowing down between long and short segments.
+ * Resample the path so movement remains smooth even when Google returns
+ * uneven segment lengths.
  */
 export function resamplePath(path: LatLngTuple[], targetStepMeters = 26) {
 	const clean = normalizePath(path);
@@ -111,18 +118,27 @@ export function getSegmentDurationMs(
 	const base = Math.round((meters / speedMps) * 1000);
 
 	if (mode === "responding") {
-		return Math.max(450, Math.min(4200, base));
+		return Math.max(
+			RESPONSE_MIN_SEGMENT_MS,
+			Math.min(RESPONSE_MAX_SEGMENT_MS, base),
+		);
 	}
 
 	if (mode === "rejoining") {
-		return Math.max(550, Math.min(5200, base));
+		return Math.max(
+			REJOIN_MIN_SEGMENT_MS,
+			Math.min(REJOIN_MAX_SEGMENT_MS, base),
+		);
 	}
 
 	if (mode === "holding") {
 		return 1000;
 	}
 
-	return Math.max(700, Math.min(6500, base));
+	return Math.max(
+		PATROL_MIN_SEGMENT_MS,
+		Math.min(PATROL_MAX_SEGMENT_MS, base),
+	);
 }
 
 export function getUnitPosition(unit: PoliceUnit, now: number): LatLngTuple {
@@ -232,7 +248,10 @@ export function restartLoop(unit: PoliceUnit, now: number) {
 
 	const nextUnit: PoliceUnit = {
 		...unit,
-		responseOverrideMps: unit.mode === "responding" ? unit.responseOverrideMps ?? null : null,
+		responseOverrideMps:
+			unit.mode === "responding"
+				? unit.responseOverrideMps ?? null
+				: null,
 		segmentIndex: 0,
 		segmentStartedAt: now,
 		segmentDurationMs: 1000,
@@ -301,7 +320,12 @@ export function getRemainingEtaMs(unit: PoliceUnit, now: number) {
 	let total = Math.max(unit.segmentStartedAt + unit.segmentDurationMs - now, 0);
 
 	for (let i = safeIndex + 1; i < unit.path.length - 1; i += 1) {
-		total += getSegmentDurationMs(unit, unit.path[i], unit.path[i + 1], unit.mode);
+		total += getSegmentDurationMs(
+			unit,
+			unit.path[i],
+			unit.path[i + 1],
+			unit.mode,
+		);
 	}
 
 	return total;

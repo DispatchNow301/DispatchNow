@@ -1,32 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
 	getGenderForCharacter,
-	getVoiceFallbackChain,
 	getVoiceForCharacter,
 } from "@/lib/ttsCharacterVoices";
 
 const ELEVENLABS_TTS = "https://api.elevenlabs.io/v1/text-to-speech";
 
-/**
- * Free-tier-safe MP3. Do not use mp3_44100_192 (Creator+) or high-end PCM/WAV (Pro+).
- * @see https://elevenlabs.io/docs/api-reference/text-to-speech/convert
- */
 const OUTPUT_FORMAT = "mp3_22050_32";
-
-/** Free accounts often cap per-request length; keeps 402s down when quota is tight. */
 const MAX_TEXT = 2500;
 
-/**
- * Default `eleven_turbo_v2_5` — same premade voices, noticeably less “flat” than Flash.
- * Set `ELEVENLABS_TTS_MODEL=eleven_flash_v2_5` to maximize monthly character budget.
- */
 const TTS_MODEL =
 	process.env.ELEVENLABS_TTS_MODEL?.trim() || "eleven_turbo_v2_5";
 
-/**
- * Per-request overrides: lower stability = less monotone / more conversational variation;
- * modest style helps casual delivery without Voice Library / custom voices.
- */
 const VOICE_SETTINGS = {
 	stability: 0.38,
 	similarity_boost: 0.72,
@@ -34,9 +19,6 @@ const VOICE_SETTINGS = {
 	use_speaker_boost: true,
 } as const;
 
-/**
- * Voices must be **premade** IDs only (`lib/ttsCharacterVoices.ts`); Voice Library / clones bill differently.
- */
 const TTS_BODY = (text: string) => ({
 	text,
 	model_id: TTS_MODEL,
@@ -99,22 +81,17 @@ export async function POST(req: NextRequest) {
 	const primaryVoiceId = getVoiceForCharacter(characterId);
 	const gender = getGenderForCharacter(characterId);
 
-	let upstream = await synthesize(apiKey, primaryVoiceId, clipped);
+	// Detailed logging to diagnose voice issues
+	console.log("[TTS] characterId:", characterId, "| voiceId:", primaryVoiceId, "| gender:", gender);
+	console.log("[TTS] Request payload:", { text: clipped.substring(0, 100), voice: primaryVoiceId, model: TTS_MODEL });
 
-	/**
-	 * 402 = quota / billing / plan. Not “voice unreachable” — but we still try
-	 * other premade voices **of the same gender** in case a specific id misbehaves.
-	 */
-	if (upstream.status === 402) {
-		for (const voiceId of getVoiceFallbackChain(gender, primaryVoiceId)) {
-			upstream = await synthesize(apiKey, voiceId, clipped);
-			if (upstream.ok) break;
-			if (upstream.status !== 402) break;
-		}
-	}
+	const upstream = await synthesize(apiKey, primaryVoiceId, clipped);
+
+	console.log("[TTS] Response status:", upstream.status, upstream.statusText, "| OK:", upstream.ok);
 
 	if (!upstream.ok) {
 		const errText = await upstream.text();
+		console.error("[TTS] ElevenLabs error response:", errText);
 		let parsed: unknown;
 		try {
 			parsed = JSON.parse(errText) as unknown;
@@ -123,11 +100,10 @@ export async function POST(req: NextRequest) {
 		}
 		return NextResponse.json(
 			{
-				error: parsed,
-				hint:
-					upstream.status === 402
-						? "402 = insufficient credits. Flash + premade voices only use your monthly character pool — check Usage on elevenlabs.io or wait for reset."
-						: undefined,
+				error: "TTS synthesis failed",
+				details: parsed,
+				voiceId: primaryVoiceId,
+				characterId,
 			},
 			{ status: upstream.status },
 		);

@@ -10,6 +10,8 @@ export type DispatchRollBreakdown = {
 	baseChancePercent: number;
 	resourceMultiplier: number;
 	buffMultiplier: number;
+	/** Incident-specific resource relevance multiplier */
+	incidentSpecificMultiplier: number;
 	vigilanteMultiplier: number;
 	/** 0–1 stat match vs incident archetype (same family as crew multiplier) */
 	avgArchetypeFit: number;
@@ -18,7 +20,8 @@ export type DispatchRollBreakdown = {
 	/** Staged gear presence (ramps with item count; older saves may omit) */
 	gearPresenceMultiplier?: number;
 	/** `adjustedPercent - beforeLuckPercent` after rounding */
-	luckDeltaPercent: number;
+	luckDeltaPercent: number; /** AI reasoning if available (instead of deterministic math) */
+	aiReasoning?: string;
 };
 
 /**
@@ -39,6 +42,8 @@ export type IncidentRollResolution = DispatchRollBreakdown & {
 export type ComputeIncidentRollInput = {
 	baseChancePercent: number;
 	archetype: IncidentArchetype;
+	/** Incident type label for specific resource relevance */
+	incidentTypeLabel?: string;
 	vigilantes: VigilanteForSuccess[];
 	resourceIds: string[];
 	buffIds?: string[];
@@ -93,6 +98,7 @@ export function computeIncidentRollOutcome(
 		baseChancePercent: input.baseChancePercent,
 		resourceMultiplier: res.resourceMultiplier,
 		buffMultiplier: res.buffMultiplier,
+		incidentSpecificMultiplier: res.incidentSpecificMultiplier,
 		vigilanteMultiplier: res.vigilanteMultiplier,
 		avgArchetypeFit: res.avgArchetypeFit,
 		staffingSupportMultiplier: res.staffingSupportMultiplier,

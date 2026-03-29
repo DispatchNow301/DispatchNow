@@ -44,6 +44,10 @@ export const DEFAULT_RESOURCE_POOL: Record<string, ResourcePoolEntry> = {
 	b1: { qty: 1, deployed: 0 },
 	b2: { qty: 1, deployed: 0 },
 	b3: { qty: 1, deployed: 0 },
+	b4: { qty: 1, deployed: 0 },
+	b5: { qty: 1, deployed: 0 },
+	b6: { qty: 1, deployed: 0 },
+	b7: { qty: 1, deployed: 0 },
 };
 
 export function countIds(ids: string[]): Record<string, number> {

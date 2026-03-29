@@ -10,6 +10,8 @@ export type CareerStats = {
 	incidentsExpired: number;
 	/** New vigilantes added through the recruit / vetting flow. */
 	vigilantesRecruited: number;
+	/** Total playtime in milliseconds */
+	totalPlaytimeMs?: number;
 };
 
 export const DEFAULT_CAREER_STATS: CareerStats = {
@@ -18,6 +20,7 @@ export const DEFAULT_CAREER_STATS: CareerStats = {
 	incidentsResolvedFailure: 0,
 	incidentsExpired: 0,
 	vigilantesRecruited: 0,
+	totalPlaytimeMs: 0,
 };
 
 export function mergeCareerStats(raw: unknown): CareerStats {
@@ -26,7 +29,7 @@ export function mergeCareerStats(raw: unknown): CareerStats {
 	const o = raw as Record<string, unknown>;
 	const num = (key: keyof CareerStats): number => {
 		const v = o[key];
-		if (typeof v !== "number" || !Number.isFinite(v) || v < 0) return d[key];
+		if (typeof v !== "number" || !Number.isFinite(v) || v < 0) return d[key] ?? 0;
 		return Math.min(Number.MAX_SAFE_INTEGER, Math.floor(v));
 	};
 	return {
@@ -35,5 +38,6 @@ export function mergeCareerStats(raw: unknown): CareerStats {
 		incidentsResolvedFailure: num("incidentsResolvedFailure"),
 		incidentsExpired: num("incidentsExpired"),
 		vigilantesRecruited: num("vigilantesRecruited"),
+		totalPlaytimeMs: num("totalPlaytimeMs"),
 	};
 }

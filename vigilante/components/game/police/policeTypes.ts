@@ -18,6 +18,7 @@ export type PoliceIncident = {
 	lat: number;
 	lng: number;
 	status: "active" | "resolving" | "resolved" | "failed";
+	createdAt: number;
 	expiresAt: number;
 };
 
