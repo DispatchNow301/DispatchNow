@@ -2397,42 +2397,43 @@ export default function StreetMapScene({
 				const rows = await getSessionMarkers(sessionId);
 				if (!active) return;
 
-				const dbIncidents = rows.map((row): Incident => {
-					// Parse enriched JSON details (archetype, successChance, etc.)
-					let summary = row.details;
-					let archetype: IncidentArchetype = "fire_rescue";
-					let typeLabel = row.title;
-					let successChance = 75;
+				const dbIncidents = rows
+					.filter((row) => row.status !== "failed")
+					.map((row): Incident => {
+						let summary = row.details;
+						let archetype: IncidentArchetype = "fire_rescue";
+						let typeLabel = row.title;
+						let successChance = 75;
 
-					try {
-						const parsed = JSON.parse(row.details);
-						if (parsed && typeof parsed === "object") {
-							summary = parsed.summary ?? row.details;
-							archetype = parsed.archetype ?? "fire_rescue";
-							typeLabel = parsed.typeLabel ?? row.title;
-							successChance = parsed.successChance ?? 75;
+						try {
+							const parsed = JSON.parse(row.details);
+							if (parsed && typeof parsed === "object") {
+								summary = parsed.summary ?? row.details;
+								archetype = parsed.archetype ?? "fire_rescue";
+								typeLabel = parsed.typeLabel ?? row.title;
+								successChance = parsed.successChance ?? 75;
+							}
+						} catch {
+							// details is plain text (legacy marker), use defaults
 						}
-					} catch {
-						// details is plain text (legacy marker), use defaults
-					}
 
-					return {
-						id: row.marker_id,
-						category: archetype,
-						typeLabel,
-						status: row.status === "active" ? "active" : "resolved",
-						lat: row.x,
-						lng: row.y,
-						title: row.title,
-						summary: normalizeIncidentDescription(summary),
-						createdAt: new Date(row.created_at).getTime(),
-						expiresAt: row.expires_at
-							? new Date(row.expires_at).getTime()
-							: Date.now() + 30000,
-						successChance,
-						assignedResources: row.assigned_resources ?? [],
-					};
-				});
+						return {
+							id: row.marker_id,
+							category: archetype,
+							typeLabel,
+							status: row.status === "active" ? "active" : "resolved",
+							lat: row.x,
+							lng: row.y,
+							title: row.title,
+							summary: normalizeIncidentDescription(summary),
+							createdAt: new Date(row.created_at).getTime(),
+							expiresAt: row.expires_at
+								? new Date(row.expires_at).getTime()
+								: Date.now() + 30000,
+							successChance,
+							assignedResources: row.assigned_resources ?? [],
+						};
+					});
 
 				setState((prev) => {
 					// Merge: keep local state for incidents we already have
@@ -2818,7 +2819,6 @@ export default function StreetMapScene({
 	const expireIncident = async (id: string) => {
 		if (mode === "multiplayer" && sessionId) {
 			void updateMarkerStatus(sessionId, id, "failed");
-			applyReputationDelta(-25);
 			return;
 		}
 		setState((s) => ({
@@ -3192,7 +3192,7 @@ export default function StreetMapScene({
 		}
 
 		// Trigger animation for reputation loss
-		applyReputationDelta(-25);
+		// applyReputationDelta(-25);
 
 		if (mode === "multiplayer" && sessionId) {
 			void insertSessionMarker({
@@ -4002,10 +4002,6 @@ export default function StreetMapScene({
 				expiredIds.forEach((incidentId) => {
 					void updateMarkerStatus(sessionId, incidentId, "failed");
 				});
-
-				if (expiredIds.length > 0) {
-					applyReputationDelta(-(expiredIds.length * 25));
-				}
 
 				if (
 					selectedRecruitLeadId &&
