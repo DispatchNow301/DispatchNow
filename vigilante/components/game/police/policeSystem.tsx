@@ -35,6 +35,9 @@ type Props = {
 	onPoliceResolveIncident?: (incidentId: string) => void;
 	paused?: boolean;
 	timerSlowdownMultiplier?: number;
+	mode?: "singleplayer" | "multiplayer";
+	sessionId?: number;
+	sharedStartTimeMs?: number | null;
 };
 
 const RESPONSE_RADIUS_METERS = 3200;
@@ -131,6 +134,39 @@ const CONFIG_BY_ID = new Map(
 	POLICE_CHARACTERS.map((config) => [config.pinId, config]),
 );
 
+function getGameNow(mode: string, sharedStartTimeMs: number | null) {
+	if (mode === "multiplayer" && sharedStartTimeMs) {
+		return Date.now() - sharedStartTimeMs;
+	}
+	return Date.now();
+}
+
+function toPoliceTime(
+	ts: number,
+	mode: "singleplayer" | "multiplayer",
+	sharedStartTimeMs: number | null,
+) {
+	if (mode === "multiplayer" && sharedStartTimeMs) {
+		return ts - sharedStartTimeMs;
+	}
+	return ts;
+}
+
+function normalizeIncidentForPolice(
+	incident: PoliceIncident,
+	mode: "singleplayer" | "multiplayer",
+	sharedStartTimeMs: number | null,
+): PoliceIncident {
+	if (mode === "multiplayer" && sharedStartTimeMs) {
+		return {
+			...incident,
+			createdAt: incident.createdAt - sharedStartTimeMs,
+			expiresAt: incident.expiresAt - sharedStartTimeMs,
+		};
+	}
+	return incident;
+}
+
 function getConfigById(pinId: PoliceUnit["pinId"]) {
 	return CONFIG_BY_ID.get(pinId) ?? POLICE_CHARACTERS[0];
 }
@@ -150,6 +186,46 @@ function getRouteDef(routeId: "diaz" | "kim" | "chief") {
 					: "Chief Williams Patrol",
 		anchors: LOCAL_PATROL_ANCHORS[routeId],
 	};
+}
+
+function stableHash(input: string): number {
+	let h = 2166136261;
+	for (let i = 0; i < input.length; i += 1) {
+		h ^= input.charCodeAt(i);
+		h = Math.imul(h, 16777619);
+	}
+	return h >>> 0;
+}
+
+function rotateLoop<T>(arr: T[], startIndex: number): T[] {
+	if (arr.length === 0) return [];
+	const idx = ((startIndex % arr.length) + arr.length) % arr.length;
+	return [...arr.slice(idx), ...arr.slice(0, idx)];
+}
+
+function makeDirectPath(from: LatLngTuple, to: LatLngTuple): LatLngTuple[] {
+	return [from, to];
+}
+
+function getDeterministicLoopForUnit(
+	unitPinId: PoliceUnit["pinId"],
+	sessionId: number,
+) {
+	const config = getConfigById(unitPinId);
+	const baseLoop = ensureClosedLoop(config.anchors);
+	const seed = stableHash(`${sessionId}:${unitPinId}`);
+	const nonClosedLength = Math.max(1, baseLoop.length - 1);
+	const startIdx = seed % nonClosedLength;
+	const rotatedOpen = rotateLoop(baseLoop.slice(0, -1), startIdx);
+	return ensureClosedLoop(rotatedOpen);
+}
+
+function getDeterministicPhaseOffsetMs(
+	unitPinId: PoliceUnit["pinId"],
+	sessionId: number,
+) {
+	const seed = stableHash(`phase:${sessionId}:${unitPinId}`);
+	return seed % 12000;
 }
 
 function getAdjustedExpiresAt(incident: PoliceIncident, slowdown: number): number {
@@ -498,9 +574,12 @@ export default function PoliceSystem({
 	onPoliceResolveIncident,
 	paused = false,
 	timerSlowdownMultiplier = 1,
+	mode = "singleplayer",
+	sessionId,
+	sharedStartTimeMs = null,
 }: Props) {
 	const [units, setUnits] = useState<PoliceUnit[]>([]);
-	const [renderNow, setRenderNow] = useState(Date.now());
+	const [renderNow, setRenderNow] = useState(getGameNow(mode, sharedStartTimeMs));
 
 	const unitsRef = useRef<PoliceUnit[]>([]);
 	const incidentsRef = useRef<PoliceIncident[]>(incidents);
@@ -531,10 +610,18 @@ export default function PoliceSystem({
 	}, [incidents]);
 
 	useEffect(() => {
-		const ts = Date.now();
+		const ts = getGameNow(mode, sharedStartTimeMs);
 
 		const initialUnits: PoliceUnit[] = POLICE_CHARACTERS.map((config) => {
-			const patrolLoop = ensureClosedLoop(config.anchors);
+			const patrolLoop =
+				mode === "multiplayer" && sessionId
+					? getDeterministicLoopForUnit(config.pinId, sessionId)
+					: ensureClosedLoop(config.anchors);
+
+			const phaseOffset =
+				mode === "multiplayer" && sessionId
+					? getDeterministicPhaseOffsetMs(config.pinId, sessionId)
+					: 0;
 
 			return switchUnitToPath({
 				unit: {
@@ -547,7 +634,7 @@ export default function PoliceSystem({
 					mode: "patrolling",
 					path: patrolLoop,
 					segmentIndex: 0,
-					segmentStartedAt: ts,
+					segmentStartedAt: ts - phaseOffset,
 					segmentDurationMs: 1000,
 					assignedIncidentId: null,
 					isLooping: true,
@@ -569,57 +656,59 @@ export default function PoliceSystem({
 		unitsRef.current = initialUnits;
 		setUnits(initialUnits);
 
-		for (const config of POLICE_CHARACTERS) {
-			void (async () => {
-				try {
-					const built = await getPatrolLoopPath(
-						getRouteDef(config.patrolRouteId),
-					);
-
-					if (built.length < 2) return;
-
-					patrolLoopsRef.current[config.patrolRouteId] =
-						ensureClosedLoop(built);
-
-					setUnits((prev) => {
-						const idx = prev.findIndex(
-							(unit) => unit.pinId === config.pinId,
+		if (mode === "singleplayer") {
+			for (const config of POLICE_CHARACTERS) {
+				void (async () => {
+					try {
+						const built = await getPatrolLoopPath(
+							getRouteDef(config.patrolRouteId),
 						);
-						if (idx === -1) return prev;
 
-						const target = prev[idx];
-						if (target.mode !== "patrolling") return prev;
+						if (built.length < 2) return;
 
-						const next = [...prev];
-						next[idx] = switchUnitToPath({
-							unit: target,
-							path: patrolLoopsRef.current[config.patrolRouteId],
-							mode: "patrolling",
-							isLooping: true,
-							nextLoopPath: null,
-							assignedIncidentId: null,
-							holdUntilTs: null,
-							now: Date.now(),
+						patrolLoopsRef.current[config.patrolRouteId] =
+							ensureClosedLoop(built);
+
+						setUnits((prev) => {
+							const idx = prev.findIndex(
+								(unit) => unit.pinId === config.pinId,
+							);
+							if (idx === -1) return prev;
+
+							const target = prev[idx];
+							if (target.mode !== "patrolling") return prev;
+
+							const next = [...prev];
+							next[idx] = switchUnitToPath({
+								unit: target,
+								path: patrolLoopsRef.current[config.patrolRouteId],
+								mode: "patrolling",
+								isLooping: true,
+								nextLoopPath: null,
+								assignedIncidentId: null,
+								holdUntilTs: null,
+								now: getGameNow(mode, sharedStartTimeMs),
+							});
+
+							unitsRef.current = next;
+							return next;
 						});
-
-						unitsRef.current = next;
-						return next;
-					});
-				} catch (error) {
-					console.warn("Failed to build patrol loop:", error);
-				}
-			})();
+					} catch (error) {
+						console.warn("Failed to build patrol loop:", error);
+					}
+				})();
+			}
 		}
-	}, []);
+	}, [mode, sessionId, sharedStartTimeMs]);
 
 	useEffect(() => {
 		const id = window.setInterval(() => {
 			if (pausedRef.current) return;
-			setRenderNow(Date.now());
+			setRenderNow(getGameNow(mode, sharedStartTimeMs));
 		}, RENDER_TICK_MS);
 
 		return () => window.clearInterval(id);
-	}, []);
+	}, [mode, sharedStartTimeMs]);
 
 	function getPatrolLoop(unit: PoliceUnit) {
 		return (
@@ -635,32 +724,41 @@ export default function PoliceSystem({
 		pendingResponseUnitIdsRef.current.add(unit.pinId);
 		pendingIncidentIdsRef.current.add(incident.id);
 
-		const currentPos = getUnitPosition(unit, Date.now());
+		const currentPos = getUnitPosition(unit, getGameNow(mode, sharedStartTimeMs));
 		const incidentPoint: LatLngTuple = [incident.lat, incident.lng];
 
 		void (async () => {
 			try {
-				const route = await computeLeafletRoute(
-					{ lat: currentPos[0], lng: currentPos[1] },
-					{ lat: incident.lat, lng: incident.lng },
-				);
-
-				const finalPath = optimizePoliceRoutePath(
-					route,
-					currentPos,
-					incidentPoint,
-				);
+				const finalPath =
+					mode === "multiplayer"
+						? makeDirectPath(currentPos, incidentPoint)
+						: optimizePoliceRoutePath(
+							await computeLeafletRoute(
+								{ lat: currentPos[0], lng: currentPos[1] },
+								{ lat: incident.lat, lng: incident.lng },
+							),
+							currentPos,
+							incidentPoint,
+						);
 
 				setUnits((prev) => {
 					const idx = prev.findIndex((x) => x.pinId === unit.pinId);
 					if (idx === -1) return prev;
 
-					const now = Date.now();
+					const now = getGameNow(mode, sharedStartTimeMs);
 
-					const latestIncident = incidentsRef.current.find(
+					const latestIncidentRaw = incidentsRef.current.find(
 						(x) => x.id === incident.id,
 					);
-					if (!latestIncident || !isActiveIncident(latestIncident, now, timerSlowdownRef.current)) {
+
+					const latestIncident = latestIncidentRaw
+						? normalizeIncidentForPolice(latestIncidentRaw, mode, sharedStartTimeMs)
+						: null;
+
+					if (
+						!latestIncident ||
+						!isActiveIncident(latestIncident, now, timerSlowdownRef.current)
+					) {
 						return prev;
 					}
 
@@ -734,44 +832,76 @@ export default function PoliceSystem({
 
 		pendingRejoinUnitIdsRef.current.add(unit.pinId);
 
-		const currentPos = getUnitPosition(unit, Date.now());
+		const currentPos = getUnitPosition(unit, getGameNow(mode, sharedStartTimeMs));
 		const patrolLoop = getPatrolLoop(unit);
 
 		void (async () => {
 			try {
-				const built = await buildRejoinPatrolPaths(currentPos, patrolLoop);
-				const patrolEntry = built.rotatedLoop[0] ?? currentPos;
+				if (mode === "multiplayer") {
+					const loopPath =
+						sessionId
+							? getDeterministicLoopForUnit(unit.pinId, sessionId)
+							: getPatrolLoop(unit);
 
-				const connectorPath = optimizePoliceRoutePath(
-					built.connectorPath,
-					currentPos,
-					patrolEntry,
-				);
+					const patrolEntry = loopPath[0] ?? currentPos;
+					const connectorPath = makeDirectPath(currentPos, patrolEntry);
 
-				const loopPath =
-					built.rotatedLoop.length >= 2 ? built.rotatedLoop : patrolLoop;
+					setUnits((prev) => {
+						const idx = prev.findIndex((x) => x.pinId === unit.pinId);
+						if (idx === -1) return prev;
 
-				setUnits((prev) => {
-					const idx = prev.findIndex((x) => x.pinId === unit.pinId);
-					if (idx === -1) return prev;
+						const currentUnit = prev[idx];
+						const next = [...prev];
 
-					const currentUnit = prev[idx];
-					const next = [...prev];
+						next[idx] = switchUnitToPath({
+							unit: currentUnit,
+							path: connectorPath,
+							mode: "rejoining",
+							isLooping: false,
+							nextLoopPath: loopPath,
+							assignedIncidentId: null,
+							holdUntilTs: null,
+							now: getGameNow(mode, sharedStartTimeMs),
+						});
 
-					next[idx] = switchUnitToPath({
-						unit: currentUnit,
-						path: connectorPath,
-						mode: "rejoining",
-						isLooping: false,
-						nextLoopPath: loopPath,
-						assignedIncidentId: null,
-						holdUntilTs: null,
-						now: Date.now(),
+						unitsRef.current = next;
+						return next;
 					});
+				} else {
+					const built = await buildRejoinPatrolPaths(currentPos, patrolLoop);
+					const patrolEntry = built.rotatedLoop[0] ?? currentPos;
 
-					unitsRef.current = next;
-					return next;
-				});
+					const connectorPath = optimizePoliceRoutePath(
+						built.connectorPath,
+						currentPos,
+						patrolEntry,
+					);
+
+					const loopPath =
+						built.rotatedLoop.length >= 2 ? built.rotatedLoop : patrolLoop;
+
+					setUnits((prev) => {
+						const idx = prev.findIndex((x) => x.pinId === unit.pinId);
+						if (idx === -1) return prev;
+
+						const currentUnit = prev[idx];
+						const next = [...prev];
+
+						next[idx] = switchUnitToPath({
+							unit: currentUnit,
+							path: connectorPath,
+							mode: "rejoining",
+							isLooping: false,
+							nextLoopPath: loopPath,
+							assignedIncidentId: null,
+							holdUntilTs: null,
+							now: getGameNow(mode, sharedStartTimeMs),
+						});
+
+						unitsRef.current = next;
+						return next;
+					});
+				}
 			} catch (error) {
 				console.warn("Police rejoin route failed:", error);
 			} finally {
@@ -783,18 +913,28 @@ export default function PoliceSystem({
 	useEffect(() => {
 		const id = window.setInterval(() => {
 			if (pausedRef.current) return;
-			const now = Date.now();
+			const now = getGameNow(mode, sharedStartTimeMs);
 
 			setUnits((prev) => {
 				let changed = false;
 
 				const next = prev.map((unit) => {
 					if (unit.assignedIncidentId) {
-						const stillExists = incidentsRef.current.some(
-							(incident) =>
-								incident.id === unit.assignedIncidentId &&
-								isActiveIncident(incident, now, timerSlowdownRef.current),
-						);
+						const stillExists = incidentsRef.current.some((incident) => {
+							if (incident.id !== unit.assignedIncidentId) return false;
+
+							const normalizedIncident = normalizeIncidentForPolice(
+								incident,
+								mode,
+								sharedStartTimeMs,
+							);
+
+							return isActiveIncident(
+								normalizedIncident,
+								now,
+								timerSlowdownRef.current,
+							);
+						});
 
 						if (!stillExists && unit.mode !== "rejoining") {
 							const currentPos = getUnitPosition(unit, now);
@@ -920,17 +1060,25 @@ export default function PoliceSystem({
 		}, TICK_MS);
 
 		return () => window.clearInterval(id);
-	}, []);
+	}, [mode, sharedStartTimeMs]);
 
 	useEffect(() => {
 		if (paused) return;
-		const now = Date.now();
+		const now = getGameNow(mode, sharedStartTimeMs);
 		const liveUnits = unitsRef.current;
 		if (liveUnits.length === 0) return;
 
-		const activeIncidents = incidents.filter((incident) =>
-			isActiveIncident(incident, now, timerSlowdownRef.current),
-		);
+		const activeIncidents = incidents
+			.map((incident) =>
+				normalizeIncidentForPolice(incident, mode, sharedStartTimeMs),
+			)
+			.filter((incident) =>
+				isActiveIncident(incident, now, timerSlowdownRef.current),
+			)
+			.sort((a, b) => {
+				if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+				return a.id.localeCompare(b.id);
+			});
 		if (activeIncidents.length === 0) return;
 
 		const alreadyAssignedIncidentIds = new Set(
@@ -998,19 +1146,18 @@ export default function PoliceSystem({
 				return aCatchable ? -1 : 1;
 			}
 
-			if (aCatchable && bCatchable && a.slackMs !== b.slackMs) {
-				return a.slackMs - b.slackMs;
-			}
-
-			if (!aCatchable && !bCatchable && a.slackMs !== b.slackMs) {
-				return b.slackMs - a.slackMs;
-			}
-
 			if (a.timeLeftMs !== b.timeLeftMs) {
 				return a.timeLeftMs - b.timeLeftMs;
 			}
 
-			return a.distance - b.distance;
+			if (a.distance !== b.distance) {
+				return a.distance - b.distance;
+			}
+
+			const unitCmp = a.unit.pinId.localeCompare(b.unit.pinId);
+			if (unitCmp !== 0) return unitCmp;
+
+			return a.incident.id.localeCompare(b.incident.id);
 		});
 
 		const usedUnits = new Set<string>();
