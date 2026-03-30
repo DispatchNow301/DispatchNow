@@ -84,17 +84,17 @@ function MultiplayerPlayInner() {
 			}
 		};
 
-		// Initial load
 		loadLobby();
 
-		// Subscribe to players joining/leaving
-		const unsubscribePlayers = subscribeToSessionPlayers(
-			sessionId,
-			loadLobby
-		);
+		const pollId = window.setInterval(() => {
+			void loadLobby();
+		}, 1000);
+
+		const unsubscribePlayers = subscribeToSessionPlayers(sessionId, loadLobby);
 
 		return () => {
 			active = false;
+			window.clearInterval(pollId);
 			unsubscribePlayers();
 		};
 	}, [sessionId]);
