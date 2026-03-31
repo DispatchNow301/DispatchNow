@@ -192,6 +192,18 @@ export function AchievementNotification({
 			className="pointer-events-none"
 			style={{ position: "fixed", top: 16, right: 16, zIndex: 99999 }}
 		>
+
+			<div
+				aria-live="polite"
+				aria-atomic="true"
+				className="sr-only"
+			>
+				{visible && achievement
+				? `Achievement unlocked: ${achievement.description}`
+				: ""
+		}
+			</div>
+			
 			<AnimatePresence onExitComplete={handleExitComplete}>
 				{visible && (
 					<motion.div
