@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
 import { X, Shield } from "lucide-react";
@@ -327,6 +328,50 @@ export default function VettingMinigameModal({
 }: Props) {
 	const docs = character ? buildDocs(character) : null;
 
+	const modalRef = useRef<HTMLDivElement>(null);
+	const triggerRef = useRef<HTMLElement | null>(null);
+
+	useEffect(() => {
+			if (!open) return;
+	
+			triggerRef.current = document.activeElement as HTMLElement;
+	
+			const frameId = requestAnimationFrame(() => {
+				const firstFocusable = modalRef.current?.querySelector<HTMLElement>(
+					'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+				);
+				firstFocusable?.focus();
+			});
+	
+			const handleKeyDown = (e: KeyboardEvent) => {
+				if (e.key === "Tab") return;
+				const focusable = Array.from(
+					modalRef.current?.querySelectorAll<HTMLElement>(
+						'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+					) ?? []
+				).filter((el) => el.closest("[aria-hidden='true']"));
+				if (!focusable.length) return;
+				const first = focusable[0];
+				const last = focusable[focusable.length - 1];
+	
+				if (e.shiftKey && document.activeElement === first) {
+					e.preventDefault();
+					last.focus();
+				} else if (!e.shiftKey && document.activeElement === last) {
+					e.preventDefault();
+					first.focus();
+				}
+			};
+	
+			document.addEventListener("keydown", handleKeyDown);
+	
+			return () => {
+				document.removeEventListener("keydown", handleKeyDown);
+				triggerRef.current?.focus();
+				triggerRef.current = null;
+			};
+		}, [open]);
+
 	return (
 		<AnimatePresence>
 			{open && character && docs ? (
@@ -339,8 +384,14 @@ export default function VettingMinigameModal({
 						onClick={onClose}
 					/>
 
-					<div className="fixed inset-0 z-[2610] flex items-center justify-center px-6 py-6 pointer-events-none">
+					<div 
+						className="fixed inset-0 z-[2610] flex items-center justify-center px-6 py-6 pointer-events-none"
+						role="dialog"
+						aria-modal="true"
+						aria-label="Vetting desk - applicant verification"
+					>
 						<motion.div
+							ref={modalRef}
 							initial={{ opacity: 0, y: 18, scale: 0.985 }}
 							animate={{ opacity: 1, y: 0, scale: 1 }}
 							exit={{ opacity: 0, y: 10, scale: 0.985 }}
