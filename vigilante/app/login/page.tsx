@@ -28,7 +28,7 @@ function LoginInner() {
 				>
 					Vigilante
 				</Link>
-				<div className="text-sm text-amber-200/60">
+				<div className="text-sm text-amber-200/80">
 					{user ? `Signed in with ${user.provider}` : "Not signed in"}
 				</div>
 			</header>
@@ -41,7 +41,7 @@ function LoginInner() {
 					>
 						Sign In
 					</h1>
-					<p className="mt-2 text-sm text-amber-200/60">
+					<p className="mt-2 text-sm text-amber-200/80">
 						Sign in with a provider to enable multiplayer and cloud saves.
 					</p>
 
@@ -84,7 +84,7 @@ function LoginInner() {
 						</button>
 					</div>
 
-					<p className="mt-6 text-xs text-amber-200/40">
+					<p className="mt-6 text-xs text-amber-200/70">
 						By continuing, you agree to operate “from the shadows.”
 					</p>
 				</div>
@@ -97,7 +97,7 @@ export default function LoginPage() {
 	return (
 		<Suspense
 			fallback={
-				<div className="fixed inset-0 min-h-screen bg-[#0a0a0b] flex items-center justify-center text-amber-200/60 text-sm">
+				<div className="fixed inset-0 min-h-screen bg-[#0a0a0b] flex items-center justify-center text-amber-200/80 text-sm">
 					Loading…
 				</div>
 			}

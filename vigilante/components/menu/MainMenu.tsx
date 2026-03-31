@@ -138,7 +138,7 @@ export default function MainMenu() {
 								<UserPlus className="w-4 h-4" />
 								Sign Up
 							</Link>
-							<p className="text-center text-sm text-amber-200/40">
+							<p className="text-center text-sm text-amber-200/70">
 								Sign in to save progress and play multiplayer.
 							</p>
 						</div>

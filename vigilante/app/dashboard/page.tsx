@@ -45,13 +45,13 @@ export default function DashboardPage() {
 				>
 					Dashboard
 				</h1>
-				<p className="mt-2 text-amber-200/60">
+				<p className="mt-2 text-amber-200/80">
 					Placeholder for profile, accessibility settings, and cloud sync (Sprint 4).
 				</p>
 
 				<div className="mt-8 rounded-xl border border-amber-900/40 bg-black/35 p-5">
 					<h2 className="text-sm font-semibold text-amber-200/90">Next targets</h2>
-					<ul className="mt-3 space-y-2 text-sm text-amber-200/60">
+					<ul className="mt-3 space-y-2 text-sm text-amber-200/80">
 						<li>- Accessibility settings + per-profile persistence</li>
 						<li>- Real cloud saves</li>
 						<li>- Multiplayer session backend</li>
