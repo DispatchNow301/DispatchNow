@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { X, Copy, Loader2 } from "lucide-react";
+import { X, Copy, Loader2, Trash2 } from "lucide-react";
 import { useAuth } from "../../lib/auth";
 import { listSlots, readSave, writeNewSave, deleteSave, type SaveSlotId } from "../../lib/saves";
 import { deleteGameSave } from "../../lib/cloudSaves";
@@ -192,12 +192,18 @@ export default function MultiplayerModal({ open, onClose, isSignedIn }: Multipla
           `/play/multiplayer?mode=create&sessionId=${session.id}&code=${generatedCode}`
         );
         onClose();
-      } catch (error) {
-        console.error("Failed to create multiplayer session:", error);
-        setErrorMessage("Could not create multiplayer session. Try another code.");
-      } finally {
-        setLoading(false);
-      }
+	  } catch (error) {
+		  console.error("Failed to create multiplayer session:", error);
+
+		  const message =
+			  error && typeof error === "object" && "message" in error
+				  ? String((error as { message?: unknown }).message)
+				  : "Unknown error";
+
+		  setErrorMessage(`Could not create multiplayer session: ${message}`);
+	  } finally {
+		  setLoading(false);
+	  }
     };
 
     const joinGame = async () => {

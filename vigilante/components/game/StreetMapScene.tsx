@@ -45,6 +45,7 @@ import {
 	type ResourcePoolEntry,
 } from "@/lib/resourcePool";
 import { mergePurchasedBuffIds } from "@/lib/purchasedBuffs";
+import { restartRun as restartRunGame } from "@/lib/gameStateUtils";
 import {
 	initialState,
 	loadState,
@@ -54,6 +55,14 @@ import {
 import type {
 	GameState,
 	CareerStats,
+} from "@/lib/gameTypes";
+import {
+	DEFAULT_CAREER_STATS,
+	mergeCareerStats,
+	type CareerStats,
+} from "@/lib/careerStats";
+import type {
+	GameState,
 	Incident,
 	IncidentResolution,
 	IncidentStatus,
@@ -217,9 +226,13 @@ import VettingMinigameModal from "@/components/game/VettingMinigameModal";
 import {
 	getSessionMarkers,
 	insertSessionMarker,
-	deleteSessionMarkerByMarkerId,
+	updateMarkerStatus,
 	subscribeToSessionMarkers,
+	subscribeToSession,
 	getSessionById,
+	updateSessionPausedBy,
+	updateConsumedTheftSites,
+	updateSessionReputation,
 } from "../../lib/multiplayer";
 import type {
 	AssignedResource,
@@ -339,6 +352,7 @@ type Props = {
 	};
 	mode?: "singleplayer" | "multiplayer";
 	sessionId?: number;
+	multiplayerStartedAt?: string | null;
 };
 
 // Use imported types from "@/lib/gameTypes" instead of local definitions
@@ -1224,6 +1238,8 @@ function ZoomController({
 	onBoundsReady: (level: number, bounds: LatLngBounds) => void;
 }) {
 	const map = useMap();
+	const [zoomRemainingMs, setZoomRemainingMs] = useState(300000);
+	const lastZoomTimeRef = useRef<number>(Date.now());
 
 	useEffect(() => {
 		const lvl = levelConfig(level);
@@ -1674,11 +1690,223 @@ function pruneExpiredInjuries(
 	return next;
 }
 
+function mergeResourcePool(
+	partial: unknown,
+): Record<string, ResourcePoolEntry> {
+	const merged: Record<string, ResourcePoolEntry> = {
+		...DEFAULT_RESOURCE_POOL,
+	};
+	if (!partial || typeof partial !== "object") return merged;
+	for (const [k, v] of Object.entries(partial)) {
+		if (!v || typeof v !== "object") continue;
+		const e = v as Record<string, unknown>;
+		if (typeof e.qty !== "number" || typeof e.deployed !== "number")
+			continue;
+		const qty = Math.max(0, e.qty);
+		merged[k] = {
+			qty,
+			deployed: Math.max(0, Math.min(e.deployed, qty)),
+		};
+	}
+	return merged;
+}
+
 function isOngoingIncident(i: Incident): boolean {
 	return i.status === "active" || i.status === "resolving";
 }
 
-// Game state utilities for loading, saving, and restarting are imported from '@/lib/gameStateUtils'
+function initialState(): GameState {
+	return {
+		level: 1,
+		selectedIncidentId: null,
+		incidents: [],
+		showIncidentPanel: true,
+		showMinigamePanel: false,
+		showPolicePanel: false,
+		showInventoryPanel: true,
+		inventoryTab: "vigilantes",
+		ownedVigilanteIds: ["bruce", "parya"],
+		recruitLeads: [],
+		consumedTheftSiteIds: [],
+		resourcePool: { ...DEFAULT_RESOURCE_POOL },
+		credits: 500,
+		purchasedUpgradeIds: [],
+		vigilanteInjuryUntil: {},
+		careerStats: { ...DEFAULT_CAREER_STATS },
+		purchasedBuffIds: mergePurchasedBuffIds(undefined),
+		unlockedAchievementIds: [],
+		achievementProgress: {
+			...DEFAULT_ACHIEVEMENT_PROGRESS,
+			uniqueVigilantesOwned: new Set(["bruce", "parya"]),
+			sessionStartTime: Date.now(),
+		},
+		activeMinigame: null,
+		reputation: 100,
+	};
+}
+
+function loadState(saveKey: string): GameState {
+	try {
+		const raw = localStorage.getItem(saveKey);
+		if (!raw) return initialState();
+		const p = JSON.parse(raw) as Partial<GameState>;
+		const rawShowIncidentPanel =
+			typeof p.showIncidentPanel === "boolean"
+				? p.showIncidentPanel
+				: true;
+		const rawShowMinigamePanel =
+			typeof p.showMinigamePanel === "boolean"
+				? p.showMinigamePanel
+				: false;
+		const rawShowPolicePanel =
+			typeof p.showPolicePanel === "boolean" ? p.showPolicePanel : false;
+
+		const activeLeftTab = rawShowMinigamePanel
+			? "minigame"
+			: rawShowPolicePanel
+				? "police"
+				: rawShowIncidentPanel
+					? "incident"
+					: null;
+
+		const selectedFromSave =
+			typeof p.selectedIncidentId === "string"
+				? p.selectedIncidentId
+				: null;
+
+		// Load achievement progress
+		let achievementProgress: AchievementProgress = {
+			...DEFAULT_ACHIEVEMENT_PROGRESS,
+		};
+		if (p.achievementProgress) {
+			const ap = p.achievementProgress;
+			achievementProgress = {
+				totalCreditsEarned:
+					typeof ap.totalCreditsEarned === "number"
+						? Math.max(0, ap.totalCreditsEarned)
+						: 0,
+				highestSinglePayout:
+					typeof ap.highestSinglePayout === "number"
+						? Math.max(0, ap.highestSinglePayout)
+						: 0,
+				currentStreak:
+					typeof ap.currentStreak === "number"
+						? Math.max(0, ap.currentStreak)
+						: 0,
+				bestStreak:
+					typeof ap.bestStreak === "number"
+						? Math.max(0, ap.bestStreak)
+						: 0,
+				recentResolutions: Array.isArray(ap.recentResolutions)
+					? ap.recentResolutions
+					: [],
+				dispatchesStarted:
+					typeof ap.dispatchesStarted === "number"
+						? Math.max(0, ap.dispatchesStarted)
+						: 0,
+				incidentsByArchetype:
+					typeof ap.incidentsByArchetype === "object"
+						? ap.incidentsByArchetype
+						: {},
+				maxResourceInventory:
+					typeof ap.maxResourceInventory === "object"
+						? ap.maxResourceInventory
+						: {},
+				uniqueVigilantesOwned:
+					p.ownedVigilanteIds && Array.isArray(p.ownedVigilanteIds)
+						? new Set(p.ownedVigilanteIds as string[])
+						: new Set(["bruce", "parya"]),
+				vigilanteInjuries:
+					typeof ap.vigilanteInjuries === "number"
+						? Math.max(0, ap.vigilanteInjuries)
+						: 0,
+				totalPlaytimeMs:
+					typeof ap.totalPlaytimeMs === "number"
+						? Math.max(0, ap.totalPlaytimeMs)
+						: 0,
+				sessionStartTime:
+					typeof ap.sessionStartTime === "number"
+						? ap.sessionStartTime
+						: Date.now(),
+			};
+		}
+
+		return {
+			level:
+				typeof p.level === "number" && p.level >= 1 && p.level <= 3
+					? p.level
+					: 1,
+			selectedIncidentId:
+				activeLeftTab === "incident" ? selectedFromSave : null,
+			incidents: Array.isArray(p.incidents)
+				? p.incidents
+						.map(parseStoredIncident)
+						.filter((x): x is Incident => x !== null)
+				: [],
+			showIncidentPanel: activeLeftTab === "incident",
+			showMinigamePanel: activeLeftTab === "minigame",
+			showPolicePanel: activeLeftTab === "police",
+			showInventoryPanel:
+				typeof p.showInventoryPanel === "boolean"
+					? p.showInventoryPanel
+					: true,
+			inventoryTab:
+				p.inventoryTab === "vigilantes" ||
+				p.inventoryTab === "resources" ||
+				p.inventoryTab === "buffs"
+					? p.inventoryTab
+					: "vigilantes",
+			ownedVigilanteIds: Array.isArray(p.ownedVigilanteIds)
+				? (p.ownedVigilanteIds as string[])
+				: ["bruce", "parya"],
+			recruitLeads: Array.isArray(p.recruitLeads)
+				? (p.recruitLeads as RecruitLead[])
+				: [],
+			consumedTheftSiteIds: Array.isArray(p.consumedTheftSiteIds)
+				? (p.consumedTheftSiteIds as string[]).filter(
+						(id): id is string => typeof id === "string",
+					)
+				: [],
+			resourcePool: mergeResourcePool(p.resourcePool),
+			credits:
+				typeof p.credits === "number" && Number.isFinite(p.credits)
+					? Math.max(0, Math.floor(p.credits))
+					: 500,
+			vigilanteInjuryUntil: pruneExpiredInjuries(
+				p.vigilanteInjuryUntil as Record<string, number> | undefined,
+				Date.now(),
+			),
+			careerStats: mergeCareerStats(p.careerStats),
+			purchasedUpgradeIds: Array.isArray(p.purchasedUpgradeIds)
+				? (p.purchasedUpgradeIds as string[])
+				: [],
+			purchasedBuffIds: mergePurchasedBuffIds(p.purchasedBuffIds),
+			unlockedAchievementIds: Array.isArray(p.unlockedAchievementIds)
+				? (
+						p.unlockedAchievementIds as
+							| string[]
+							| UnlockedAchievement[]
+					).map((a) =>
+						typeof a === "string"
+							? { achievementId: a, unlockedAt: Date.now() }
+							: a,
+					)
+				: [],
+			achievementProgress,
+			activeMinigame: null,
+			reputation:
+				typeof p.reputation === "number"
+					? Math.max(0, Math.min(100, p.reputation))
+					: 50,
+		};
+	} catch {
+		return initialState();
+	}
+}
+
+function saveState(saveKey: string, state: GameState) {
+	localStorage.setItem(saveKey, JSON.stringify(state));
+}
 
 export default function StreetMapScene({
 	saveKey,
@@ -1686,6 +1914,7 @@ export default function StreetMapScene({
 	cloudSync,
 	mode = "singleplayer",
 	sessionId,
+	multiplayerStartedAt,
 }: Props) {
 	const [state, setState] = useState<GameState>(() =>
 		mode === "singleplayer" && saveKey
@@ -1696,6 +1925,7 @@ export default function StreetMapScene({
 	stateRef.current = state;
 
 	const [isHost, setIsHost] = useState(false);
+	const [pausedByOther, setPausedByOther] = useState(false);
 
 	const [selectedOwnedVigilanteId, setSelectedOwnedVigilanteId] = useState<
 		string | null
@@ -1745,6 +1975,33 @@ export default function StreetMapScene({
 			setRepNotifications((prev) => prev.filter((n) => n.id !== id));
 		}, 3000);
 	}, []);
+
+	const applyReputationDelta = useCallback(
+		(delta: number) => {
+			if (delta === 0) return;
+
+			setState((s) => {
+				const nextReputation = Math.max(
+					0,
+					Math.min(100, s.reputation + delta),
+				);
+
+				if (mode === "multiplayer" && sessionId) {
+					void updateSessionReputation(sessionId, nextReputation);
+				}
+
+				return {
+					...s,
+					reputation: nextReputation,
+				};
+			});
+
+			if (delta < 0) {
+				triggerReputationLoss(Math.abs(delta));
+			}
+		},
+		[mode, sessionId, isHost, triggerReputationLoss],
+	);
 
 	// Check game over conditions
 	const checkGameOver = useCallback((currentState: GameState) => {
@@ -1817,7 +2074,9 @@ export default function StreetMapScene({
 	} | null>(null);
 
 	const isGameplayPausedByMinigame =
-		inventorySorterMode !== null || state.activeMinigame !== null;
+		inventorySorterMode !== null ||
+		state.activeMinigame !== null ||
+		pausedByOther;
 
 	// ── Pause tracking refs ───────────────────────────────────────────────────
 	// pauseStartedAtRef: wall-clock time when the current pause began.
@@ -2303,34 +2562,87 @@ export default function StreetMapScene({
 				const rows = await getSessionMarkers(sessionId);
 				if (!active) return;
 
-				const incidents = rows.map(
-					(row): Incident => ({
-						id: row.marker_id,
-						category:
-							row.kind === "theft"
-								? "crime"
-								: row.kind === "hire"
-									? "medical"
-									: "fire_rescue",
-						typeLabel: row.title,
-						status: row.status === "active" ? "active" : "resolved",
-						lat: row.x,
-						lng: row.y,
-						title: row.title,
-						summary: normalizeIncidentDescription(row.details),
-						createdAt: new Date(row.created_at).getTime(),
-						expiresAt: row.expires_at
-							? new Date(row.expires_at).getTime()
-							: Date.now() + 30000,
-						successChance: 75,
-						assignedResources: row.assigned_resources ?? [],
-					}),
-				);
+				const dbIncidents = rows
+					.filter((row) => row.status !== "failed")
+					.map((row): Incident => {
+						let summary = row.details;
+						let archetype: IncidentArchetype = "fire_rescue";
+						let typeLabel = row.title;
+						let successChance = 75;
 
-				setState((prev) => ({
-					...prev,
-					incidents,
-				}));
+						try {
+							const parsed = JSON.parse(row.details);
+							if (parsed && typeof parsed === "object") {
+								summary = parsed.summary ?? row.details;
+								archetype = parsed.archetype ?? "fire_rescue";
+								typeLabel = parsed.typeLabel ?? row.title;
+								successChance = parsed.successChance ?? 75;
+							}
+						} catch {
+							// details is plain text (legacy marker), use defaults
+						}
+
+						return {
+							id: row.marker_id,
+							category: archetype,
+							typeLabel,
+							status:
+								row.status === "active" ? "active" : "resolved",
+							lat: row.x,
+							lng: row.y,
+							title: row.title,
+							summary: normalizeIncidentDescription(summary),
+							createdAt: new Date(row.created_at).getTime(),
+							expiresAt: row.expires_at
+								? new Date(row.expires_at).getTime()
+								: Date.now() + 30000,
+							successChance,
+							assignedResources: row.assigned_resources ?? [],
+						};
+					});
+
+				setState((prev) => {
+					// Merge: keep local state for incidents we already have
+					// (preserves deployedResourceIds, resolution, etc.)
+					const localById = new Map(
+						prev.incidents.map((inc) => [inc.id, inc]),
+					);
+					const dbIds = new Set(dbIncidents.map((inc) => inc.id));
+
+					const merged: Incident[] = [];
+
+					for (const dbInc of dbIncidents) {
+						const local = localById.get(dbInc.id);
+						if (local) {
+							// Keep local gameplay state, but sync status from DB
+							merged.push({
+								...local,
+								status:
+									dbInc.status === "resolved"
+										? "resolved"
+										: local.status,
+								assignedResources:
+									dbInc.assignedResources.length > 0
+										? dbInc.assignedResources
+										: local.assignedResources,
+							});
+						} else {
+							merged.push(dbInc);
+						}
+					}
+
+					// Keep locally-resolving incidents not yet in DB
+					for (const local of prev.incidents) {
+						if (
+							!dbIds.has(local.id) &&
+							local.status === "resolving"
+						) {
+							merged.push(local);
+						}
+					}
+
+					return { ...prev, incidents: merged };
+				});
 			} catch (error) {
 				console.error("Failed to load multiplayer markers:", error);
 			}
@@ -2368,6 +2680,63 @@ export default function StreetMapScene({
 		};
 
 		void checkHost();
+	}, [mode, sessionId]);
+
+	// ── Multiplayer pause sync ──────────────────────────────────────────
+	useEffect(() => {
+		if (mode !== "multiplayer" || !sessionId) return;
+
+		let active = true;
+		const sb = getSupabaseBrowserClient();
+
+		const applySessionState = (
+			session: Awaited<ReturnType<typeof getSessionById>>,
+		) => {
+			if (!session) return;
+
+			setState((prev) => ({
+				...prev,
+				consumedTheftSiteIds: session.consumed_theft_site_ids ?? [],
+				reputation:
+					typeof session.reputation === "number"
+						? Math.max(0, Math.min(100, session.reputation))
+						: prev.reputation,
+			}));
+
+			sb.auth.getUser().then(({ data }) => {
+				const myId = data?.user?.id;
+				if (!myId) return;
+
+				setPausedByOther(
+					!!session.paused_by && session.paused_by !== myId,
+				);
+			});
+		};
+
+		const loadSessionState = async () => {
+			try {
+				const session = await getSessionById(sessionId);
+				if (!active || !session) return;
+				applySessionState(session);
+			} catch (error) {
+				console.error(
+					"Failed to load multiplayer session state:",
+					error,
+				);
+			}
+		};
+
+		void loadSessionState();
+
+		const unsubscribe = subscribeToSession(sessionId, (session) => {
+			if (!active) return;
+			applySessionState(session);
+		});
+
+		return () => {
+			active = false;
+			unsubscribe();
+		};
 	}, [mode, sessionId]);
 
 	useEffect(() => {
@@ -2812,7 +3181,7 @@ export default function StreetMapScene({
 
 	const expireIncident = async (id: string) => {
 		if (mode === "multiplayer" && sessionId) {
-			await deleteSessionMarkerByMarkerId(sessionId, id);
+			void updateMarkerStatus(sessionId, id, "failed");
 			return;
 		}
 		setState((s) => ({
@@ -2824,12 +3193,10 @@ export default function StreetMapScene({
 			selectedIncidentId:
 				s.selectedIncidentId === id ? null : s.selectedIncidentId,
 			incidents: s.incidents.filter((i) => i.id !== id),
-			// Reputation penalty for letting an incident expire
-			reputation: Math.max(0, s.reputation - 25),
 		}));
 
 		// Trigger animation for reputation loss
-		triggerReputationLoss(25);
+		applyReputationDelta(-25);
 	};
 
 	const handleIncidentSelect = (id: string) => {
@@ -3160,7 +3527,17 @@ export default function StreetMapScene({
 
 	const handleStartTheft = () => {
 		if (!selectedTheftSite) return;
+
 		setInventorySorterMode("resource-theft");
+
+		if (mode === "multiplayer" && sessionId) {
+			const sb = getSupabaseBrowserClient();
+			sb.auth.getUser().then(({ data }) => {
+				if (data?.user?.id) {
+					void updateSessionPausedBy(sessionId, data.user.id);
+				}
+			});
+		}
 	};
 
 	const handleTheftSuccess = (
@@ -3192,8 +3569,19 @@ export default function StreetMapScene({
 			reputation: Math.max(0, s.reputation - 25),
 		}));
 
+		if (mode === "multiplayer" && sessionId) {
+			const nextConsumed = stateRef.current.consumedTheftSiteIds.includes(
+				site.id,
+			)
+				? stateRef.current.consumedTheftSiteIds
+				: [...stateRef.current.consumedTheftSiteIds, site.id];
+
+			void updateConsumedTheftSites(sessionId, nextConsumed);
+			void updateSessionPausedBy(sessionId, null);
+		}
+
 		// Trigger animation for reputation loss
-		triggerReputationLoss(25);
+		// applyReputationDelta(-25);
 
 		if (mode === "multiplayer" && sessionId) {
 			void insertSessionMarker({
@@ -3203,7 +3591,12 @@ export default function StreetMapScene({
 				x: theftIncident.lat,
 				y: theftIncident.lng,
 				title: theftIncident.title,
-				details: theftIncident.summary,
+				details: JSON.stringify({
+					summary: theftIncident.summary,
+					archetype: theftIncident.category,
+					typeLabel: theftIncident.typeLabel,
+					successChance: theftIncident.successChance,
+				}),
 				createdAt: new Date(theftIncident.createdAt).toISOString(),
 				expiresAt: new Date(theftIncident.expiresAt).toISOString(),
 				status: "active",
@@ -3292,7 +3685,10 @@ export default function StreetMapScene({
 		},
 	) => {
 		if (mode === "multiplayer" && sessionId) {
-			void deleteSessionMarkerByMarkerId(sessionId, incidentId);
+			void updateMarkerStatus(sessionId, incidentId, "resolved");
+			if (!rollOutcome.success) {
+				applyReputationDelta(-33);
+			}
 			return;
 		}
 
@@ -3361,16 +3757,12 @@ export default function StreetMapScene({
 							}
 						: x,
 				),
-				reputation: Math.max(
-					0,
-					Math.min(100, s.reputation + reputationDelta),
-				),
 			};
 		});
 
 		// Trigger animation for reputation loss
 		if (!rollOutcome.success) {
-			triggerReputationLoss(33);
+			applyReputationDelta(-33);
 		}
 	};
 
@@ -3380,11 +3772,17 @@ export default function StreetMapScene({
 
 		if (type === "hack") {
 			setState((s) => ({ ...s, activeMinigame: null }));
+			if (mode === "multiplayer" && sessionId) {
+				void updateSessionPausedBy(sessionId, null);
+			}
 			return;
 		}
 
 		const inc = state.incidents.find((i) => i.id === incidentId);
 		setState((s) => ({ ...s, activeMinigame: null }));
+		if (mode === "multiplayer" && sessionId) {
+			void updateSessionPausedBy(sessionId, null);
+		}
 		if (!inc) return;
 
 		finishIncidentResolutionForId(incidentId, {
@@ -3410,11 +3808,17 @@ export default function StreetMapScene({
 
 		if (type === "hack") {
 			setState((s) => ({ ...s, activeMinigame: null }));
+			if (mode === "multiplayer" && sessionId) {
+				void updateSessionPausedBy(sessionId, null);
+			}
 			return;
 		}
 
 		const inc = state.incidents.find((i) => i.id === incidentId);
 		setState((s) => ({ ...s, activeMinigame: null }));
+		if (mode === "multiplayer" && sessionId) {
+			void updateSessionPausedBy(sessionId, null);
+		}
 		if (!inc) return;
 
 		finishIncidentResolutionForId(incidentId, {
@@ -3542,6 +3946,13 @@ export default function StreetMapScene({
 					},
 				};
 			});
+			if (mode === "multiplayer" && sessionId) {
+				const sb = getSupabaseBrowserClient();
+				sb.auth.getUser().then(({ data }) => {
+					if (data?.user?.id)
+						void updateSessionPausedBy(sessionId, data.user.id);
+				});
+			}
 			return;
 		}
 
@@ -3600,7 +4011,26 @@ export default function StreetMapScene({
 			pausedResolveRemainingMsRef.current = null;
 
 			if (mode === "multiplayer" && sessionId) {
-				void deleteSessionMarkerByMarkerId(sessionId, id);
+				void updateMarkerStatus(sessionId, id, "resolved");
+
+				if (!rollOutcome.success) {
+					applyReputationDelta(-33);
+				}
+
+				setChanceRollOverlay((prev) =>
+					prev && prev.incidentId === id
+						? { ...prev, phase: "outcome" }
+						: prev,
+				);
+
+				if (
+					inc.category === "disaster" &&
+					rollOutcome.success &&
+					Math.random() <= 1
+				) {
+					setPendingHackMinigame({ incidentId: id });
+				}
+
 				return;
 			}
 
@@ -3684,16 +4114,12 @@ export default function StreetMapScene({
 								}
 							: x,
 					),
-					reputation: Math.max(
-						0,
-						Math.min(100, s.reputation + reputationDelta),
-					),
 				};
 			});
 
 			// Trigger animation for reputation loss
 			if (!rollOutcome.success) {
-				triggerReputationLoss(33);
+				applyReputationDelta(-33);
 			}
 
 			setChanceRollOverlay((prev) =>
@@ -3743,10 +4169,25 @@ export default function StreetMapScene({
 
 		let alive = true;
 		const MAX_ACTIVE = 100;
-		const SPAWN_INTERVAL_MS = 5_000;
+
+		const getSpawnIntervalForLevel = (level: number) => {
+			switch (level) {
+				case 1:
+					return 30_000;
+				case 2:
+					return 20_000;
+				case 3:
+					return 15_000;
+				default:
+					return 30_000;
+			}
+		};
 
 		const scheduleNext = () => {
 			if (!alive) return;
+			const currentLevel = stateRef.current.level;
+			const interval = getSpawnIntervalForLevel(currentLevel);
+
 			window.setTimeout(() => {
 				if (!alive) return;
 
@@ -3796,7 +4237,12 @@ export default function StreetMapScene({
 							x: newIncident.lat,
 							y: newIncident.lng,
 							title: newIncident.title,
-							details: newIncident.summary,
+							details: JSON.stringify({
+								summary: newIncident.summary,
+								archetype: newIncident.category,
+								typeLabel: newIncident.typeLabel,
+								successChance: newIncident.successChance,
+							}),
 							createdAt: new Date(
 								newIncident.createdAt,
 							).toISOString(),
@@ -3805,7 +4251,10 @@ export default function StreetMapScene({
 							).toISOString(),
 							status: "active",
 						});
-						return s;
+						return {
+							...s,
+							incidents: [...s.incidents, newIncident],
+						};
 					}
 
 					// Track incident spawn for quick response achievement
@@ -3821,7 +4270,7 @@ export default function StreetMapScene({
 					};
 				});
 				scheduleNext();
-			}, SPAWN_INTERVAL_MS);
+			}, interval);
 		};
 
 		scheduleNext();
@@ -3834,6 +4283,7 @@ export default function StreetMapScene({
 		isHost,
 		sessionId,
 		startPlacesFetchForLevel,
+		state.level,
 	]);
 
 	useEffect(() => {
@@ -3957,7 +4407,7 @@ export default function StreetMapScene({
 					.map((i) => i.id);
 
 				expiredIds.forEach((incidentId) => {
-					void deleteSessionMarkerByMarkerId(sessionId, incidentId);
+					void updateMarkerStatus(sessionId, incidentId, "failed");
 				});
 
 				if (
@@ -3997,7 +4447,7 @@ export default function StreetMapScene({
 
 				// Trigger animation for reputation loss from expired incidents
 				if (expiredIncidentIds.size > 0) {
-					triggerReputationLoss(expiredIncidentIds.size * 25);
+					applyReputationDelta(-(expiredIncidentIds.size * 25));
 				}
 
 				return {
@@ -4024,10 +4474,6 @@ export default function StreetMapScene({
 							: prev.careerStats,
 					// Reputation penalty for expiration handled in expireIncident, but this bypasses that.
 					// We'll add reputation penalty here for consistency.
-					reputation: Math.max(
-						0,
-						prev.reputation - expiredIncidentIds.size * 25,
-					),
 				};
 			});
 
@@ -4194,6 +4640,40 @@ export default function StreetMapScene({
 		});
 	}, [state.incidents]);
 
+	const [zoomRemainingMs, setZoomRemainingMs] = useState(300000);
+	const lastZoomTimeRef = useRef<number>(Date.now());
+
+	useEffect(() => {
+		if (mode !== "singleplayer") return; // only for singleplayer
+		if (gameOverState.open) return; // stop when game over
+		if (isGameplayPausedByMinigame) return; // pause during minigames
+
+		if (state.level >= 3) {
+			setZoomRemainingMs(0); // no further zoom
+			return;
+		}
+
+		const interval = setInterval(() => {
+			const now = Date.now();
+			const elapsed = now - lastZoomTimeRef.current;
+			const remaining = Math.max(0, 300000 - elapsed);
+			setZoomRemainingMs(remaining);
+
+			if (remaining <= 0) {
+				setState((s) => {
+					if (s.level < 3) {
+						return { ...s, level: s.level + 1 };
+					}
+					return s;
+				});
+				lastZoomTimeRef.current = now; // reset for next minute
+				setZoomRemainingMs(300000);
+			}
+		}, 250); // update 4 times per second
+
+		return () => clearInterval(interval);
+	}, [mode, gameOverState.open, isGameplayPausedByMinigame, state.level]);
+
 	return (
 		<div className="fixed inset-0">
 			<style>{`
@@ -4315,6 +4795,18 @@ export default function StreetMapScene({
 				))}
 			</AnimatePresence>
 
+			{/* New zoom timer */}
+			{mode === "singleplayer" && !gameOverState.open && (
+				<div className="absolute top-4 left-4 z-[970] bg-black/50 backdrop-blur-sm rounded-lg px-3 py-2 border border-amber-900/40 text-amber-100 text-xs pointer-events-none">
+					Level {state.level}
+					{state.level < 3 && (
+						<span className="ml-2 text-amber-300/70">
+							({Math.ceil(zoomRemainingMs / 1000)}s)
+						</span>
+					)}
+				</div>
+			)}
+
 			<MapContainer
 				center={CENTER}
 				zoom={zoomConfig.initialZoom}
@@ -4367,6 +4859,13 @@ export default function StreetMapScene({
 					timerSlowdownMultiplier={getPoliceSlowdownMultiplier(
 						state.purchasedUpgradeIds,
 					)}
+					mode={mode}
+					sessionId={sessionId}
+					sharedStartTimeMs={
+						mode === "multiplayer" && multiplayerStartedAt
+							? new Date(multiplayerStartedAt).getTime()
+							: null
+					}
 				/>
 				<VigilanteSystem
 					incidents={state.incidents.map((incident) => ({
@@ -4899,6 +5398,26 @@ export default function StreetMapScene({
 													</div>
 												</div>
 											</div>
+
+											{/* ADD THIS BLOCK: Countdown for active incidents */}
+											{inc.status === "active" && (
+												<div className="mt-1 text-[10px] text-amber-200/70">
+													Expires in:{" "}
+													{formatEta(
+														Math.max(
+															0,
+															inc.expiresAt -
+																inc.createdAt -
+																(nowTick -
+																	inc.createdAt) *
+																	getTimerSlowdownMultiplier(
+																		state.purchasedUpgradeIds,
+																	),
+														),
+													)}
+												</div>
+											)}
+
 											{inc.status === "active" ? (
 												<IncidentTimerBar
 													createdAt={inc.createdAt}
@@ -5162,6 +5681,16 @@ export default function StreetMapScene({
 									difficulty: 0,
 								},
 							}));
+							if (mode === "multiplayer" && sessionId) {
+								const sb = getSupabaseBrowserClient();
+								sb.auth.getUser().then(({ data }) => {
+									if (data?.user?.id)
+										void updateSessionPausedBy(
+											sessionId,
+											data.user.id,
+										);
+								});
+							}
 						}
 					}}
 				/>
@@ -5225,7 +5754,13 @@ export default function StreetMapScene({
 
 			<InventorySorterModal
 				open={inventorySorterMode !== null}
-				onClose={() => setInventorySorterMode(null)}
+				onClose={() => {
+					setInventorySorterMode(null);
+
+					if (mode === "multiplayer" && sessionId) {
+						void updateSessionPausedBy(sessionId, null);
+					}
+				}}
 				onWin={(reward) => {
 					if (
 						inventorySorterMode === "resource-theft" &&
@@ -5234,7 +5769,12 @@ export default function StreetMapScene({
 						handleTheftSuccess(selectedTheftSite, reward);
 						return;
 					}
+
 					setInventorySorterMode(null);
+
+					if (mode === "multiplayer" && sessionId) {
+						void updateSessionPausedBy(sessionId, null);
+					}
 				}}
 				title={
 					inventorySorterMode === "resource-theft"
@@ -5349,6 +5889,24 @@ export default function StreetMapScene({
 				/>
 			</div>
 
+			{/* Multiplayer pause overlay */}
+			{pausedByOther && (
+				<div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm">
+					<div className="rounded-2xl border border-amber-900/40 bg-black/60 px-8 py-6 text-center shadow-2xl">
+						<div
+							className="w-6 h-6 mx-auto rounded-full border-2 border-amber-700/40 border-t-amber-300/80 animate-spin"
+							aria-hidden
+						/>
+						<p className="mt-4 text-lg font-semibold text-amber-100">
+							Game Paused
+						</p>
+						<p className="mt-2 text-sm text-amber-200/60">
+							The other player is in a minigame. Waiting for them
+							to finish…
+						</p>
+					</div>
+				</div>
+			)}
 			{/* Game Over Overlay */}
 			<GameOverOverlay
 				open={gameOverState.open}

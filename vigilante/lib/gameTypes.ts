@@ -23,6 +23,10 @@ export type MultiplayerSession = {
 	status: MultiplayerSessionStatus;
 	save_scope: "local" | "cloud";
 	save_slot: number;
+	paused_by: string | null;
+	game_started_at: string | null;
+	consumed_theft_site_ids: string[];
+	reputation: number;
 };
 
 export type MultiplayerPlayer = {

@@ -10,6 +10,7 @@ import { subscribeToSessionPlayers } from "../../../lib/multiplayer";
 import {
 	getSessionById,
 	getSessionPlayers,
+	activateSession,
 	updateSessionStatus,
 } from "../../../lib/multiplayer";
 import type {
@@ -69,10 +70,15 @@ function MultiplayerPlayInner() {
 				// Start game when 2 players joined
 				if (playerData.length >= 2) {
 					if (sessionData.status !== "active") {
-						await updateSessionStatus(sessionId, "active");
+						const startedAt = sessionData.game_started_at ?? new Date().toISOString();
+						await activateSession(sessionId, startedAt);
 						if (!active) return;
-					}
-					if (active) {
+
+						const refreshed = await getSessionById(sessionId);
+						if (!active) return;
+						setSession(refreshed);
+						setGameStarted(true);
+					} else {
 						setGameStarted(true);
 					}
 				}
@@ -84,17 +90,17 @@ function MultiplayerPlayInner() {
 			}
 		};
 
-		// Initial load
 		loadLobby();
 
-		// Subscribe to players joining/leaving
-		const unsubscribePlayers = subscribeToSessionPlayers(
-			sessionId,
-			loadLobby
-		);
+		const pollId = window.setInterval(() => {
+			void loadLobby();
+		}, 1000);
+
+		const unsubscribePlayers = subscribeToSessionPlayers(sessionId, loadLobby);
 
 		return () => {
 			active = false;
+			window.clearInterval(pollId);
 			unsubscribePlayers();
 		};
 	}, [sessionId]);
@@ -102,7 +108,11 @@ function MultiplayerPlayInner() {
 	if (gameStarted && sessionId) {
 		return (
 			<div className="fixed inset-0">
-				<StreetMapScene mode="multiplayer" sessionId={sessionId} />
+				<StreetMapScene
+					mode="multiplayer"
+					sessionId={sessionId}
+					multiplayerStartedAt={session?.game_started_at ?? null}
+				/>
 
 				<header className="absolute inset-x-0 top-0 z-[1100] flex items-center justify-start px-6 py-4 pointer-events-none">
 					<Link

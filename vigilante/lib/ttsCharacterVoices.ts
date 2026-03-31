@@ -9,9 +9,9 @@ export type CharacterGender = "male" | "female";
 export const CHARACTER_GENDER: Record<string, CharacterGender> = {
 	// Map & incident dialogue
 	"old-man": "male", // OldMan
-	"girl": "female", // Girl
-	"woman": "female", // Woman
-	"helper": "female", // Helper (unassigned - will use fallback)
+	girl: "female", // Girl
+	woman: "female", // Woman
+	helper: "female", // Helper (unassigned - will use fallback)
 	"cop-diaz": "female", // OfficerDiaz
 	"cop-kim": "male", // DetectiveKim
 	"chief-williams": "male", // ChiefWilliams
@@ -39,7 +39,15 @@ export function getGenderForCharacter(characterId: string): CharacterGender {
 	if (g) return g;
 	// Fallback: try to infer from characterId
 	const id = characterId.toLowerCase();
-	if (id.includes("girl") || id.includes("woman") || id === "parya" || id.includes("ashley") || id.includes("iris") || id.includes("jen") || id.includes("robin")) {
+	if (
+		id.includes("girl") ||
+		id.includes("woman") ||
+		id === "parya" ||
+		id.includes("ashley") ||
+		id.includes("iris") ||
+		id.includes("jen") ||
+		id.includes("robin")
+	) {
 		return "female";
 	}
 	return "male";
@@ -49,9 +57,9 @@ export function getGenderForCharacter(characterId: string): CharacterGender {
 export const CHARACTER_VOICES: Record<string, string> = {
 	// Story / map NPCs
 	"old-man": "Ronald",
-	"girl": "Selene",
-	"woman": "Verionica",
-	"helper": "Abby", // not specified, using Abby as default
+	girl: "Selene",
+	woman: "Verionica",
+	helper: "Abby", // not specified, using Abby as default
 	"cop-diaz": "Miranda",
 	"cop-kim": "Victor",
 	"chief-williams": "Rupert",
@@ -66,7 +74,7 @@ export const CHARACTER_VOICES: Record<string, string> = {
 	jen: "Jessica",
 	kevin: "Vinny",
 	marcus: "Malcolm",
-	parya: "Amina",
+	parya: "Victoria",
 	robin: "Pippa",
 	tom: "Lucian",
 	z: "Hades",
@@ -84,6 +92,10 @@ export function getVoiceForCharacter(characterId: string): string {
 		console.log("[InWorld TTS] Mapped voice:", characterId, "->", mapped);
 		return mapped;
 	}
-	console.warn("[InWorld TTS] No voice mapping for characterId:", characterId, "| using fallback: Abby");
+	console.warn(
+		"[InWorld TTS] No voice mapping for characterId:",
+		characterId,
+		"| using fallback: Abby",
+	);
 	return "Abby"; // default fallback
 }
