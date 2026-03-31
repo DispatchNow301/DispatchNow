@@ -45,7 +45,6 @@ import {
 	type ResourcePoolEntry,
 } from "@/lib/resourcePool";
 import { mergePurchasedBuffIds } from "@/lib/purchasedBuffs";
-import { restartRun as restartRunGame } from "@/lib/gameStateUtils";
 import {
 	initialState,
 	loadState,
@@ -55,19 +54,15 @@ import {
 import type {
 	GameState,
 	CareerStats,
-} from "@/lib/gameTypes";
-import {
-	DEFAULT_CAREER_STATS,
-	mergeCareerStats,
-	type CareerStats,
-} from "@/lib/careerStats";
-import type {
-	GameState,
 	Incident,
 	IncidentResolution,
 	IncidentStatus,
 	RecruitLead,
 } from "@/lib/gameTypes";
+import {
+	DEFAULT_CAREER_STATS,
+	mergeCareerStats,
+} from "@/lib/careerStats";
 import { markCloudFlush, upsertGameSave } from "@/lib/cloudSaves";
 import { readSave, touchSave, type SaveSlotId } from "@/lib/saves";
 import { DEFAULT_ACHIEVEMENT_PROGRESS } from "@/lib/achievements";
@@ -1622,290 +1617,9 @@ function parseIncidentResolution(raw: unknown): IncidentResolution | null {
 	return base;
 }
 
-function parseStoredIncident(raw: unknown): Incident | null {
-	if (!raw || typeof raw !== "object") return null;
-	const o = raw as Record<string, unknown>;
-	if (typeof o.id !== "string") return null;
-	if (typeof o.lat !== "number" || typeof o.lng !== "number") return null;
-	const status = normalizeIncidentStatus(o.status);
-	if (status !== "active" && status !== "resolving" && status !== "resolved")
-		return null;
-	if (typeof o.title !== "string" || typeof o.summary !== "string")
-		return null;
-	if (typeof o.createdAt !== "number" || typeof o.expiresAt !== "number")
-		return null;
-	if (typeof o.successChance !== "number") return null;
-	const category = normalizeIncidentArchetype(o.category);
-	const typeLabel =
-		typeof o.typeLabel === "string" && o.typeLabel.length > 0
-			? o.typeLabel
-			: fallbackTypeLabel(category);
-	const deployedResourceIds = Array.isArray(o.deployedResourceIds)
-		? (o.deployedResourceIds as unknown[]).filter(
-				(x): x is string => typeof x === "string",
-			)
-		: undefined;
-	const deployedVigilanteIds = Array.isArray(o.deployedVigilanteIds)
-		? (o.deployedVigilanteIds as unknown[]).filter(
-				(x): x is string => typeof x === "string",
-			)
-		: undefined;
-	const resolution = parseIncidentResolution(o.resolution);
-	return {
-		id: o.id,
-		category,
-		typeLabel,
-		status,
-		lat: o.lat,
-		lng: o.lng,
-		title: o.title,
-		summary: normalizeIncidentDescription(o.summary),
-		createdAt: o.createdAt,
-		expiresAt: o.expiresAt,
-		successChance: o.successChance,
-		assignedResources: Array.isArray(o.assignedResources)
-			? o.assignedResources
-			: [],
-		deployedResourceIds:
-			deployedResourceIds && deployedResourceIds.length > 0
-				? deployedResourceIds
-				: undefined,
-		deployedVigilanteIds:
-			deployedVigilanteIds && deployedVigilanteIds.length > 0
-				? deployedVigilanteIds
-				: undefined,
-		resolution: resolution ?? undefined,
-	};
-}
-
-function pruneExpiredInjuries(
-	map: Record<string, number> | undefined,
-	now: number,
-): Record<string, number> {
-	if (!map) return {};
-	const next: Record<string, number> = {};
-	for (const [id, until] of Object.entries(map)) {
-		if (typeof until === "number" && until > now) next[id] = until;
-	}
-	return next;
-}
-
-function mergeResourcePool(
-	partial: unknown,
-): Record<string, ResourcePoolEntry> {
-	const merged: Record<string, ResourcePoolEntry> = {
-		...DEFAULT_RESOURCE_POOL,
-	};
-	if (!partial || typeof partial !== "object") return merged;
-	for (const [k, v] of Object.entries(partial)) {
-		if (!v || typeof v !== "object") continue;
-		const e = v as Record<string, unknown>;
-		if (typeof e.qty !== "number" || typeof e.deployed !== "number")
-			continue;
-		const qty = Math.max(0, e.qty);
-		merged[k] = {
-			qty,
-			deployed: Math.max(0, Math.min(e.deployed, qty)),
-		};
-	}
-	return merged;
-}
 
 function isOngoingIncident(i: Incident): boolean {
 	return i.status === "active" || i.status === "resolving";
-}
-
-function initialState(): GameState {
-	return {
-		level: 1,
-		selectedIncidentId: null,
-		incidents: [],
-		showIncidentPanel: true,
-		showMinigamePanel: false,
-		showPolicePanel: false,
-		showInventoryPanel: true,
-		inventoryTab: "vigilantes",
-		ownedVigilanteIds: ["bruce", "parya"],
-		recruitLeads: [],
-		consumedTheftSiteIds: [],
-		resourcePool: { ...DEFAULT_RESOURCE_POOL },
-		credits: 500,
-		purchasedUpgradeIds: [],
-		vigilanteInjuryUntil: {},
-		careerStats: { ...DEFAULT_CAREER_STATS },
-		purchasedBuffIds: mergePurchasedBuffIds(undefined),
-		unlockedAchievementIds: [],
-		achievementProgress: {
-			...DEFAULT_ACHIEVEMENT_PROGRESS,
-			uniqueVigilantesOwned: new Set(["bruce", "parya"]),
-			sessionStartTime: Date.now(),
-		},
-		activeMinigame: null,
-		reputation: 100,
-	};
-}
-
-function loadState(saveKey: string): GameState {
-	try {
-		const raw = localStorage.getItem(saveKey);
-		if (!raw) return initialState();
-		const p = JSON.parse(raw) as Partial<GameState>;
-		const rawShowIncidentPanel =
-			typeof p.showIncidentPanel === "boolean"
-				? p.showIncidentPanel
-				: true;
-		const rawShowMinigamePanel =
-			typeof p.showMinigamePanel === "boolean"
-				? p.showMinigamePanel
-				: false;
-		const rawShowPolicePanel =
-			typeof p.showPolicePanel === "boolean" ? p.showPolicePanel : false;
-
-		const activeLeftTab = rawShowMinigamePanel
-			? "minigame"
-			: rawShowPolicePanel
-				? "police"
-				: rawShowIncidentPanel
-					? "incident"
-					: null;
-
-		const selectedFromSave =
-			typeof p.selectedIncidentId === "string"
-				? p.selectedIncidentId
-				: null;
-
-		// Load achievement progress
-		let achievementProgress: AchievementProgress = {
-			...DEFAULT_ACHIEVEMENT_PROGRESS,
-		};
-		if (p.achievementProgress) {
-			const ap = p.achievementProgress;
-			achievementProgress = {
-				totalCreditsEarned:
-					typeof ap.totalCreditsEarned === "number"
-						? Math.max(0, ap.totalCreditsEarned)
-						: 0,
-				highestSinglePayout:
-					typeof ap.highestSinglePayout === "number"
-						? Math.max(0, ap.highestSinglePayout)
-						: 0,
-				currentStreak:
-					typeof ap.currentStreak === "number"
-						? Math.max(0, ap.currentStreak)
-						: 0,
-				bestStreak:
-					typeof ap.bestStreak === "number"
-						? Math.max(0, ap.bestStreak)
-						: 0,
-				recentResolutions: Array.isArray(ap.recentResolutions)
-					? ap.recentResolutions
-					: [],
-				dispatchesStarted:
-					typeof ap.dispatchesStarted === "number"
-						? Math.max(0, ap.dispatchesStarted)
-						: 0,
-				incidentsByArchetype:
-					typeof ap.incidentsByArchetype === "object"
-						? ap.incidentsByArchetype
-						: {},
-				maxResourceInventory:
-					typeof ap.maxResourceInventory === "object"
-						? ap.maxResourceInventory
-						: {},
-				uniqueVigilantesOwned:
-					p.ownedVigilanteIds && Array.isArray(p.ownedVigilanteIds)
-						? new Set(p.ownedVigilanteIds as string[])
-						: new Set(["bruce", "parya"]),
-				vigilanteInjuries:
-					typeof ap.vigilanteInjuries === "number"
-						? Math.max(0, ap.vigilanteInjuries)
-						: 0,
-				totalPlaytimeMs:
-					typeof ap.totalPlaytimeMs === "number"
-						? Math.max(0, ap.totalPlaytimeMs)
-						: 0,
-				sessionStartTime:
-					typeof ap.sessionStartTime === "number"
-						? ap.sessionStartTime
-						: Date.now(),
-			};
-		}
-
-		return {
-			level:
-				typeof p.level === "number" && p.level >= 1 && p.level <= 3
-					? p.level
-					: 1,
-			selectedIncidentId:
-				activeLeftTab === "incident" ? selectedFromSave : null,
-			incidents: Array.isArray(p.incidents)
-				? p.incidents
-						.map(parseStoredIncident)
-						.filter((x): x is Incident => x !== null)
-				: [],
-			showIncidentPanel: activeLeftTab === "incident",
-			showMinigamePanel: activeLeftTab === "minigame",
-			showPolicePanel: activeLeftTab === "police",
-			showInventoryPanel:
-				typeof p.showInventoryPanel === "boolean"
-					? p.showInventoryPanel
-					: true,
-			inventoryTab:
-				p.inventoryTab === "vigilantes" ||
-				p.inventoryTab === "resources" ||
-				p.inventoryTab === "buffs"
-					? p.inventoryTab
-					: "vigilantes",
-			ownedVigilanteIds: Array.isArray(p.ownedVigilanteIds)
-				? (p.ownedVigilanteIds as string[])
-				: ["bruce", "parya"],
-			recruitLeads: Array.isArray(p.recruitLeads)
-				? (p.recruitLeads as RecruitLead[])
-				: [],
-			consumedTheftSiteIds: Array.isArray(p.consumedTheftSiteIds)
-				? (p.consumedTheftSiteIds as string[]).filter(
-						(id): id is string => typeof id === "string",
-					)
-				: [],
-			resourcePool: mergeResourcePool(p.resourcePool),
-			credits:
-				typeof p.credits === "number" && Number.isFinite(p.credits)
-					? Math.max(0, Math.floor(p.credits))
-					: 500,
-			vigilanteInjuryUntil: pruneExpiredInjuries(
-				p.vigilanteInjuryUntil as Record<string, number> | undefined,
-				Date.now(),
-			),
-			careerStats: mergeCareerStats(p.careerStats),
-			purchasedUpgradeIds: Array.isArray(p.purchasedUpgradeIds)
-				? (p.purchasedUpgradeIds as string[])
-				: [],
-			purchasedBuffIds: mergePurchasedBuffIds(p.purchasedBuffIds),
-			unlockedAchievementIds: Array.isArray(p.unlockedAchievementIds)
-				? (
-						p.unlockedAchievementIds as
-							| string[]
-							| UnlockedAchievement[]
-					).map((a) =>
-						typeof a === "string"
-							? { achievementId: a, unlockedAt: Date.now() }
-							: a,
-					)
-				: [],
-			achievementProgress,
-			activeMinigame: null,
-			reputation:
-				typeof p.reputation === "number"
-					? Math.max(0, Math.min(100, p.reputation))
-					: 50,
-		};
-	} catch {
-		return initialState();
-	}
-}
-
-function saveState(saveKey: string, state: GameState) {
-	localStorage.setItem(saveKey, JSON.stringify(state));
 }
 
 export default function StreetMapScene({
