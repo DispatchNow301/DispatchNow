@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback, Key } from "react";
 
 // ── Layout ───────────────────────────────────────────────────────────
 const BAR_H = 550;
@@ -372,6 +372,31 @@ export default function FireMinigame({ difficulty = 0, onSuccess, onFailure }: P
 		return () => clearTimeout(t);
 	}, [result]);
 
+	useEffect(() => {
+		if (phase === "playing") return;
+		
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.key === " " || e.key === "Enter") {
+				e.preventDefault();
+				press();
+			}
+		};
+
+		const onKeyUp = (e: KeyboardEvent) => {
+			if (e.key === " " || e.key === "Enter") {
+				release();
+			}
+		};
+
+		window.addEventListener("keydown", onKeyDown);
+		window.addEventListener("keyup", onKeyUp);
+
+		return () => {
+			window.removeEventListener("keydown", onKeyDown);
+			window.removeEventListener("keyup", onKeyUp);
+		}
+	}, [phase, press, release]);
+
 	const meterColor =
 		uiProgress > 0.6 ? "#d97706" : uiProgress > 0.3 ? "#b45309" : "#b91c1c";
 
@@ -396,6 +421,7 @@ export default function FireMinigame({ difficulty = 0, onSuccess, onFailure }: P
 				onMouseUp={phase === "playing" ? release : undefined}
 				onTouchStart={phase === "playing" ? press : undefined}
 				onTouchEnd={phase === "playing" ? release : undefined}
+				aria-label={phase === "playing" ? "Fire containment game. Hold Space to push the water bar up, release to drop." : undefined}
 			>
 				{/* Panel */}
 				<div
@@ -533,12 +559,12 @@ export default function FireMinigame({ difficulty = 0, onSuccess, onFailure }: P
 									{
 										label: "HOLD",
 										col: "rgba(217,119,6,0.90)",
-										text: "Click and hold to push the water bar upward.",
+										text: "Click/hold or press/hold Space to push the water bar upward.",
 									},
 									{
 										label: "RELEASE",
 										col: "rgba(96,165,250,0.90)",
-										text: "Let go to drop it. It bounces off the edges.",
+										text: "Let go or release Spaceto drop it. It bounces off the edges.",
 									},
 									{
 										label: "COVER",
