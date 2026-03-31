@@ -1,8 +1,8 @@
 "use client";
 
 import type { StaticImageData } from "next/image";
-import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useRef } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { use, useEffect, useRef } from "react";
 import { Volume2 } from "lucide-react";
 
 export type DialogueSpeaker = {
@@ -69,6 +69,8 @@ export default function NPCDialogueBox({
 	const onStopSpeakRef = useRef(onStopSpeak);
 	onSpeakRef.current = onSpeak;
 	onStopSpeakRef.current = onStopSpeak;
+
+	const shouldReduce = useReducedMotion();
 
 	useEffect(() => {
 		if (!open) {
@@ -174,7 +176,7 @@ export default function NPCDialogueBox({
 													<motion.div
 														key={i}
 														className="w-1 bg-amber-400/70 rounded-full"
-														animate={{
+														animate={shouldReduce ? {} : {
 															height: [
 																4, 16, 8, 20, 4,
 															],
