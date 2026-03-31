@@ -87,17 +87,10 @@ export default function PoliceCaptureModal({
 		[capturedIds, vigilanteSheets],
 	);
 
-	const title =
-		capturedItems.length === 1
-			? "Vigilante Captured"
-			: "Vigilantes Captured";
-
-	if (!mounted) return null;
-
 	const modalRef = useRef<HTMLDivElement>(null);
 	const triggerRef = useRef<HTMLElement | null>(null);
 
-	useEffect(() => {
+		useEffect(() => {
 			if (!open) return;
 	
 			triggerRef.current = document.activeElement as HTMLElement;
@@ -137,6 +130,13 @@ export default function PoliceCaptureModal({
 				triggerRef.current = null;
 			};
 		}, [open]);
+
+	const title =
+		capturedItems.length === 1
+			? "Vigilante Captured"
+			: "Vigilantes Captured";
+
+	if (!mounted) return null;
 
 	return createPortal(
 		<AnimatePresence>
