@@ -203,6 +203,7 @@ export type GameState = {
 	showIncidentPanel: boolean;
 	showMinigamePanel: boolean;
 	showPolicePanel: boolean;
+	showOptionsPanel: boolean;
 	showInventoryPanel: boolean;
 	inventoryTab: "vigilantes" | "resources" | "buffs";
 	ownedVigilanteIds: string[];
@@ -218,4 +219,5 @@ export type GameState = {
 	achievementProgress: AchievementProgress;
 	activeMinigame: ActiveMinigame | null;
 	reputation: number;
+	showCitizensNearIncidents: boolean;
 };

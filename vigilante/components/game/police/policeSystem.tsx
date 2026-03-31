@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Polyline } from "react-leaflet";
@@ -93,6 +93,7 @@ const POLICE_CHARACTERS: PoliceCharacterConfig[] = [
 		pinId: "cop-diaz",
 		displayName: "Officer Diaz",
 		initial: "D",
+		portrait: "/npcs/OfficerDiaz.png",
 		patrolRouteId: "diaz",
 		anchors: LOCAL_PATROL_ANCHORS.diaz,
 		speeds: {
@@ -106,6 +107,7 @@ const POLICE_CHARACTERS: PoliceCharacterConfig[] = [
 		pinId: "cop-kim",
 		displayName: "Detective Kim",
 		initial: "K",
+		portrait: "/npcs/DetectiveKim.png",
 		patrolRouteId: "kim",
 		anchors: LOCAL_PATROL_ANCHORS.kim,
 		speeds: {
@@ -119,6 +121,7 @@ const POLICE_CHARACTERS: PoliceCharacterConfig[] = [
 		pinId: "chief-williams",
 		displayName: "Chief Williams",
 		initial: "C",
+		portrait: "/npcs/ChiefWilliams.png",
 		patrolRouteId: "chief",
 		anchors: LOCAL_PATROL_ANCHORS.chief,
 		speeds: {
@@ -1181,11 +1184,13 @@ export default function PoliceSystem({
 
 		return units.map((unit) => {
 			const pos = getUnitPosition(unit, now);
+			const config = getConfigById(unit.pinId);
 
 			return {
 				pinId: unit.pinId,
 				name: unit.displayName,
 				initial: unit.initial,
+				portrait: config.portrait,
 				lat: pos[0],
 				lng: pos[1],
 				mode: unit.mode,

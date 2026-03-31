@@ -26,6 +26,7 @@ export function initialState(): GameState {
 		showIncidentPanel: true,
 		showMinigamePanel: false,
 		showPolicePanel: false,
+		showOptionsPanel: false,
 		showInventoryPanel: true,
 		inventoryTab: "vigilantes",
 		ownedVigilanteIds: ["bruce", "parya"],
@@ -45,6 +46,7 @@ export function initialState(): GameState {
 		},
 		activeMinigame: null,
 		reputation: 100,
+		showCitizensNearIncidents: true,
 	};
 }
 
@@ -270,6 +272,10 @@ export function loadState(saveKey: string): GameState {
 				typeof p.reputation === "number"
 					? Math.max(0, Math.min(100, p.reputation))
 					: 50,
+			showCitizensNearIncidents:
+				typeof p.showCitizensNearIncidents === "boolean"
+					? p.showCitizensNearIncidents
+					: true,
 		};
 
 		return state;

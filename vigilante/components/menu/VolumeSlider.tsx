@@ -16,7 +16,7 @@ export default function VolumeSlider() {
 		rgb(0 0 0 / 0.32) 100%)`;
 
 	return (
-		<div className="flex h-full min-h-0 w-[5.5rem] items-center sm:w-[6rem]">
+		<div className="flex h-full min-h-0 w-full items-center">
 			<label htmlFor={VOLUME_SLIDER_INPUT_ID} className="sr-only">
 				Music volume
 			</label>

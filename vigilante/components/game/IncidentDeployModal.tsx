@@ -9,7 +9,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { User, X } from "lucide-react";
+import { User } from "lucide-react";
 import type { VigilanteSheet } from "@/app/components/data/vigilante";
 import { portraitToSrc } from "@/lib/vigilantePortrait";
 import { BASE_RESOURCES } from "@/components/game/Inventory";
@@ -262,31 +262,20 @@ export default function IncidentDeployModal({
 		<AnimatePresence>
 			{open && incident ? (
 				<motion.div
-					className="fixed inset-0 z-[2700] flex items-center justify-center p-4"
-					initial={{ opacity: 0 }}
-					animate={{ opacity: 1 }}
-					exit={{ opacity: 0 }}
-					transition={{ duration: 0.18 }}
+					className="fixed bottom-6 right-6 z-[2500] w-full max-w-lg"
+					initial={{ opacity: 0, y: 20, scale: 0.95 }}
+					animate={{ opacity: 1, y: 0, scale: 1 }}
+					exit={{ opacity: 0, y: 12, scale: 0.97 }}
+					transition={{ duration: 0.2, ease: "easeOut" }}
 				>
-					<button
-						type="button"
-						className="absolute inset-0 cursor-pointer bg-black/70 backdrop-blur-[2px]"
-						aria-label="Close"
-						onClick={onClose}
-					/>
 					<motion.div
 						role="dialog"
 						aria-modal
 						aria-labelledby="deploy-modal-title"
-						initial={{ opacity: 0, y: 10, scale: 0.98 }}
-						animate={{ opacity: 1, y: 0, scale: 1 }}
-						exit={{ opacity: 0, y: 8, scale: 0.99 }}
-						transition={{ duration: 0.2, ease: "easeOut" }}
-						className="relative z-10 w-full max-w-lg rounded-2xl border border-amber-900/45 bg-[#0a0908]/95 text-amber-100 shadow-[0_24px_80px_rgba(0,0,0,0.65)] [&>*:first-child]:rounded-t-2xl [&>*:last-child]:rounded-b-2xl"
-						onClick={(e) => e.stopPropagation()}
+						className="w-full overflow-hidden rounded-2xl border border-amber-900/45 bg-[#0a0908]/95 text-amber-100 shadow-[0_24px_80px_rgba(0,0,0,0.65)]"
 					>
 						{/* Header */}
-						<div className="flex items-start justify-between gap-3 border-b border-amber-900/35 px-5 py-4">
+						<div className="border-b border-amber-900/35 px-5 py-4">
 							<div className="min-w-0">
 								<p
 									id="deploy-modal-title"
@@ -304,16 +293,9 @@ export default function IncidentDeployModal({
 									key={incident.id}
 									createdAt={incident.createdAt}
 									expiresAt={incident.expiresAt}
-									onExpire={onIncidentExpire}
+									onExpire={onIncidentExpire ?? (() => {})}
 								/>
 							</div>
-							<button
-								type="button"
-								onClick={onClose}
-								className="shrink-0 cursor-pointer rounded-lg border border-amber-900/40 p-2 text-amber-400/80 transition hover:border-amber-700/50 hover:text-amber-100"
-							>
-								<X className="h-4 w-4" strokeWidth={2} />
-							</button>
 						</div>
 
 						{/* Crew Selection */}
@@ -447,7 +429,7 @@ export default function IncidentDeployModal({
 						</div>
 
 						{/* Success Chance Breakdown */}
-						{successResult && (
+						{successResult && vigSet.size === 0 && (
 							<div className="space-y-2 px-5 py-4">
 								<h3 className="text-xs font-medium text-amber-400/90">
 									Success Chance
