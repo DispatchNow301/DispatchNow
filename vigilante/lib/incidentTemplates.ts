@@ -142,7 +142,7 @@ export const INCIDENT_TEMPLATES: IncidentTemplate[] = [
 		archetype: "crime",
 		typeLabel: "Bomb threat",
 		summary: "Bomb threat called in for {place}. Sweep in progress.",
-		weight: 1,
+		weight: 100,
 	},
 	{
 		archetype: "crime",

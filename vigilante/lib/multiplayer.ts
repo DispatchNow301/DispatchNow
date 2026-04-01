@@ -2,10 +2,13 @@ import { getSupabaseBrowserClient } from "./supabaseClient";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
     MarkerKind,
+    MultiplayerBombDefusalSessionRow,
+    MultiplayerBombDefusalStatus,
     MultiplayerMarkerRow,
     MultiplayerPlayer,
     MultiplayerSession,
 } from "./gameTypes";
+import type { BombDefusalSession } from "@/components/minigames/bomb-defusal/types";
 
 // Lazy-initialise instead of calling at module scope.
 let _supabase: SupabaseClient | null = null;
@@ -34,12 +37,36 @@ type CreateMarkerInput = {
     status?: "active" | "resolved" | "failed";
 };
 
+function parseBombDefusalSessionRow(
+    row: MultiplayerBombDefusalSessionRow,
+): MultiplayerBombDefusalSessionRow & { session_state: BombDefusalSession } {
+    return {
+        ...row,
+        session_state: {
+            id: row.id,
+            status: row.status,
+            phase: row.phase,
+            countdownEndAt: row.countdown_end_at,
+            playerAUserId: row.player_a_user_id,
+            playerBUserId: row.player_b_user_id,
+            phase1Config:
+                row.phase1_config as BombDefusalSession["phase1Config"],
+            phase1State:
+                row.phase1_state as BombDefusalSession["phase1State"],
+            phase2Config:
+                row.phase2_config as BombDefusalSession["phase2Config"],
+            phase2State:
+                row.phase2_state as BombDefusalSession["phase2State"],
+        },
+    };
+}
+
 export async function createMultiplayerSession({
-                                                   joinCode,
-                                                   hostUserId,
-                                                   saveScope,
-                                                   saveSlot,
-                                               }: CreateSessionInput): Promise<MultiplayerSession> {
+    joinCode,
+    hostUserId,
+    saveScope,
+    saveSlot,
+}: CreateSessionInput): Promise<MultiplayerSession> {
 
     const { data, error } = await supabase()
         .from("multiplayer_sessions")
@@ -148,17 +175,17 @@ export async function getSessionMarkers(
 }
 
 export async function insertSessionMarker({
-                                              sessionId,
-                                              markerId,
-                                              kind,
-                                              x,
-                                              y,
-                                              title,
-                                              details,
-                                              createdAt,
-                                              expiresAt = null,
-                                              status = "active",
-                                          }: CreateMarkerInput): Promise<MultiplayerMarkerRow> {
+    sessionId,
+    markerId,
+    kind,
+    x,
+    y,
+    title,
+    details,
+    createdAt,
+    expiresAt = null,
+    status = "active",
+}: CreateMarkerInput): Promise<MultiplayerMarkerRow> {
 
     const { data, error } = await supabase()
         .from("multiplayer_markers")
@@ -299,6 +326,141 @@ export async function updateSessionPausedBy(
         sessionId,
         userId,
     });
+}
+
+// ── Bomb defusal sync ──────────────────────────────────────────────────────
+
+export async function getActiveBombDefusalSession(
+    multiplayerSessionId: number,
+    incidentMarkerId: string,
+): Promise<
+    (MultiplayerBombDefusalSessionRow & {
+        session_state: BombDefusalSession;
+    }) | null
+> {
+    const { data, error } = await supabase()
+        .from("multiplayer_bomb_defusal_sessions")
+        .select("*")
+        .eq("multiplayer_session_id", multiplayerSessionId)
+        .eq("incident_marker_id", incidentMarkerId)
+        .eq("status", "active")
+        .maybeSingle();
+
+    if (error) throw error;
+    return data
+        ? parseBombDefusalSessionRow(data as MultiplayerBombDefusalSessionRow)
+        : null;
+}
+
+export async function createMultiplayerBombDefusalSession(params: {
+    multiplayerSessionId: number;
+    incidentMarkerId: string;
+    playerAUserId: string;
+    playerBUserId: string;
+    session: BombDefusalSession;
+}): Promise<
+    MultiplayerBombDefusalSessionRow & {
+        session_state: BombDefusalSession;
+    }
+> {
+    const { data, error } = await supabase()
+        .from("multiplayer_bomb_defusal_sessions")
+        .insert({
+            multiplayer_session_id: params.multiplayerSessionId,
+            incident_marker_id: params.incidentMarkerId,
+            status: params.session.status,
+            phase: params.session.phase,
+            countdown_end_at: params.session.countdownEndAt,
+            player_a_user_id: params.playerAUserId,
+            player_b_user_id: params.playerBUserId,
+            phase1_config: params.session.phase1Config,
+            phase1_state: params.session.phase1State,
+            phase2_config: params.session.phase2Config,
+            phase2_state: params.session.phase2State,
+        })
+        .select("*")
+        .single();
+
+    if (error) throw error;
+    return parseBombDefusalSessionRow(data as MultiplayerBombDefusalSessionRow);
+}
+
+export async function updateMultiplayerBombDefusalSession(params: {
+    id: string;
+    session: BombDefusalSession;
+    status?: MultiplayerBombDefusalStatus;
+}): Promise<void> {
+    const nextStatus = params.status ?? params.session.status;
+
+    const { error } = await supabase()
+        .from("multiplayer_bomb_defusal_sessions")
+        .update({
+            status: nextStatus,
+            phase: params.session.phase,
+            countdown_end_at: params.session.countdownEndAt,
+            phase1_config: params.session.phase1Config,
+            phase1_state: params.session.phase1State,
+            phase2_config: params.session.phase2Config,
+            phase2_state: params.session.phase2State,
+            updated_at: new Date().toISOString(),
+        })
+        .eq("id", params.id);
+
+    if (error) throw error;
+}
+
+export async function abandonMultiplayerBombDefusalSession(
+    id: string,
+): Promise<void> {
+    const { error } = await supabase()
+        .from("multiplayer_bomb_defusal_sessions")
+        .update({
+            status: "abandoned",
+            updated_at: new Date().toISOString(),
+        })
+        .eq("id", id)
+        .eq("status", "active");
+
+    if (error) throw error;
+}
+
+export function subscribeToBombDefusalSession(
+    multiplayerSessionId: number,
+    incidentMarkerId: string,
+    onChange: (
+        session: (MultiplayerBombDefusalSessionRow & {
+            session_state: BombDefusalSession;
+        }) | null,
+    ) => void,
+) {
+    const channel = supabase()
+        .channel(
+            `multiplayer_bomb_defusal_sessions:${multiplayerSessionId}:${incidentMarkerId}`,
+        )
+        .on(
+            "postgres_changes",
+            {
+                event: "*",
+                schema: "public",
+                table: "multiplayer_bomb_defusal_sessions",
+                filter: `multiplayer_session_id=eq.${multiplayerSessionId}`,
+            },
+            (payload) => {
+                if (payload.eventType === "DELETE") {
+                    onChange(null);
+                    return;
+                }
+
+                const row = payload.new as MultiplayerBombDefusalSessionRow | null;
+                if (!row || row.incident_marker_id !== incidentMarkerId) return;
+                onChange(parseBombDefusalSessionRow(row));
+            },
+        )
+        .subscribe();
+
+    return () => {
+        channel.unsubscribe();
+    };
 }
 
 // ── Realtime subscriptions ─────────────────────────────────────────────────

@@ -59,6 +59,31 @@ export type MultiplayerMarkerRow = {
 	assigned_resources: AssignedResource[];
 };
 
+export type MultiplayerBombDefusalStatus =
+	| "active"
+	| "success"
+	| "failed"
+	| "expired"
+	| "abandoned";
+
+export type MultiplayerBombDefusalSessionRow = {
+	id: string;
+	multiplayer_session_id: number;
+	room_id: string | null;
+	incident_marker_id: string | null;
+	status: MultiplayerBombDefusalStatus;
+	phase: 1 | 2;
+	countdown_end_at: string;
+	player_a_user_id: string;
+	player_b_user_id: string;
+	phase1_config: Record<string, unknown>;
+	phase1_state: Record<string, unknown>;
+	phase2_config: Record<string, unknown>;
+	phase2_state: Record<string, unknown>;
+	created_at: string;
+	updated_at: string;
+};
+
 export type MultiplayerMarker = {
 	id: string;
 	kind: MarkerKind;
@@ -191,7 +216,7 @@ export interface RecruitLead {
 }
 
 export interface ActiveMinigame {
-	type: "fire" | "hack" | null;
+	type: "fire" | "hack" | "bomb_defusal" | null;
 	incidentId: string;
 	difficulty: number;
 }
