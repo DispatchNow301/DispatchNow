@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { X, Copy, Loader2, Trash2 } from "lucide-react";
 import { useAuth } from "../../lib/auth";
@@ -49,6 +49,10 @@ export default function MultiplayerModal({ open, onClose, isSignedIn }: Multipla
 	const [deleteStatus, setDeleteStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
 	const [deleteError, setDeleteError] = useState<string | null>(null);
 
+	const modalRef = useRef<HTMLDivElement>(null);
+	const triggerRef = useRef<HTMLElement | null>(null);
+	const deleteModalRef = useRef<HTMLDivElement>(null);
+
 	useEffect(() => {
 		if (open) {
 			setTick((t) => t + 1);
@@ -67,8 +71,53 @@ export default function MultiplayerModal({ open, onClose, isSignedIn }: Multipla
 	}, [open]);
 
 	useEffect(() => {
-		if (open) play("modalOpen");
-	}, [open, play]);
+			if (open) play("modalOpen");
+		}, [open, play]);
+
+		useEffect(() => {
+		if (!open) return;
+
+		// Remember what had focus before the modal opened
+		triggerRef.current = document.activeElement as HTMLElement;
+
+		// Move focus into the modal on the next frame
+		const frameId = requestAnimationFrame(() => {
+			const firstFocusable = modalRef.current?.querySelector<HTMLElement>(
+				'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+			);
+			firstFocusable?.focus();
+		});
+
+		// Trap Tab key inside the modal
+		const handleKeyDown = (e: KeyboardEvent) => {
+			if (e.key !== "Tab") return;
+			const focusable = Array.from(
+				modalRef.current?.querySelectorAll<HTMLElement>(
+					'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+				) ?? []
+			).filter((el) => !el.closest("[aria-hidden='true']"));
+			if (!focusable.length) return;
+			const first = focusable[0];
+			const last = focusable[focusable.length - 1];
+			if (e.shiftKey && document.activeElement === first) {
+				e.preventDefault();
+				last.focus();
+			} else if (!e.shiftKey && document.activeElement === last) {
+				e.preventDefault();
+				first.focus();
+			}
+		};
+
+		document.addEventListener("keydown", handleKeyDown);
+
+		return () => {
+			cancelAnimationFrame(frameId);
+			document.removeEventListener("keydown", handleKeyDown);
+			// Return focus to the element that opened the modal
+			triggerRef.current?.focus();
+			triggerRef.current = null;
+		};
+	}, [open]);
 
 	const closeModal = useCallback(() => {
 		play("modalClose");
@@ -256,6 +305,7 @@ export default function MultiplayerModal({ open, onClose, isSignedIn }: Multipla
 			aria-labelledby="multiplayer-modal-title"
 		>
 			<div
+				ref={modalRef}
 				className="w-full max-w-md rounded-xl border border-amber-900/50 bg-[#0d0c0e] shadow-2xl shadow-black/50"
 				onClick={(e) => e.stopPropagation()}
 			>
@@ -273,11 +323,13 @@ export default function MultiplayerModal({ open, onClose, isSignedIn }: Multipla
 					</button>
 				</div>
 
-				<div className="flex border-b border-amber-900/30">
+				<div className="flex border-b border-amber-900/30" role="tablist" aria-label="Multiplayer options">
 					{(["load", "create", "join"] as const).map((t) => (
 						<button
 							key={t}
 							type="button"
+							role="tab"
+							aria-selected={tab === t}
 							onClick={() => {
 								setTab(t);
 								setErrorMessage("");
@@ -463,6 +515,7 @@ export default function MultiplayerModal({ open, onClose, isSignedIn }: Multipla
 					aria-labelledby="delete-confirm-title-mp"
 				>
 					<div
+						ref={deleteModalRef}
 						className="w-full max-w-sm rounded-xl border border-red-900/50 bg-[#0d0c0e] shadow-2xl shadow-black/50"
 						onClick={(e) => e.stopPropagation()}
 					>

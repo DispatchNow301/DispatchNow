@@ -4,6 +4,7 @@ import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
 import { X, Shield } from "lucide-react";
 import { IncidentTimerBar } from "./IncidentTimerBar";
+import { useEffect, useRef } from "react";
 
 type CharacterLike = {
 	id: string;
@@ -326,6 +327,54 @@ export default function VettingMinigameModal({
 	onReject,
 }: Props) {
 	const docs = character ? buildDocs(character) : null;
+	
+	const modalRef = useRef<HTMLDivElement>(null);
+	const triggerRef = useRef<HTMLElement | null>(null);
+
+	useEffect(() => {
+		if (!open) return;
+
+		// Remember what had focus before the modal opened
+		triggerRef.current = document.activeElement as HTMLElement;
+
+		// Move focus into the modal on the next frame
+		const frameId = requestAnimationFrame(() => {
+			const firstFocusable = modalRef.current?.querySelector<HTMLElement>(
+				'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+			);
+			firstFocusable?.focus();
+		});
+
+		// Trap Tab key inside the modal
+		const handleKeyDown = (e: KeyboardEvent) => {
+			if (e.key !== "Tab") return;
+			const focusable = Array.from(
+				modalRef.current?.querySelectorAll<HTMLElement>(
+					'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+				) ?? []
+			).filter((el) => !el.closest("[aria-hidden='true']"));
+			if (!focusable.length) return;
+			const first = focusable[0];
+			const last = focusable[focusable.length - 1];
+			if (e.shiftKey && document.activeElement === first) {
+				e.preventDefault();
+				last.focus();
+			} else if (!e.shiftKey && document.activeElement === last) {
+				e.preventDefault();
+				first.focus();
+			}
+		};
+
+		document.addEventListener("keydown", handleKeyDown);
+
+		return () => {
+			cancelAnimationFrame(frameId);
+			document.removeEventListener("keydown", handleKeyDown);
+			// Return focus to the element that opened the modal
+			triggerRef.current?.focus();
+			triggerRef.current = null;
+		};
+	}, [open]);
 
 	return (
 		<AnimatePresence>
@@ -333,6 +382,7 @@ export default function VettingMinigameModal({
 				<>
 					<motion.div
 						className="fixed inset-0 z-[2600] bg-black/60"
+						role="dialog"
 						initial={{ opacity: 0 }}
 						animate={{ opacity: 1 }}
 						exit={{ opacity: 0 }}
@@ -341,6 +391,7 @@ export default function VettingMinigameModal({
 
 					<div className="fixed inset-0 z-[2610] flex items-center justify-center px-6 py-6 pointer-events-none">
 						<motion.div
+							ref={modalRef}
 							initial={{ opacity: 0, y: 18, scale: 0.985 }}
 							animate={{ opacity: 1, y: 0, scale: 1 }}
 							exit={{ opacity: 0, y: 10, scale: 0.985 }}

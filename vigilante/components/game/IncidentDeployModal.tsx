@@ -4,6 +4,7 @@ import {
 	useCallback,
 	useEffect,
 	useMemo,
+	useRef,
 	useState,
 	type MouseEvent,
 } from "react";
@@ -125,6 +126,9 @@ export default function IncidentDeployModal({
 	const [vigSet, setVigSet] = useState<Set<string>>(new Set());
 	const [resCounts, setResCounts] = useState<Record<string, number>>({});
 
+	const modalRef = useRef<HTMLDivElement>(null);
+	const triggerRef = useRef<HTMLElement | null>(null);
+
 	const reset = useCallback(() => {
 		setVigSet(new Set());
 		setResCounts({});
@@ -133,6 +137,51 @@ export default function IncidentDeployModal({
 	useEffect(() => {
 		if (open && incident) reset();
 	}, [open, incident?.id, reset]);
+
+	useEffect(() => {
+		if (!open) return;
+
+		// Remember what had focus before the modal opened
+		triggerRef.current = document.activeElement as HTMLElement;
+
+		// Move focus into the modal on the next frame
+		const frameId = requestAnimationFrame(() => {
+			const firstFocusable = modalRef.current?.querySelector<HTMLElement>(
+				'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+			);
+			firstFocusable?.focus();
+		});
+
+		// Trap Tab key inside the modal
+		const handleKeyDown = (e: KeyboardEvent) => {
+			if (e.key !== "Tab") return;
+			const focusable = Array.from(
+				modalRef.current?.querySelectorAll<HTMLElement>(
+					'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+				) ?? []
+			).filter((el) => !el.closest("[aria-hidden='true']"));
+			if (!focusable.length) return;
+			const first = focusable[0];
+			const last = focusable[focusable.length - 1];
+			if (e.shiftKey && document.activeElement === first) {
+				e.preventDefault();
+				last.focus();
+			} else if (!e.shiftKey && document.activeElement === last) {
+				e.preventDefault();
+				first.focus();
+			}
+		};
+
+		document.addEventListener("keydown", handleKeyDown);
+
+		return () => {
+			cancelAnimationFrame(frameId);
+			document.removeEventListener("keydown", handleKeyDown);
+			// Return focus to the element that opened the modal
+			triggerRef.current?.focus();
+			triggerRef.current = null;
+		};
+	}, [open]);
 
 	const resourceIds = useMemo(() => flattenCounts(resCounts), [resCounts]);
 
@@ -269,6 +318,7 @@ export default function IncidentDeployModal({
 					transition={{ duration: 0.2, ease: "easeOut" }}
 				>
 					<motion.div
+						ref={modalRef}
 						role="dialog"
 						aria-modal
 						aria-labelledby="deploy-modal-title"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { X, Trash2 } from "lucide-react";
 import { useAuth } from "../../lib/auth";
@@ -46,6 +46,10 @@ export default function SingleplayerModal({
 	>("idle");
 	const [deleteError, setDeleteError] = useState<string | null>(null);
 
+	const modalRef = useRef<HTMLDivElement>(null);
+	const triggerRef = useRef<HTMLElement | null>(null);
+	const deleteModalRef = useRef<HTMLDivElement>(null);
+
 	useEffect(() => {
 		if (open) setTick((t) => t + 1);
 	}, [open]);
@@ -53,6 +57,51 @@ export default function SingleplayerModal({
 	useEffect(() => {
 		if (open) play("modalOpen");
 	}, [open, play]);
+
+	useEffect(() => {
+		if (!open) return;
+
+		// Remember what had focus before the modal opened
+		triggerRef.current = document.activeElement as HTMLElement;
+
+		// Move focus into the modal on the next frame
+		const frameId = requestAnimationFrame(() => {
+			const firstFocusable = modalRef.current?.querySelector<HTMLElement>(
+				'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+			);
+			firstFocusable?.focus();
+		});
+
+		// Trap Tab key inside the modal
+		const handleKeyDown = (e: KeyboardEvent) => {
+			if (e.key !== "Tab") return;
+			const focusable = Array.from(
+				modalRef.current?.querySelectorAll<HTMLElement>(
+					'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+				) ?? []
+			).filter((el) => !el.closest("[aria-hidden='true']"));
+			if (!focusable.length) return;
+			const first = focusable[0];
+			const last = focusable[focusable.length - 1];
+			if (e.shiftKey && document.activeElement === first) {
+				e.preventDefault();
+				last.focus();
+			} else if (!e.shiftKey && document.activeElement === last) {
+				e.preventDefault();
+				first.focus();
+			}
+		};
+
+		document.addEventListener("keydown", handleKeyDown);
+
+		return () => {
+			cancelAnimationFrame(frameId);
+			document.removeEventListener("keydown", handleKeyDown);
+			// Return focus to the element that opened the modal
+			triggerRef.current?.focus();
+			triggerRef.current = null;
+		};
+	}, [open]);
 
 	const localSlots = useMemo(() => listSlots("local"), [tick]);
 	const cloudSlots = useMemo(
@@ -151,6 +200,7 @@ export default function SingleplayerModal({
 			aria-labelledby="singleplayer-modal-title"
 		>
 			<div
+				ref={modalRef}
 				className="w-full max-w-lg rounded-xl border border-amber-900/50 bg-[#0d0c0e] shadow-2xl shadow-black/50"
 				onClick={(e) => e.stopPropagation()}
 			>
@@ -388,6 +438,7 @@ export default function SingleplayerModal({
 					aria-labelledby="delete-confirm-title"
 				>
 					<div
+						ref={deleteModalRef}
 						className="w-full max-w-sm rounded-xl border border-red-900/50 bg-[#0d0c0e] shadow-2xl shadow-black/50"
 						onClick={(e) => e.stopPropagation()}
 					>

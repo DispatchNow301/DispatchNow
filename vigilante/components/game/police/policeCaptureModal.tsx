@@ -1,7 +1,7 @@
 ﻿"use client";
 
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Image, { type StaticImageData } from "next/image";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
@@ -67,6 +67,9 @@ export default function PoliceCaptureModal({
 }: PoliceCaptureModalProps) {
 	const [mounted, setMounted] = useState(false);
 
+	const modalRef = useRef<HTMLDivElement>(null);
+	const triggerRef = useRef<HTMLElement | null>(null);
+
 	useEffect(() => {
 		setMounted(true);
 	}, []);
@@ -79,6 +82,51 @@ export default function PoliceCaptureModal({
 
 		return () => {
 			document.body.style.overflow = originalOverflow;
+		};
+	}, [open]);
+
+	useEffect(() => {
+		if (!open) return;
+
+		// Remember what had focus before the modal opened
+		triggerRef.current = document.activeElement as HTMLElement;
+
+		// Move focus into the modal on the next frame
+		const frameId = requestAnimationFrame(() => {
+			const firstFocusable = modalRef.current?.querySelector<HTMLElement>(
+				'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+			);
+			firstFocusable?.focus();
+		});
+
+		// Trap Tab key inside the modal
+		const handleKeyDown = (e: KeyboardEvent) => {
+			if (e.key !== "Tab") return;
+			const focusable = Array.from(
+				modalRef.current?.querySelectorAll<HTMLElement>(
+					'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+				) ?? []
+			).filter((el) => !el.closest("[aria-hidden='true']"));
+			if (!focusable.length) return;
+			const first = focusable[0];
+			const last = focusable[focusable.length - 1];
+			if (e.shiftKey && document.activeElement === first) {
+				e.preventDefault();
+				last.focus();
+			} else if (!e.shiftKey && document.activeElement === last) {
+				e.preventDefault();
+				first.focus();
+			}
+		};
+
+		document.addEventListener("keydown", handleKeyDown);
+
+		return () => {
+			cancelAnimationFrame(frameId);
+			document.removeEventListener("keydown", handleKeyDown);
+			// Return focus to the element that opened the modal
+			triggerRef.current?.focus();
+			triggerRef.current = null;
 		};
 	}, [open]);
 
@@ -97,7 +145,12 @@ export default function PoliceCaptureModal({
 	return createPortal(
 		<AnimatePresence>
 			{open && capturedItems.length > 0 ? (
-				<div className="fixed inset-0 z-[1400]">
+				<div 
+					className="fixed inset-0 z-[1400]"
+					role="dialog"
+					aria-modal="true"
+					aria-labelledby="police-capture-title"
+				>
 					<motion.button
 						type="button"
 						aria-label="Close capture modal"
@@ -110,6 +163,7 @@ export default function PoliceCaptureModal({
 
 					<div className="absolute inset-0 flex items-center justify-center p-4">
 						<motion.div
+							ref={modalRef}
 							initial={{ opacity: 0, y: 24, scale: 0.97 }}
 							animate={{ opacity: 1, y: 0, scale: 1 }}
 							exit={{ opacity: 0, y: 18, scale: 0.98 }}
@@ -136,7 +190,7 @@ export default function PoliceCaptureModal({
 										<p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-red-300/80">
 											Police Interception
 										</p>
-										<h2 className="mt-1 text-2xl font-semibold text-white">
+										<h2 id="police-capture-title" className="mt-1 text-2xl font-semibold text-white">
 											{title}
 										</h2>
 										<p className="mt-2 max-w-xl text-sm leading-6 text-white/70">
