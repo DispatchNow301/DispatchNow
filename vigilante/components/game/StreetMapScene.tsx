@@ -986,15 +986,15 @@ function makeCharacterIcon(initial: string, kind: CharacterKind) {
 			? { border: "#1d4ed8", bg: "rgba(30,64,175,0.78)", text: "#dbeafe" }
 			: kind === "vigilante"
 				? {
-						border: "#b45309",
-						bg: "rgba(120,53,15,0.82)",
-						text: "#fde68a",
-					}
+					border: "#b45309",
+					bg: "rgba(120,53,15,0.82)",
+					text: "#fde68a",
+				}
 				: {
-						border: "#4b5563",
-						bg: "rgba(55,65,81,0.8)",
-						text: "#f3f4f6",
-					};
+					border: "#4b5563",
+					bg: "rgba(55,65,81,0.8)",
+					text: "#f3f4f6",
+				};
 
 	const size = 40;
 	const half = size / 2;
@@ -1657,8 +1657,8 @@ function mapBombDefusalRowToSession(
 	row:
 		| MultiplayerBombDefusalSessionRow
 		| (MultiplayerBombDefusalSessionRow & {
-				session_state: BombDefusalSession;
-		  }),
+			session_state: BombDefusalSession;
+		}),
 ): BombDefusalSession {
 	if ("session_state" in row && row.session_state) {
 		return row.session_state;
@@ -2744,28 +2744,28 @@ export default function StreetMapScene({
 					incidents: s.incidents.map((x) =>
 						x.id === incidentId
 							? {
-									...x,
-									status: "resolved" as const,
-									deployedResourceIds: [],
-									resolution: {
-										success: rollOutcome.success,
-										adjustedPercent: rollOutcome.adjustedPercent,
-										beforeLuckPercent: rollOutcome.beforeLuckPercent,
-										rolled: rollOutcome.rolled,
-										baseChancePercent: rollOutcome.baseChancePercent,
-										resourceMultiplier: rollOutcome.resourceMultiplier,
-										buffMultiplier: rollOutcome.buffMultiplier,
-										incidentSpecificMultiplier:
-											rollOutcome.incidentSpecificMultiplier,
-										vigilanteMultiplier: rollOutcome.vigilanteMultiplier,
-										avgArchetypeFit: rollOutcome.avgArchetypeFit,
-										staffingSupportMultiplier:
-											rollOutcome.staffingSupportMultiplier,
-										gearPresenceMultiplier:
-											rollOutcome.gearPresenceMultiplier,
-										luckDeltaPercent: rollOutcome.luckDeltaPercent,
-									} as IncidentResolution,
-								}
+								...x,
+								status: "resolved" as const,
+								deployedResourceIds: [],
+								resolution: {
+									success: rollOutcome.success,
+									adjustedPercent: rollOutcome.adjustedPercent,
+									beforeLuckPercent: rollOutcome.beforeLuckPercent,
+									rolled: rollOutcome.rolled,
+									baseChancePercent: rollOutcome.baseChancePercent,
+									resourceMultiplier: rollOutcome.resourceMultiplier,
+									buffMultiplier: rollOutcome.buffMultiplier,
+									incidentSpecificMultiplier:
+										rollOutcome.incidentSpecificMultiplier,
+									vigilanteMultiplier: rollOutcome.vigilanteMultiplier,
+									avgArchetypeFit: rollOutcome.avgArchetypeFit,
+									staffingSupportMultiplier:
+										rollOutcome.staffingSupportMultiplier,
+									gearPresenceMultiplier:
+										rollOutcome.gearPresenceMultiplier,
+									luckDeltaPercent: rollOutcome.luckDeltaPercent,
+								} as IncidentResolution,
+							}
 							: x,
 					),
 					reputation: Math.max(
@@ -2864,10 +2864,10 @@ export default function StreetMapScene({
 						incident.status === "resolved"
 							? incident
 							: {
-									...incident,
-									createdAt: incident.createdAt + pausedMs,
-									expiresAt: incident.expiresAt + pausedMs,
-								},
+								...incident,
+								createdAt: incident.createdAt + pausedMs,
+								expiresAt: incident.expiresAt + pausedMs,
+							},
 					),
 					recruitLeads: s.recruitLeads.map((lead) => ({
 						...lead,
@@ -3107,15 +3107,15 @@ export default function StreetMapScene({
 				pastIncidents: getPastIncidentsForAI(state.incidents, 10),
 				currentIncident: state.selectedIncidentId
 					? {
-							type:
-								state.incidents.find(
-									(i) => i.id === state.selectedIncidentId,
-								)?.category || "unknown",
-							description:
-								state.incidents.find(
-									(i) => i.id === state.selectedIncidentId,
-								)?.summary || "",
-						}
+						type:
+							state.incidents.find(
+								(i) => i.id === state.selectedIncidentId,
+							)?.category || "unknown",
+						description:
+							state.incidents.find(
+								(i) => i.id === state.selectedIncidentId,
+							)?.summary || "",
+					}
 					: undefined,
 				situation:
 					"Vigilante reporting to their handler or discussing the mission.",
@@ -3172,15 +3172,15 @@ export default function StreetMapScene({
 				pastIncidents: getPastIncidentsForAI(state.incidents, 10),
 				currentIncident: state.selectedIncidentId
 					? {
-							type:
-								state.incidents.find(
-									(i) => i.id === state.selectedIncidentId,
-								)?.category || "unknown",
-							description:
-								state.incidents.find(
-									(i) => i.id === state.selectedIncidentId,
-								)?.summary || "",
-						}
+						type:
+							state.incidents.find(
+								(i) => i.id === state.selectedIncidentId,
+							)?.category || "unknown",
+						description:
+							state.incidents.find(
+								(i) => i.id === state.selectedIncidentId,
+							)?.summary || "",
+					}
 					: undefined,
 				situation:
 					"Citizen reporting information or reacting to ongoing events in the neighborhood.",
@@ -3227,15 +3227,15 @@ export default function StreetMapScene({
 				pastIncidents: getPastIncidentsForAI(state.incidents, 10),
 				currentIncident: state.selectedIncidentId
 					? {
-							type:
-								state.incidents.find(
-									(i) => i.id === state.selectedIncidentId,
-								)?.category || "unknown",
-							description:
-								state.incidents.find(
-									(i) => i.id === state.selectedIncidentId,
-								)?.summary || "",
-						}
+						type:
+							state.incidents.find(
+								(i) => i.id === state.selectedIncidentId,
+							)?.category || "unknown",
+						description:
+							state.incidents.find(
+								(i) => i.id === state.selectedIncidentId,
+							)?.summary || "",
+					}
 					: undefined,
 				situation:
 					"Chief Williams discussing the state of the city and vigilante operations.",
@@ -3285,15 +3285,15 @@ export default function StreetMapScene({
 			pastIncidents: getPastIncidentsForAI(state.incidents, 10),
 			currentIncident: state.selectedIncidentId
 				? {
-						type:
-							state.incidents.find(
-								(i) => i.id === state.selectedIncidentId,
-							)?.category || "unknown",
-						description:
-							state.incidents.find(
-								(i) => i.id === state.selectedIncidentId,
-							)?.summary || "",
-					}
+					type:
+						state.incidents.find(
+							(i) => i.id === state.selectedIncidentId,
+						)?.category || "unknown",
+					description:
+						state.incidents.find(
+							(i) => i.id === state.selectedIncidentId,
+						)?.summary || "",
+				}
 				: undefined,
 			situation:
 				"Police officer discussing the incident or giving orders to vigilantes.",
@@ -3437,10 +3437,10 @@ export default function StreetMapScene({
 				careerStats: alreadyOwned
 					? s.careerStats
 					: {
-							...s.careerStats,
-							vigilantesRecruited:
-								s.careerStats.vigilantesRecruited + 1,
-						},
+						...s.careerStats,
+						vigilantesRecruited:
+							s.careerStats.vigilantesRecruited + 1,
+					},
 			};
 		});
 
@@ -4229,15 +4229,15 @@ export default function StreetMapScene({
 					incidents: s.incidents.map((x) =>
 						x.id === id
 							? {
-									...x,
-									status: "resolving" as const,
-									deployedResourceIds: [
-										...payload.resourceIds,
-									],
-									deployedVigilanteIds: [
-										...payload.vigilanteIds,
-									],
-								}
+								...x,
+								status: "resolving" as const,
+								deployedResourceIds: [
+									...payload.resourceIds,
+								],
+								deployedVigilanteIds: [
+									...payload.vigilanteIds,
+								],
+							}
 							: x,
 					),
 					activeMinigame: {
@@ -4301,11 +4301,11 @@ export default function StreetMapScene({
 				incidents: s.incidents.map((x) =>
 					x.id === id
 						? {
-								...x,
-								status: "resolving" as const,
-								deployedResourceIds: [...payload.resourceIds],
-								deployedVigilanteIds: [...payload.vigilanteIds],
-							}
+							...x,
+							status: "resolving" as const,
+							deployedResourceIds: [...payload.resourceIds],
+							deployedVigilanteIds: [...payload.vigilanteIds],
+						}
 						: x,
 				),
 			};
@@ -4652,10 +4652,10 @@ export default function StreetMapScene({
 							Math.random() < 0.45
 								? randomFrom(undercoverAvailable)
 								: randomFrom(
-										normalAvailable.length > 0
-											? normalAvailable
-											: available,
-									);
+									normalAvailable.length > 0
+										? normalAvailable
+										: available,
+								);
 					} else {
 						chosen = randomFrom(
 							normalAvailable.length > 0
@@ -4774,11 +4774,11 @@ export default function StreetMapScene({
 					careerStats:
 						expiredIncidentIds.size > 0
 							? {
-									...prev.careerStats,
-									incidentsExpired:
-										prev.careerStats.incidentsExpired +
-										expiredIncidentIds.size,
-								}
+								...prev.careerStats,
+								incidentsExpired:
+									prev.careerStats.incidentsExpired +
+									expiredIncidentIds.size,
+							}
 							: prev.careerStats,
 					// Reputation penalty for expiration handled in expireIncident, but this bypasses that.
 					// We'll add reputation penalty here for consistency.
@@ -4889,8 +4889,8 @@ export default function StreetMapScene({
 		() =>
 			selectedRecruitLead
 				? (vigilantes.find(
-						(v) => v.id === selectedRecruitLead.vigilanteId,
-					) ?? null)
+					(v) => v.id === selectedRecruitLead.vigilanteId,
+				) ?? null)
 				: null,
 		[selectedRecruitLead],
 	);
@@ -5321,9 +5321,9 @@ export default function StreetMapScene({
 														isGameplayPausedByMinigame
 															? () => { }
 															: () =>
-																	expireRecruitLead(
-																		selectedRecruitLead.id,
-																	)
+																expireRecruitLead(
+																	selectedRecruitLead.id,
+																)
 													}
 													paused={
 														isGameplayPausedByMinigame
@@ -5420,106 +5420,105 @@ export default function StreetMapScene({
 
 			<AnimatePresence>
 				{dialogue ? (
-        <>
-          {/* Backdrop closes the dialogue when clicking outside */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-[2015] bg-black/30"
-            onClick={() => setDialogue(null)}
-          />
+					<>
+						{/* Backdrop closes the dialogue when clicking outside */}
+						<motion.div
+							initial={{ opacity: 0 }}
+							animate={{ opacity: 1 }}
+							exit={{ opacity: 0 }}
+							transition={{ duration: 0.2 }}
+							className="fixed inset-0 z-[2015] bg-black/30"
+							onClick={() => setDialogue(null)}
+						/>
 
-          {/* Dialogue container */}
-          <motion.div
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 10 }}
-            transition={{ duration: 0.2, ease: "easeOut" }}
-            className="absolute bottom-6 left-1/2 z-[2020] w-[min(52vw,720px)] min-w-[320px] -translate-x-1/2"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="relative overflow-hidden rounded-xl border border-amber-900/40 bg-black/75 shadow-lg backdrop-blur-md">
-              {dialogue.dialogueType && (
-                <div className="absolute top-3 right-4 flex items-center justify-center rounded-full border border-amber-900/40 bg-transparent px-3 py-1 text-[9px] font-bold leading-none uppercase tracking-wider text-amber-400">
-                  {dialogue.dialogueType === "past"
-                    ? "reminiscing"
-                    : dialogue.dialogueType === "current"
-                      ? "responding"
-                      : dialogue.dialogueType === "story"
-                        ? "story"
-                        : ""}
-                </div>
-              )}
-              <div className="flex items-start">
-                <div className="shrink-0 border-r border-amber-900/30">
-                  <div className="relative h-[160px] w-[120px] overflow-hidden rounded-none pt-10">
-                    <Image
-                      src={dialogue.portrait}
-                      alt={dialogue.name}
-                      fill
-                      className="object-cover object-top"
-                      sizes="132px"
-                    />
-                  </div>
-                </div>    
+						{/* Dialogue container */}
+						<motion.div
+							initial={{ opacity: 0, y: 16 }}
+							animate={{ opacity: 1, y: 0 }}
+							exit={{ opacity: 0, y: 10 }}
+							transition={{ duration: 0.2, ease: "easeOut" }}
+							className="absolute bottom-6 left-1/2 z-[2020] w-[min(52vw,720px)] min-w-[320px] -translate-x-1/2"
+							onClick={(e) => e.stopPropagation()}
+						>
+							<div className="relative overflow-hidden rounded-xl border border-amber-900/40 bg-black/75 shadow-lg backdrop-blur-md">
+								{dialogue.dialogueType && (
+									<div className="absolute top-3 right-4 flex items-center justify-center rounded-full border border-amber-900/40 bg-transparent px-3 py-1 text-[9px] font-bold leading-none uppercase tracking-wider text-amber-400">
+										{dialogue.dialogueType === "past"
+											? "reminiscing"
+											: dialogue.dialogueType === "current"
+												? "responding"
+												: dialogue.dialogueType === "story"
+													? "story"
+													: ""}
 									</div>
-								</div>
-								<div className="flex h-[160px] flex-1 flex-col justify-between px-4 py-3">
-									<div>
-										<div className="text-[10px] uppercase tracking-[0.2em] text-amber-400/70">
-											{dialogue.role}
+								)}
+								<div className="flex items-start">
+									<div className="shrink-0 border-r border-amber-900/30">
+										<div className="relative h-[160px] w-[120px] overflow-hidden rounded-none pt-10">
+											<Image
+												src={dialogue.portrait}
+												alt={dialogue.name}
+												fill
+												className="object-cover object-top"
+												sizes="132px"
+											/>
 										</div>
-										<div className="flex items-center gap-2 mt-1">
-											<div className="text-base font-bold text-amber-100">
-												{dialogue.name}
+									</div>
+									<div className="flex h-[160px] flex-1 flex-col justify-between px-4 py-3">
+										<div>
+											<div className="text-[10px] uppercase tracking-[0.2em] text-amber-400/70">
+												{dialogue.role}
 											</div>
-										</div>
-
-										{/* Spectrogram animation */}
-										<div className="mt-3 h-5 overflow-hidden">
-											<div className="flex h-full items-end gap-[3px]">
-												{Array.from({
-													length: 20,
-												}).map((_, i) => (
-													<div
-														key={i}
-														className="flex h-4 items-end"
-													>
-														<motion.div
-															className="w-[2px] rounded-full bg-amber-400/70"
-															animate={{
-																height: [
-																	3, 12, 5,
-																	16, 4,
-																],
-															}}
-															transition={{
-																duration: 0.8,
-																repeat: Infinity,
-																repeatType:
-																	"loop",
-																delay: i * 0.05,
-																ease: "easeInOut",
-															}}
-															style={{
-																height: 4,
-															}}
-														/>
-													</div>
-												))}
+											<div className="flex items-center gap-2 mt-1">
+												<div className="text-base font-bold text-amber-100">
+													{dialogue.name}
+												</div>
 											</div>
-										</div>
 
-									<p className="mt-2 text-sm leading-relaxed text-amber-100/80">
-										{dialogue.text}
-									</p>
+											{/* Spectrogram animation */}
+											<div className="mt-3 h-5 overflow-hidden">
+												<div className="flex h-full items-end gap-[3px]">
+													{Array.from({
+														length: 20,
+													}).map((_, i) => (
+														<div
+															key={i}
+															className="flex h-4 items-end"
+														>
+															<motion.div
+																className="w-[2px] rounded-full bg-amber-400/70"
+																animate={{
+																	height: [
+																		3, 12, 5,
+																		16, 4,
+																	],
+																}}
+																transition={{
+																	duration: 0.8,
+																	repeat: Infinity,
+																	repeatType:
+																		"loop",
+																	delay: i * 0.05,
+																	ease: "easeInOut",
+																}}
+																style={{
+																	height: 4,
+																}}
+															/>
+														</div>
+													))}
+												</div>
+											</div>
+
+											<p className="mt-2 text-sm leading-relaxed text-amber-100/80">
+												{dialogue.text}
+											</p>
+										</div>
 									</div>
 								</div>
 							</div>
-						</div>
-					</motion.div>
+						</motion.div>
+					</>
 				) : null}
 			</AnimatePresence>
 
@@ -5717,35 +5716,34 @@ export default function StreetMapScene({
 												} w-full rounded-lg border`}
 										>
 											<div className="flex min-h-0 flex-1 flex-col justify-center">
-                        <div className="flex h-[64px] w-full shrink-0 items-center gap-3">
-                          <div
-                            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] ${
-                              inc.status === "resolved"
-                                ? "border-amber-800/50 bg-amber-950/35 text-amber-200/70"
-                                : inc.status === "resolving"
-                                  ? "border-amber-700/60 bg-amber-950/40 text-amber-200"
-                                  : "border-red-900 bg-red-900/30 text-red-300"
-                            }`}
-                          >
-                            {inc.status === "active"
-                              ? "!"
-                              : inc.status === "resolving"
-                                ? "…"
-                                : "·"}
-                          </div>
-                          <div className="flex h-[64px] min-w-0 flex-1 flex-col justify-center gap-1 overflow-hidden">
-                            <div className="max-h-[26px] overflow-hidden font-semibold text-[12px] leading-[13px] tracking-tight text-amber-50/95">
-                              {inc.title}
-                            </div>
-                            <div
-                              className="max-h-[26px] overflow-hidden text-[11px] leading-[13px] text-amber-200/70"
-                              title={inc.summary}
-                            >
-                              {inc.summary}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
+												<div className="flex h-[64px] w-full shrink-0 items-center gap-3">
+													<div
+														className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] ${inc.status === "resolved"
+																? "border-amber-800/50 bg-amber-950/35 text-amber-200/70"
+																: inc.status === "resolving"
+																	? "border-amber-700/60 bg-amber-950/40 text-amber-200"
+																	: "border-red-900 bg-red-900/30 text-red-300"
+															}`}
+													>
+														{inc.status === "active"
+															? "!"
+															: inc.status === "resolving"
+																? "…"
+																: "·"}
+													</div>
+													<div className="flex h-[64px] min-w-0 flex-1 flex-col justify-center gap-1 overflow-hidden">
+														<div className="max-h-[26px] overflow-hidden font-semibold text-[12px] leading-[13px] tracking-tight text-amber-50/95">
+															{inc.title}
+														</div>
+														<div
+															className="max-h-[26px] overflow-hidden text-[11px] leading-[13px] text-amber-200/70"
+															title={inc.summary}
+														>
+															{inc.summary}
+														</div>
+													</div>
+												</div>
+											</div>
 
 											{/* ADD THIS BLOCK: Countdown for active incidents */}
 											{inc.status === "active" && (
@@ -5755,12 +5753,12 @@ export default function StreetMapScene({
 														Math.max(
 															0,
 															inc.expiresAt -
-																inc.createdAt -
-																(nowTick -
-																	inc.createdAt) *
-																	getTimerSlowdownMultiplier(
-																		state.purchasedUpgradeIds,
-																	),
+															inc.createdAt -
+															(nowTick -
+																inc.createdAt) *
+															getTimerSlowdownMultiplier(
+																state.purchasedUpgradeIds,
+															),
 														),
 													)}
 												</div>
@@ -5777,9 +5775,9 @@ export default function StreetMapScene({
 														isGameplayPausedByMinigame
 															? () => { }
 															: () =>
-																	expireIncident(
-																		inc.id,
-																	)
+																expireIncident(
+																	inc.id,
+																)
 													}
 													paused={
 														isGameplayPausedByMinigame
@@ -5970,40 +5968,38 @@ export default function StreetMapScene({
 								</div>
 							</div>
 
-						<div className="flex-1 p-4 space-y-4">
-							<VolumeSlider />
+							<div className="flex-1 p-4 space-y-4">
+								<VolumeSlider />
 
-							{/* Citizens Near Incidents Toggle */}
-							<div className="flex items-center justify-between">
-								<div className="text-[11px] uppercase tracking-[0.16em] text-amber-200/80">
-									Citizens at Incidents
+								{/* Citizens Near Incidents Toggle */}
+								<div className="flex items-center justify-between">
+									<div className="text-[11px] uppercase tracking-[0.16em] text-amber-200/80">
+										Citizens at Incidents
+									</div>
+									<button
+										type="button"
+										role="switch"
+										aria-checked={state.showCitizensNearIncidents}
+										onClick={() =>
+											setState((s) => ({
+												...s,
+												showCitizensNearIncidents: !s.showCitizensNearIncidents,
+											}))
+										}
+										className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:ring-offset-2 focus:ring-offset-black ${state.showCitizensNearIncidents
+												? "bg-amber-600/80"
+												: "bg-amber-900/40"
+											}`}
+									>
+										<span
+											className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white/90 shadow-lg ring-0 transition duration-200 ease-in-out mt-0.5 ${state.showCitizensNearIncidents
+													? "translate-x-4"
+													: "translate-x-0.5"
+												}`}
+										/>
+									</button>
 								</div>
-								<button
-									type="button"
-									role="switch"
-									aria-checked={state.showCitizensNearIncidents}
-									onClick={() =>
-										setState((s) => ({
-											...s,
-											showCitizensNearIncidents: !s.showCitizensNearIncidents,
-										}))
-									}
-									className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:ring-offset-2 focus:ring-offset-black ${
-										state.showCitizensNearIncidents
-											? "bg-amber-600/80"
-											: "bg-amber-900/40"
-									}`}
-								>
-									<span
-										className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white/90 shadow-lg ring-0 transition duration-200 ease-in-out mt-0.5 ${
-											state.showCitizensNearIncidents
-												? "translate-x-4"
-												: "translate-x-0.5"
-										}`}
-									/>
-								</button>
 							</div>
-						</div>
 						</motion.div>
 					)}
 				</AnimatePresence>
@@ -6119,21 +6115,21 @@ export default function StreetMapScene({
 											Resolve Successfully
 										</button>
 									</>
-							) : (
-								<>
-									<div className="rounded-lg border border-amber-900/35 bg-black/30 px-4 py-2 text-sm text-amber-200/70">
-										Player B terminal is opening automatically on this client.
-									</div>
+								) : (
+									<>
+										<div className="rounded-lg border border-amber-900/35 bg-black/30 px-4 py-2 text-sm text-amber-200/70">
+											Player B terminal is opening automatically on this client.
+										</div>
 
-									<button
-										type="button"
-										onClick={handleDismissBombPlaceholder}
-										className="rounded-lg border border-amber-900/50 bg-black/40 px-4 py-2 text-sm text-amber-200/80 transition-all duration-200 hover:bg-amber-950/20 hover:border-amber-700/40 hover:text-amber-100"
-									>
-										Close
-									</button>
-								</>
-							)}
+										<button
+											type="button"
+											onClick={handleDismissBombPlaceholder}
+											className="rounded-lg border border-amber-900/50 bg-black/40 px-4 py-2 text-sm text-amber-200/80 transition-all duration-200 hover:bg-amber-950/20 hover:border-amber-700/40 hover:text-amber-100"
+										>
+											Close
+										</button>
+									</>
+								)}
 							</div>
 						</div>
 					</div>
@@ -6171,15 +6167,15 @@ export default function StreetMapScene({
 				incident={
 					selectedIncident && selectedIncident.status === "active"
 						? {
-								id: selectedIncident.id,
-								category: selectedIncident.category,
-								typeLabel: selectedIncident.typeLabel,
-								title: selectedIncident.title,
-								summary: selectedIncident.summary,
-								createdAt: selectedIncident.createdAt,
-								expiresAt: selectedIncident.expiresAt,
-								successChance: selectedIncident.successChance,
-							}
+							id: selectedIncident.id,
+							category: selectedIncident.category,
+							typeLabel: selectedIncident.typeLabel,
+							title: selectedIncident.title,
+							summary: selectedIncident.summary,
+							createdAt: selectedIncident.createdAt,
+							expiresAt: selectedIncident.expiresAt,
+							successChance: selectedIncident.successChance,
+						}
 						: null
 				}
 				ownedVigilanteIds={state.ownedVigilanteIds}
@@ -6190,10 +6186,10 @@ export default function StreetMapScene({
 					isGameplayPausedByMinigame
 						? () => { }
 						: () => {
-								if (selectedIncident?.status === "active")
-									expireIncident(selectedIncident.id);
-								setDeployModalOpen(false);
-							}
+							if (selectedIncident?.status === "active")
+								expireIncident(selectedIncident.id);
+							setDeployModalOpen(false);
+						}
 				}
 				onConfirm={handleDeployConfirm}
 				purchasedUpgradeIds={state.purchasedUpgradeIds}
