@@ -28,7 +28,10 @@ import PoliceSystem from "./police/policeSystem";
 import PoliceCaptureModal from "./police/policeCaptureModal";
 import type { PoliceEtaItem, PoliceRenderItem } from "./police/policeTypes";
 import VigilanteSystem from "./vigilante/VigilanteSystem";
-import type { VigilanteEtaItem, VigilanteRenderItem } from "./vigilante/vigilanteTypes";
+import type {
+	VigilanteEtaItem,
+	VigilanteRenderItem,
+} from "./vigilante/vigilanteTypes";
 import IncidentChanceRollOverlay from "./IncidentChanceRollOverlay";
 import IncidentDeployModal from "./IncidentDeployModal";
 import GameOverOverlay from "./GameOverOverlay";
@@ -59,10 +62,7 @@ import type {
 	IncidentStatus,
 	RecruitLead,
 } from "@/lib/gameTypes";
-import {
-	DEFAULT_CAREER_STATS,
-	mergeCareerStats,
-} from "@/lib/careerStats";
+import { DEFAULT_CAREER_STATS, mergeCareerStats } from "@/lib/careerStats";
 import { markCloudFlush, upsertGameSave } from "@/lib/cloudSaves";
 import { readSave, touchSave, type SaveSlotId } from "@/lib/saves";
 import { DEFAULT_ACHIEVEMENT_PROGRESS } from "@/lib/achievements";
@@ -986,15 +986,15 @@ function makeCharacterIcon(initial: string, kind: CharacterKind) {
 			? { border: "#1d4ed8", bg: "rgba(30,64,175,0.78)", text: "#dbeafe" }
 			: kind === "vigilante"
 				? {
-					border: "#b45309",
-					bg: "rgba(120,53,15,0.82)",
-					text: "#fde68a",
-				}
+						border: "#b45309",
+						bg: "rgba(120,53,15,0.82)",
+						text: "#fde68a",
+					}
 				: {
-					border: "#4b5563",
-					bg: "rgba(55,65,81,0.8)",
-					text: "#f3f4f6",
-				};
+						border: "#4b5563",
+						bg: "rgba(55,65,81,0.8)",
+						text: "#f3f4f6",
+					};
 
 	const size = 40;
 	const half = size / 2;
@@ -1038,7 +1038,10 @@ function makeCharacterIcon(initial: string, kind: CharacterKind) {
 	});
 }
 
-function makeVigilantePortraitIcon(portrait: string | object | null | undefined, _initial: string) {
+function makeVigilantePortraitIcon(
+	portrait: string | object | null | undefined,
+	_initial: string,
+) {
 	// Handle both string paths and imported image modules (which have a src property)
 	let src = "";
 
@@ -1085,7 +1088,10 @@ function makeVigilantePortraitIcon(portrait: string | object | null | undefined,
 	});
 }
 
-function makePolicePortraitIcon(portrait: string | null | undefined, _initial: string) {
+function makePolicePortraitIcon(
+	portrait: string | null | undefined,
+	_initial: string,
+) {
 	// Handle both string paths and imported image modules
 	let src = "";
 
@@ -1638,7 +1644,6 @@ function parseIncidentResolution(raw: unknown): IncidentResolution | null {
 	return base;
 }
 
-
 function isOngoingIncident(i: Incident): boolean {
 	return i.status === "active" || i.status === "resolving";
 }
@@ -1657,8 +1662,8 @@ function mapBombDefusalRowToSession(
 	row:
 		| MultiplayerBombDefusalSessionRow
 		| (MultiplayerBombDefusalSessionRow & {
-			session_state: BombDefusalSession;
-		}),
+				session_state: BombDefusalSession;
+		  }),
 ): BombDefusalSession {
 	if ("session_state" in row && row.session_state) {
 		return row.session_state;
@@ -1696,12 +1701,20 @@ export default function StreetMapScene({
 
 	const [isHost, setIsHost] = useState(false);
 	const [pausedByOther, setPausedByOther] = useState(false);
-	const [remoteBombIncidentId, setRemoteBombIncidentId] = useState<string | null>(null);
-	const [bombDefusalRowId, setBombDefusalRowId] = useState<string | null>(null);
+	const [remoteBombIncidentId, setRemoteBombIncidentId] = useState<
+		string | null
+	>(null);
+	const [bombDefusalRowId, setBombDefusalRowId] = useState<string | null>(
+		null,
+	);
 	const [bombDefusalSession, setBombDefusalSession] =
 		useState<BombDefusalSession | null>(null);
-	const [bombDefusalRole, setBombDefusalRole] = useState<BombRole | null>(null);
-	const [bombDefusalIncidentId, setBombDefusalIncidentId] = useState<string | null>(null);
+	const [bombDefusalRole, setBombDefusalRole] = useState<BombRole | null>(
+		null,
+	);
+	const [bombDefusalIncidentId, setBombDefusalIncidentId] = useState<
+		string | null
+	>(null);
 	const [, setBombDefusalTick] = useState(0);
 	const bombDefusalResultHandledRef = useRef<string | null>(null);
 	const bombDefusalUnsubscribeRef = useRef<(() => void) | null>(null);
@@ -1709,7 +1722,9 @@ export default function StreetMapScene({
 	const bombDefusalAutoOpenInFlightRef = useRef(false);
 	const [dismissedRemoteBombIncidentId, setDismissedRemoteBombIncidentId] =
 		useState<string | null>(null);
-	const [bombRewardIncidentId, setBombRewardIncidentId] = useState<string | null>(null);
+	const [bombRewardIncidentId, setBombRewardIncidentId] = useState<
+		string | null
+	>(null);
 
 	const [selectedOwnedVigilanteId, setSelectedOwnedVigilanteId] = useState<
 		string | null
@@ -1939,7 +1954,6 @@ export default function StreetMapScene({
 		});
 	};
 
-
 	// Track starting values on initial load (for game over stats)
 	useEffect(() => {
 		if (startingValuesRef.current === null) {
@@ -1996,7 +2010,7 @@ export default function StreetMapScene({
 			// Pick random owned vigilante
 			const vigilante =
 				ownedVigilantes[
-				Math.floor(Math.random() * ownedVigilantes.length)
+					Math.floor(Math.random() * ownedVigilantes.length)
 				];
 			return {
 				type: "vigilante" as const,
@@ -2016,7 +2030,7 @@ export default function StreetMapScene({
 			// Pick random police officer
 			const officer =
 				NPC_DIALOGUE.police[
-				Math.floor(Math.random() * NPC_DIALOGUE.police.length)
+					Math.floor(Math.random() * NPC_DIALOGUE.police.length)
 				];
 			return {
 				type: "police" as const,
@@ -2117,11 +2131,13 @@ export default function StreetMapScene({
 			return {
 				...s,
 				selectedIncidentId:
-					s.selectedIncidentId === incidentId ? null : s.selectedIncidentId,
+					s.selectedIncidentId === incidentId
+						? null
+						: s.selectedIncidentId,
 				incidents: s.incidents.map((inc) =>
 					inc.id === incidentId
 						? { ...inc, status: "resolving" as const }
-						: inc
+						: inc,
 				),
 			};
 		});
@@ -2301,7 +2317,9 @@ export default function StreetMapScene({
 	>(() =>
 		STATIC_CHARACTER_BASES.filter((pin) => pin.kind === "police").map(
 			(pin) => {
-				const officer = NPC_DIALOGUE.police.find((p) => p.id === pin.id);
+				const officer = NPC_DIALOGUE.police.find(
+					(p) => p.id === pin.id,
+				);
 				return {
 					pinId: pin.id as PoliceRenderItem["pinId"],
 					name: pin.name,
@@ -2322,7 +2340,9 @@ export default function StreetMapScene({
 	const [vigilanteRenderItems, setVigilanteRenderItems] = useState<
 		VigilanteRenderItem[]
 	>([]);
-	const [vigilanteEtaItems, setVigilanteEtaItems] = useState<VigilanteEtaItem[]>([]);
+	const [vigilanteEtaItems, setVigilanteEtaItems] = useState<
+		VigilanteEtaItem[]
+	>([]);
 
 	const levelBoundsRef = useRef<Map<number, LatLngBounds>>(new Map());
 	const spawnPlacesByLevelRef = useRef<Map<number, OsmPlace[]>>(new Map());
@@ -2508,17 +2528,19 @@ export default function StreetMapScene({
 							incident.status === "resolving",
 					) ??
 					(isPausedByAnotherPlayer
-						? stateRef.current.incidents.find(
-							(incident) =>
-								incident.id !== localBombIncidentId &&
-								isBombDefusalIncident(incident) &&
-								incident.status !== "resolved",
-						) ?? null
+						? (stateRef.current.incidents.find(
+								(incident) =>
+									incident.id !== localBombIncidentId &&
+									isBombDefusalIncident(incident) &&
+									incident.status !== "resolved",
+							) ?? null)
 						: null);
 
 				setPausedByOther(isPausedByAnotherPlayer);
 				setRemoteBombIncidentId(
-					isPausedByAnotherPlayer ? remoteBombIncident?.id ?? null : null,
+					isPausedByAnotherPlayer
+						? (remoteBombIncident?.id ?? null)
+						: null,
 				);
 			});
 		};
@@ -2680,10 +2702,12 @@ export default function StreetMapScene({
 				baseChancePercent: rollOutcome.baseChancePercent,
 				resourceMultiplier: rollOutcome.resourceMultiplier,
 				buffMultiplier: rollOutcome.buffMultiplier,
-				incidentSpecificMultiplier: rollOutcome.incidentSpecificMultiplier,
+				incidentSpecificMultiplier:
+					rollOutcome.incidentSpecificMultiplier,
 				vigilanteMultiplier: rollOutcome.vigilanteMultiplier,
 				avgArchetypeFit: rollOutcome.avgArchetypeFit,
-				staffingSupportMultiplier: rollOutcome.staffingSupportMultiplier,
+				staffingSupportMultiplier:
+					rollOutcome.staffingSupportMultiplier,
 				gearPresenceMultiplier: rollOutcome.gearPresenceMultiplier,
 				luckDeltaPercent: rollOutcome.luckDeltaPercent,
 			},
@@ -2729,7 +2753,8 @@ export default function StreetMapScene({
 					credits: Math.max(0, s.credits + missionCredits),
 					careerStats: {
 						...s.careerStats,
-						dispatchesCompleted: s.careerStats.dispatchesCompleted + 1,
+						dispatchesCompleted:
+							s.careerStats.dispatchesCompleted + 1,
 						incidentsResolvedSuccess:
 							s.careerStats.incidentsResolvedSuccess +
 							(rollOutcome.success ? 1 : 0),
@@ -2744,28 +2769,36 @@ export default function StreetMapScene({
 					incidents: s.incidents.map((x) =>
 						x.id === incidentId
 							? {
-								...x,
-								status: "resolved" as const,
-								deployedResourceIds: [],
-								resolution: {
-									success: rollOutcome.success,
-									adjustedPercent: rollOutcome.adjustedPercent,
-									beforeLuckPercent: rollOutcome.beforeLuckPercent,
-									rolled: rollOutcome.rolled,
-									baseChancePercent: rollOutcome.baseChancePercent,
-									resourceMultiplier: rollOutcome.resourceMultiplier,
-									buffMultiplier: rollOutcome.buffMultiplier,
-									incidentSpecificMultiplier:
-										rollOutcome.incidentSpecificMultiplier,
-									vigilanteMultiplier: rollOutcome.vigilanteMultiplier,
-									avgArchetypeFit: rollOutcome.avgArchetypeFit,
-									staffingSupportMultiplier:
-										rollOutcome.staffingSupportMultiplier,
-									gearPresenceMultiplier:
-										rollOutcome.gearPresenceMultiplier,
-									luckDeltaPercent: rollOutcome.luckDeltaPercent,
-								} as IncidentResolution,
-							}
+									...x,
+									status: "resolved" as const,
+									deployedResourceIds: [],
+									resolution: {
+										success: rollOutcome.success,
+										adjustedPercent:
+											rollOutcome.adjustedPercent,
+										beforeLuckPercent:
+											rollOutcome.beforeLuckPercent,
+										rolled: rollOutcome.rolled,
+										baseChancePercent:
+											rollOutcome.baseChancePercent,
+										resourceMultiplier:
+											rollOutcome.resourceMultiplier,
+										buffMultiplier:
+											rollOutcome.buffMultiplier,
+										incidentSpecificMultiplier:
+											rollOutcome.incidentSpecificMultiplier,
+										vigilanteMultiplier:
+											rollOutcome.vigilanteMultiplier,
+										avgArchetypeFit:
+											rollOutcome.avgArchetypeFit,
+										staffingSupportMultiplier:
+											rollOutcome.staffingSupportMultiplier,
+										gearPresenceMultiplier:
+											rollOutcome.gearPresenceMultiplier,
+										luckDeltaPercent:
+											rollOutcome.luckDeltaPercent,
+									} as IncidentResolution,
+								}
 							: x,
 					),
 					reputation: Math.max(
@@ -2864,10 +2897,10 @@ export default function StreetMapScene({
 						incident.status === "resolved"
 							? incident
 							: {
-								...incident,
-								createdAt: incident.createdAt + pausedMs,
-								expiresAt: incident.expiresAt + pausedMs,
-							},
+									...incident,
+									createdAt: incident.createdAt + pausedMs,
+									expiresAt: incident.expiresAt + pausedMs,
+								},
 					),
 					recruitLeads: s.recruitLeads.map((lead) => ({
 						...lead,
@@ -3107,15 +3140,15 @@ export default function StreetMapScene({
 				pastIncidents: getPastIncidentsForAI(state.incidents, 10),
 				currentIncident: state.selectedIncidentId
 					? {
-						type:
-							state.incidents.find(
-								(i) => i.id === state.selectedIncidentId,
-							)?.category || "unknown",
-						description:
-							state.incidents.find(
-								(i) => i.id === state.selectedIncidentId,
-							)?.summary || "",
-					}
+							type:
+								state.incidents.find(
+									(i) => i.id === state.selectedIncidentId,
+								)?.category || "unknown",
+							description:
+								state.incidents.find(
+									(i) => i.id === state.selectedIncidentId,
+								)?.summary || "",
+						}
 					: undefined,
 				situation:
 					"Vigilante reporting to their handler or discussing the mission.",
@@ -3172,15 +3205,15 @@ export default function StreetMapScene({
 				pastIncidents: getPastIncidentsForAI(state.incidents, 10),
 				currentIncident: state.selectedIncidentId
 					? {
-						type:
-							state.incidents.find(
-								(i) => i.id === state.selectedIncidentId,
-							)?.category || "unknown",
-						description:
-							state.incidents.find(
-								(i) => i.id === state.selectedIncidentId,
-							)?.summary || "",
-					}
+							type:
+								state.incidents.find(
+									(i) => i.id === state.selectedIncidentId,
+								)?.category || "unknown",
+							description:
+								state.incidents.find(
+									(i) => i.id === state.selectedIncidentId,
+								)?.summary || "",
+						}
 					: undefined,
 				situation:
 					"Citizen reporting information or reacting to ongoing events in the neighborhood.",
@@ -3227,15 +3260,15 @@ export default function StreetMapScene({
 				pastIncidents: getPastIncidentsForAI(state.incidents, 10),
 				currentIncident: state.selectedIncidentId
 					? {
-						type:
-							state.incidents.find(
-								(i) => i.id === state.selectedIncidentId,
-							)?.category || "unknown",
-						description:
-							state.incidents.find(
-								(i) => i.id === state.selectedIncidentId,
-							)?.summary || "",
-					}
+							type:
+								state.incidents.find(
+									(i) => i.id === state.selectedIncidentId,
+								)?.category || "unknown",
+							description:
+								state.incidents.find(
+									(i) => i.id === state.selectedIncidentId,
+								)?.summary || "",
+						}
 					: undefined,
 				situation:
 					"Chief Williams discussing the state of the city and vigilante operations.",
@@ -3285,15 +3318,15 @@ export default function StreetMapScene({
 			pastIncidents: getPastIncidentsForAI(state.incidents, 10),
 			currentIncident: state.selectedIncidentId
 				? {
-					type:
-						state.incidents.find(
-							(i) => i.id === state.selectedIncidentId,
-						)?.category || "unknown",
-					description:
-						state.incidents.find(
-							(i) => i.id === state.selectedIncidentId,
-						)?.summary || "",
-				}
+						type:
+							state.incidents.find(
+								(i) => i.id === state.selectedIncidentId,
+							)?.category || "unknown",
+						description:
+							state.incidents.find(
+								(i) => i.id === state.selectedIncidentId,
+							)?.summary || "",
+					}
 				: undefined,
 			situation:
 				"Police officer discussing the incident or giving orders to vigilantes.",
@@ -3437,10 +3470,10 @@ export default function StreetMapScene({
 				careerStats: alreadyOwned
 					? s.careerStats
 					: {
-						...s.careerStats,
-						vigilantesRecruited:
-							s.careerStats.vigilantesRecruited + 1,
-					},
+							...s.careerStats,
+							vigilantesRecruited:
+								s.careerStats.vigilantesRecruited + 1,
+						},
 			};
 		});
 
@@ -3468,11 +3501,7 @@ export default function StreetMapScene({
 	// ── Minigame helpers ──────────────────────────────────────────────────────
 
 	const isBombDefusalIncident = (incident: Incident) => {
-		const text = [
-			incident.typeLabel,
-			incident.title,
-			incident.summary,
-		]
+		const text = [incident.typeLabel, incident.title, incident.summary]
 			.filter(Boolean)
 			.join(" ")
 			.toLowerCase();
@@ -3494,7 +3523,11 @@ export default function StreetMapScene({
 	const getMinigameForIncident = (
 		incident: Incident,
 	): { type: "fire" | "bomb_defusal"; difficulty: number } | null => {
-		if (mode === "multiplayer" && sessionId && isBombDefusalIncident(incident)) {
+		if (
+			mode === "multiplayer" &&
+			sessionId &&
+			isBombDefusalIncident(incident)
+		) {
 			return { type: "bomb_defusal", difficulty: 0 };
 		}
 
@@ -3531,7 +3564,7 @@ export default function StreetMapScene({
 
 				const incidentId =
 					role === "A"
-						? state.activeMinigame?.incidentId ?? null
+						? (state.activeMinigame?.incidentId ?? null)
 						: remoteBombIncidentId;
 
 				if (!incidentId) return;
@@ -3542,11 +3575,16 @@ export default function StreetMapScene({
 
 				if (!user?.id) return;
 
-				let row = await getActiveBombDefusalSession(sessionId, incidentId);
+				let row = await getActiveBombDefusalSession(
+					sessionId,
+					incidentId,
+				);
 
 				if (!row && role === "A") {
 					const players = await getSessionPlayers(sessionId);
-					const otherPlayer = players.find((player) => player.user_id !== user.id);
+					const otherPlayer = players.find(
+						(player) => player.user_id !== user.id,
+					);
 					if (!otherPlayer) return;
 
 					const session = createBombDefusalSession(
@@ -3581,10 +3619,19 @@ export default function StreetMapScene({
 
 				bindBombDefusalSubscription(incidentId);
 			} catch (error) {
-				console.error("[Bomb Defusal] Failed to open terminal:", formatBombDefusalError(error), error);
+				console.error(
+					"[Bomb Defusal] Failed to open terminal:",
+					formatBombDefusalError(error),
+					error,
+				);
 			}
 		},
-		[bindBombDefusalSubscription, remoteBombIncidentId, sessionId, state.activeMinigame],
+		[
+			bindBombDefusalSubscription,
+			remoteBombIncidentId,
+			sessionId,
+			state.activeMinigame,
+		],
 	);
 
 	const closeBombDefusalTerminal = useCallback(() => {
@@ -3610,7 +3657,10 @@ export default function StreetMapScene({
 	}, [closeBombDefusalTerminal, remoteBombIncidentId]);
 
 	const syncBombDefusalSessionFromServer = useCallback(
-		async (incidentId: string | null = bombDefusalIncidentId ?? remoteBombIncidentId) => {
+		async (
+			incidentId: string | null = bombDefusalIncidentId ??
+				remoteBombIncidentId,
+		) => {
 			try {
 				if (!sessionId) return;
 
@@ -3647,10 +3697,19 @@ export default function StreetMapScene({
 				setBombDefusalIncidentId(row.incident_marker_id);
 				setBombDefusalSession(mapBombDefusalRowToSession(row));
 			} catch (error) {
-				console.error("[Bomb Defusal] Failed to sync session from server:", formatBombDefusalError(error), error);
+				console.error(
+					"[Bomb Defusal] Failed to sync session from server:",
+					formatBombDefusalError(error),
+					error,
+				);
 			}
 		},
-		[bombDefusalIncidentId, bombDefusalRowId, remoteBombIncidentId, sessionId],
+		[
+			bombDefusalIncidentId,
+			bombDefusalRowId,
+			remoteBombIncidentId,
+			sessionId,
+		],
 	);
 
 	const handleBombDefusalCutWire = useCallback(
@@ -3668,11 +3727,19 @@ export default function StreetMapScene({
 
 				setBombDefusalSession(result.session);
 			} catch (error) {
-				console.error("[Bomb Defusal] Failed to update phase 1 selection:", formatBombDefusalError(error), error);
+				console.error(
+					"[Bomb Defusal] Failed to update phase 1 selection:",
+					formatBombDefusalError(error),
+					error,
+				);
 				await syncBombDefusalSessionFromServer();
 			}
 		},
-		[bombDefusalRowId, bombDefusalSession, syncBombDefusalSessionFromServer],
+		[
+			bombDefusalRowId,
+			bombDefusalSession,
+			syncBombDefusalSessionFromServer,
+		],
 	);
 
 	const handleBombDefusalClickSymbol = useCallback(
@@ -3690,11 +3757,19 @@ export default function StreetMapScene({
 
 				setBombDefusalSession(result.session);
 			} catch (error) {
-				console.error("[Bomb Defusal] Failed to update phase 2 symbol click:", formatBombDefusalError(error), error);
+				console.error(
+					"[Bomb Defusal] Failed to update phase 2 symbol click:",
+					formatBombDefusalError(error),
+					error,
+				);
 				await syncBombDefusalSessionFromServer();
 			}
 		},
-		[bombDefusalRowId, bombDefusalSession, syncBombDefusalSessionFromServer],
+		[
+			bombDefusalRowId,
+			bombDefusalSession,
+			syncBombDefusalSessionFromServer,
+		],
 	);
 
 	const handleBombDefusalSubmitPhase2 = useCallback(async () => {
@@ -3711,16 +3786,27 @@ export default function StreetMapScene({
 
 			setBombDefusalSession(result.session);
 		} catch (error) {
-			console.error("[Bomb Defusal] Failed to submit phase 2:", formatBombDefusalError(error), error);
+			console.error(
+				"[Bomb Defusal] Failed to submit phase 2:",
+				formatBombDefusalError(error),
+				error,
+			);
 			await syncBombDefusalSessionFromServer();
 		}
-	}, [bombDefusalRowId, bombDefusalSession, syncBombDefusalSessionFromServer]);
+	}, [
+		bombDefusalRowId,
+		bombDefusalSession,
+		syncBombDefusalSessionFromServer,
+	]);
 
 	const handleBombDefusalRestart = useCallback(async () => {
 		if (!bombDefusalSession || !bombDefusalRowId) return;
 
 		try {
-			const restarted = restartBombDefusalSession(bombDefusalSession, 60000);
+			const restarted = restartBombDefusalSession(
+				bombDefusalSession,
+				60000,
+			);
 
 			await updateMultiplayerBombDefusalSession({
 				id: bombDefusalRowId,
@@ -3730,10 +3816,18 @@ export default function StreetMapScene({
 			setBombDefusalSession(restarted);
 			bombDefusalResultHandledRef.current = null;
 		} catch (error) {
-			console.error("[Bomb Defusal] Failed to restart session:", formatBombDefusalError(error), error);
+			console.error(
+				"[Bomb Defusal] Failed to restart session:",
+				formatBombDefusalError(error),
+				error,
+			);
 			await syncBombDefusalSessionFromServer();
 		}
-	}, [bombDefusalRowId, bombDefusalSession, syncBombDefusalSessionFromServer]);
+	}, [
+		bombDefusalRowId,
+		bombDefusalSession,
+		syncBombDefusalSessionFromServer,
+	]);
 
 	const finishIncidentResolutionForId = (
 		incidentId: string,
@@ -3795,34 +3889,35 @@ export default function StreetMapScene({
 				incidents: s.incidents.map((x) =>
 					x.id === incidentId
 						? {
-							...x,
-							status: "resolved" as const,
-							deployedResourceIds: [],
-							resolution: {
-								success: rollOutcome.success,
-								adjustedPercent:
-									rollOutcome.adjustedPercent,
-								beforeLuckPercent:
-									rollOutcome.beforeLuckPercent,
-								rolled: rollOutcome.rolled,
-								baseChancePercent:
-									rollOutcome.baseChancePercent,
-								resourceMultiplier:
-									rollOutcome.resourceMultiplier,
-								buffMultiplier: rollOutcome.buffMultiplier,
-								incidentSpecificMultiplier: rollOutcome.incidentSpecificMultiplier,
-								vigilanteMultiplier:
-									rollOutcome.vigilanteMultiplier,
-								avgArchetypeFit:
-									rollOutcome.avgArchetypeFit,
-								staffingSupportMultiplier:
-									rollOutcome.staffingSupportMultiplier,
-								gearPresenceMultiplier:
-									rollOutcome.gearPresenceMultiplier,
-								luckDeltaPercent:
-									rollOutcome.luckDeltaPercent,
-							} as IncidentResolution,
-						}
+								...x,
+								status: "resolved" as const,
+								deployedResourceIds: [],
+								resolution: {
+									success: rollOutcome.success,
+									adjustedPercent:
+										rollOutcome.adjustedPercent,
+									beforeLuckPercent:
+										rollOutcome.beforeLuckPercent,
+									rolled: rollOutcome.rolled,
+									baseChancePercent:
+										rollOutcome.baseChancePercent,
+									resourceMultiplier:
+										rollOutcome.resourceMultiplier,
+									buffMultiplier: rollOutcome.buffMultiplier,
+									incidentSpecificMultiplier:
+										rollOutcome.incidentSpecificMultiplier,
+									vigilanteMultiplier:
+										rollOutcome.vigilanteMultiplier,
+									avgArchetypeFit:
+										rollOutcome.avgArchetypeFit,
+									staffingSupportMultiplier:
+										rollOutcome.staffingSupportMultiplier,
+									gearPresenceMultiplier:
+										rollOutcome.gearPresenceMultiplier,
+									luckDeltaPercent:
+										rollOutcome.luckDeltaPercent,
+								} as IncidentResolution,
+							}
 						: x,
 				),
 			};
@@ -3909,18 +4004,31 @@ export default function StreetMapScene({
 	const finalizeBombIncidentFromSession = useCallback(
 		(incidentId: string, success: boolean) => {
 			setState((s) =>
-				s.activeMinigame?.type === "bomb_defusal" && s.activeMinigame.incidentId === incidentId
+				s.activeMinigame?.type === "bomb_defusal" &&
+				s.activeMinigame.incidentId === incidentId
 					? { ...s, activeMinigame: null }
 					: s,
 			);
 
 			if (mode === "multiplayer" && sessionId) {
 				void updateSessionPausedBy(sessionId, null).catch((error) => {
-					console.error("[Bomb Defusal] Failed to clear paused state:", formatBombDefusalError(error), error);
+					console.error(
+						"[Bomb Defusal] Failed to clear paused state:",
+						formatBombDefusalError(error),
+						error,
+					);
 				});
 
-				void updateMarkerStatus(sessionId, incidentId, "resolved").catch((error) => {
-					console.error("[Bomb Defusal] Failed to resolve multiplayer incident:", formatBombDefusalError(error), error);
+				void updateMarkerStatus(
+					sessionId,
+					incidentId,
+					"resolved",
+				).catch((error) => {
+					console.error(
+						"[Bomb Defusal] Failed to resolve multiplayer incident:",
+						formatBombDefusalError(error),
+						error,
+					);
 				});
 
 				if (!success) {
@@ -3929,7 +4037,9 @@ export default function StreetMapScene({
 				return;
 			}
 
-			const inc = stateRef.current.incidents.find((i) => i.id === incidentId);
+			const inc = stateRef.current.incidents.find(
+				(i) => i.id === incidentId,
+			);
 			if (!inc) return;
 
 			finishIncidentResolutionForId(incidentId, {
@@ -3972,7 +4082,11 @@ export default function StreetMapScene({
 
 				setBombDefusalSession(expired);
 			} catch (error) {
-				console.error("[Bomb Defusal] Failed to sync expiry:", formatBombDefusalError(error), error);
+				console.error(
+					"[Bomb Defusal] Failed to sync expiry:",
+					formatBombDefusalError(error),
+					error,
+				);
 				await syncBombDefusalSessionFromServer();
 			} finally {
 				bombDefusalExpirySyncRef.current = false;
@@ -3980,7 +4094,12 @@ export default function StreetMapScene({
 		}, 250);
 
 		return () => window.clearInterval(timer);
-	}, [bombDefusalRole, bombDefusalRowId, bombDefusalSession, syncBombDefusalSessionFromServer]);
+	}, [
+		bombDefusalRole,
+		bombDefusalRowId,
+		bombDefusalSession,
+		syncBombDefusalSessionFromServer,
+	]);
 
 	useEffect(() => {
 		if (!remoteBombIncidentId) {
@@ -4023,7 +4142,11 @@ export default function StreetMapScene({
 		void tryOpenBombDefusalTerminal();
 		const retryTimer = window.setInterval(() => {
 			if (cancelled) return;
-			if (bombDefusalRole === "B" && bombDefusalIncidentId === remoteBombIncidentId && bombDefusalSession) {
+			if (
+				bombDefusalRole === "B" &&
+				bombDefusalIncidentId === remoteBombIncidentId &&
+				bombDefusalSession
+			) {
 				return;
 			}
 			void tryOpenBombDefusalTerminal();
@@ -4047,8 +4170,10 @@ export default function StreetMapScene({
 	useEffect(() => {
 		if (mode !== "multiplayer" || !sessionId) return;
 
-		const fallbackIncidentId = bombDefusalIncidentId ?? remoteBombIncidentId;
-		if (!bombDefusalRole && !fallbackIncidentId && !bombDefusalRowId) return;
+		const fallbackIncidentId =
+			bombDefusalIncidentId ?? remoteBombIncidentId;
+		if (!bombDefusalRole && !fallbackIncidentId && !bombDefusalRowId)
+			return;
 
 		let cancelled = false;
 
@@ -4079,7 +4204,11 @@ export default function StreetMapScene({
 
 	useEffect(() => {
 		if (state.activeMinigame?.type === "bomb_defusal") return;
-		if (remoteBombIncidentId && remoteBombIncidentId !== dismissedRemoteBombIncidentId) return;
+		if (
+			remoteBombIncidentId &&
+			remoteBombIncidentId !== dismissedRemoteBombIncidentId
+		)
+			return;
 		if (!bombDefusalSession) return;
 		closeBombDefusalTerminal();
 	}, [
@@ -4094,7 +4223,8 @@ export default function StreetMapScene({
 		if (!bombDefusalSession || !bombDefusalRole) return;
 		if (bombDefusalSession.status === "active") return;
 
-		const resolvedIncidentId = bombDefusalIncidentId ?? remoteBombIncidentId ?? null;
+		const resolvedIncidentId =
+			bombDefusalIncidentId ?? remoteBombIncidentId ?? null;
 		const resolutionKey = `${resolvedIncidentId ?? "none"}:${bombDefusalRole}:${bombDefusalSession.status}`;
 		if (bombDefusalResultHandledRef.current === resolutionKey) return;
 		bombDefusalResultHandledRef.current = resolutionKey;
@@ -4116,7 +4246,10 @@ export default function StreetMapScene({
 				setBombRewardIncidentId(resolvedIncidentId);
 			}
 
-			finalizeBombIncidentFromSession(resolvedIncidentId, status === "success");
+			finalizeBombIncidentFromSession(
+				resolvedIncidentId,
+				status === "success",
+			);
 			return;
 		}
 
@@ -4229,15 +4362,15 @@ export default function StreetMapScene({
 					incidents: s.incidents.map((x) =>
 						x.id === id
 							? {
-								...x,
-								status: "resolving" as const,
-								deployedResourceIds: [
-									...payload.resourceIds,
-								],
-								deployedVigilanteIds: [
-									...payload.vigilanteIds,
-								],
-							}
+									...x,
+									status: "resolving" as const,
+									deployedResourceIds: [
+										...payload.resourceIds,
+									],
+									deployedVigilanteIds: [
+										...payload.vigilanteIds,
+									],
+								}
 							: x,
 					),
 					activeMinigame: {
@@ -4301,11 +4434,11 @@ export default function StreetMapScene({
 				incidents: s.incidents.map((x) =>
 					x.id === id
 						? {
-							...x,
-							status: "resolving" as const,
-							deployedResourceIds: [...payload.resourceIds],
-							deployedVigilanteIds: [...payload.vigilanteIds],
-						}
+								...x,
+								status: "resolving" as const,
+								deployedResourceIds: [...payload.resourceIds],
+								deployedVigilanteIds: [...payload.vigilanteIds],
+							}
 						: x,
 				),
 			};
@@ -4390,36 +4523,36 @@ export default function StreetMapScene({
 					incidents: s.incidents.map((x) =>
 						x.id === id
 							? {
-								...x,
-								status: "resolved" as const,
-								deployedResourceIds: [],
-								resolution: {
-									success: rollOutcome.success,
-									adjustedPercent:
-										rollOutcome.adjustedPercent,
-									beforeLuckPercent:
-										rollOutcome.beforeLuckPercent,
-									rolled: rollOutcome.rolled,
-									baseChancePercent:
-										rollOutcome.baseChancePercent,
-									resourceMultiplier:
-										rollOutcome.resourceMultiplier,
-									buffMultiplier:
-										rollOutcome.buffMultiplier,
-									incidentSpecificMultiplier:
-										rollOutcome.incidentSpecificMultiplier,
-									vigilanteMultiplier:
-										rollOutcome.vigilanteMultiplier,
-									avgArchetypeFit:
-										rollOutcome.avgArchetypeFit,
-									staffingSupportMultiplier:
-										rollOutcome.staffingSupportMultiplier,
-									gearPresenceMultiplier:
-										rollOutcome.gearPresenceMultiplier,
-									luckDeltaPercent:
-										rollOutcome.luckDeltaPercent,
-								} as IncidentResolution,
-							}
+									...x,
+									status: "resolved" as const,
+									deployedResourceIds: [],
+									resolution: {
+										success: rollOutcome.success,
+										adjustedPercent:
+											rollOutcome.adjustedPercent,
+										beforeLuckPercent:
+											rollOutcome.beforeLuckPercent,
+										rolled: rollOutcome.rolled,
+										baseChancePercent:
+											rollOutcome.baseChancePercent,
+										resourceMultiplier:
+											rollOutcome.resourceMultiplier,
+										buffMultiplier:
+											rollOutcome.buffMultiplier,
+										incidentSpecificMultiplier:
+											rollOutcome.incidentSpecificMultiplier,
+										vigilanteMultiplier:
+											rollOutcome.vigilanteMultiplier,
+										avgArchetypeFit:
+											rollOutcome.avgArchetypeFit,
+										staffingSupportMultiplier:
+											rollOutcome.staffingSupportMultiplier,
+										gearPresenceMultiplier:
+											rollOutcome.gearPresenceMultiplier,
+										luckDeltaPercent:
+											rollOutcome.luckDeltaPercent,
+									} as IncidentResolution,
+								}
 							: x,
 					),
 				};
@@ -4596,46 +4729,46 @@ export default function StreetMapScene({
 
 	useEffect(() => {
 		let alive = true;
-	
+
 		const MAX_RECRUITS = 3;
 		const SPAWN_INTERVAL_MS = 260_000;
-	
+
 		const scheduleNext = () => {
 			if (!alive) return;
-	
+
 			window.setTimeout(() => {
 				if (!alive) return;
-	
+
 				if (isGameplayPausedByMinigame) {
-					scheduleNext(); 
+					scheduleNext();
 					return;
 				}
-	
+
 				setState((s) => {
 					if (s.recruitLeads.length >= MAX_RECRUITS) return s;
 					if (s.ownedVigilanteIds.length >= 5) return s;
-	
+
 					const bounds = levelBoundsRef.current.get(s.level);
 					if (!bounds) return s;
-	
+
 					const unavailable = new Set([
 						...s.ownedVigilanteIds,
 						...s.recruitLeads.map((r) => r.vigilanteId),
 					]);
-	
+
 					const available = vigilantes.filter(
 						(v) => !unavailable.has(v.id),
 					);
-	
+
 					if (available.length === 0) return s;
-	
+
 					const undercoverAvailable = available.filter(
 						(v) => v.isUndercover,
 					);
 					const normalAvailable = available.filter(
 						(v) => !v.isUndercover,
 					);
-	
+
 					const undercoverAlreadyOnMap = s.recruitLeads.some(
 						(lead) => {
 							const match = vigilantes.find(
@@ -4644,7 +4777,7 @@ export default function StreetMapScene({
 							return match?.isUndercover;
 						},
 					);
-	
+
 					let chosen;
 					if (
 						!undercoverAlreadyOnMap &&
@@ -4654,10 +4787,10 @@ export default function StreetMapScene({
 							Math.random() < 0.45
 								? randomFrom(undercoverAvailable)
 								: randomFrom(
-									normalAvailable.length > 0
-										? normalAvailable
-										: available,
-								);
+										normalAvailable.length > 0
+											? normalAvailable
+											: available,
+									);
 					} else {
 						chosen = randomFrom(
 							normalAvailable.length > 0
@@ -4665,7 +4798,7 @@ export default function StreetMapScene({
 								: available,
 						);
 					}
-	
+
 					return {
 						...s,
 						recruitLeads: [
@@ -4674,13 +4807,13 @@ export default function StreetMapScene({
 						],
 					};
 				});
-	
+
 				scheduleNext();
 			}, SPAWN_INTERVAL_MS);
 		};
-	
+
 		scheduleNext();
-	
+
 		return () => {
 			alive = false;
 		};
@@ -4776,11 +4909,11 @@ export default function StreetMapScene({
 					careerStats:
 						expiredIncidentIds.size > 0
 							? {
-								...prev.careerStats,
-								incidentsExpired:
-									prev.careerStats.incidentsExpired +
-									expiredIncidentIds.size,
-							}
+									...prev.careerStats,
+									incidentsExpired:
+										prev.careerStats.incidentsExpired +
+										expiredIncidentIds.size,
+								}
 							: prev.careerStats,
 					// Reputation penalty for expiration handled in expireIncident, but this bypasses that.
 					// We'll add reputation penalty here for consistency.
@@ -4842,15 +4975,17 @@ export default function StreetMapScene({
 			lng: item.lng,
 		}));
 
-		const vigilantePins: CharacterPin[] = vigilanteRenderItems.map((item) => ({
-			id: item.pinId,
-			name: item.name,
-			initial: item.initial,
-			portrait: item.portrait,
-			kind: "vigilante",
-			lat: item.lat,
-			lng: item.lng,
-		}));
+		const vigilantePins: CharacterPin[] = vigilanteRenderItems.map(
+			(item) => ({
+				id: item.pinId,
+				name: item.name,
+				initial: item.initial,
+				portrait: item.portrait,
+				kind: "vigilante",
+				lat: item.lat,
+				lng: item.lng,
+			}),
+		);
 
 		return [...incidentCitizenPins, ...policePins, ...vigilantePins];
 	}, [incidentCitizenPins, policeRenderItems, vigilanteRenderItems]);
@@ -4891,8 +5026,8 @@ export default function StreetMapScene({
 		() =>
 			selectedRecruitLead
 				? (vigilantes.find(
-					(v) => v.id === selectedRecruitLead.vigilanteId,
-				) ?? null)
+						(v) => v.id === selectedRecruitLead.vigilanteId,
+					) ?? null)
 				: null,
 		[selectedRecruitLead],
 	);
@@ -4928,30 +5063,35 @@ export default function StreetMapScene({
 		setBombRewardIncidentId(null);
 	}, []);
 
-	const handleBombRecruitRewardConfirm = useCallback((vigilanteId: string) => {
-		const isNewRecruit = !stateRef.current.ownedVigilanteIds.includes(vigilanteId);
+	const handleBombRecruitRewardConfirm = useCallback(
+		(vigilanteId: string) => {
+			const isNewRecruit =
+				!stateRef.current.ownedVigilanteIds.includes(vigilanteId);
 
-		setState((s) => {
-			if (s.ownedVigilanteIds.includes(vigilanteId)) {
-				return s;
+			setState((s) => {
+				if (s.ownedVigilanteIds.includes(vigilanteId)) {
+					return s;
+				}
+
+				return {
+					...s,
+					ownedVigilanteIds: [...s.ownedVigilanteIds, vigilanteId],
+					careerStats: {
+						...s.careerStats,
+						vigilantesRecruited:
+							s.careerStats.vigilantesRecruited + 1,
+					},
+				};
+			});
+
+			if (isNewRecruit) {
+				achievements.trackVigilanteRecruitment(vigilanteId);
 			}
 
-			return {
-				...s,
-				ownedVigilanteIds: [...s.ownedVigilanteIds, vigilanteId],
-				careerStats: {
-					...s.careerStats,
-					vigilantesRecruited: s.careerStats.vigilantesRecruited + 1,
-				},
-			};
-		});
-
-		if (isNewRecruit) {
-			achievements.trackVigilanteRecruitment(vigilanteId);
-		}
-
-		setBombRewardIncidentId(null);
-	}, [achievements]);
+			setBombRewardIncidentId(null);
+		},
+		[achievements],
+	);
 
 	const availableTheftSites = useMemo(
 		() =>
@@ -5221,15 +5361,15 @@ export default function StreetMapScene({
 						expiresAt: incident.expiresAt,
 						deployedVigilanteIds: incident.deployedVigilanteIds,
 					}))}
-					ownedVigilanteSheets={vigilantes.filter((v) =>
-						state.ownedVigilanteIds.includes(v.id),
-					).map((v) => ({
-						id: v.id,
-						name: v.name,
-						alias: v.alias,
-						stats: v.stats,
-						portrait: v.portrait,
-					}))}
+					ownedVigilanteSheets={vigilantes
+						.filter((v) => state.ownedVigilanteIds.includes(v.id))
+						.map((v) => ({
+							id: v.id,
+							name: v.name,
+							alias: v.alias,
+							stats: v.stats,
+							portrait: v.portrait,
+						}))}
 					ownedVigilanteIds={state.ownedVigilanteIds}
 					onVigilanteRenderUpdate={setVigilanteRenderItems}
 					onVigilanteEtaUpdate={setVigilanteEtaItems}
@@ -5300,7 +5440,7 @@ export default function StreetMapScene({
 											{activeDossier.role}
 										</div>
 										{overlayMode === "recruit" &&
-											selectedRecruitLead ? (
+										selectedRecruitLead ? (
 											<div className="mt-3 rounded-xl border border-red-900/35 bg-red-950/15 px-3 py-2">
 												<div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.16em] text-red-200/80">
 													<span>
@@ -5321,11 +5461,11 @@ export default function StreetMapScene({
 													}
 													onExpire={
 														isGameplayPausedByMinigame
-															? () => { }
+															? () => {}
 															: () =>
-																expireRecruitLead(
-																	selectedRecruitLead.id,
-																)
+																	expireRecruitLead(
+																		selectedRecruitLead.id,
+																	)
 													}
 													paused={
 														isGameplayPausedByMinigame
@@ -5423,23 +5563,13 @@ export default function StreetMapScene({
 			<AnimatePresence>
 				{dialogue ? (
 					<>
-						{/* Backdrop closes the dialogue when clicking outside */}
+						{/* Dialogue container - top right, no backdrop click to close */}
 						<motion.div
-							initial={{ opacity: 0 }}
-							animate={{ opacity: 1 }}
-							exit={{ opacity: 0 }}
-							transition={{ duration: 0.2 }}
-							className="fixed inset-0 z-[2015] bg-black/30"
-							onClick={() => setDialogue(null)}
-						/>
-
-						{/* Dialogue container */}
-						<motion.div
-							initial={{ opacity: 0, y: 16 }}
-							animate={{ opacity: 1, y: 0 }}
-							exit={{ opacity: 0, y: 10 }}
+							initial={{ opacity: 0, x: 20, y: -20 }}
+							animate={{ opacity: 1, x: 0, y: 0 }}
+							exit={{ opacity: 0, x: 20, y: -20 }}
 							transition={{ duration: 0.2, ease: "easeOut" }}
-							className="absolute bottom-6 left-1/2 z-[2020] w-[min(52vw,720px)] min-w-[320px] -translate-x-1/2"
+							className="absolute top-6 right-6 z-[2020] w-[min(52vw,720px)] min-w-[320px] max-w-[480px]"
 							onClick={(e) => e.stopPropagation()}
 						>
 							<div className="relative overflow-hidden rounded-xl border border-amber-900/40 bg-black/75 shadow-lg backdrop-blur-md">
@@ -5447,9 +5577,11 @@ export default function StreetMapScene({
 									<div className="absolute top-3 right-4 flex items-center justify-center rounded-full border border-amber-900/40 bg-transparent px-3 py-1 text-[9px] font-bold leading-none uppercase tracking-wider text-amber-400">
 										{dialogue.dialogueType === "past"
 											? "reminiscing"
-											: dialogue.dialogueType === "current"
+											: dialogue.dialogueType ===
+												  "current"
 												? "responding"
-												: dialogue.dialogueType === "story"
+												: dialogue.dialogueType ===
+													  "story"
 													? "story"
 													: ""}
 									</div>
@@ -5491,8 +5623,9 @@ export default function StreetMapScene({
 																className="w-[2px] rounded-full bg-amber-400/70"
 																animate={{
 																	height: [
-																		3, 12, 5,
-																		16, 4,
+																		3, 12,
+																		5, 16,
+																		4,
 																	],
 																}}
 																transition={{
@@ -5500,7 +5633,9 @@ export default function StreetMapScene({
 																	repeat: Infinity,
 																	repeatType:
 																		"loop",
-																	delay: i * 0.05,
+																	delay:
+																		i *
+																		0.05,
 																	ease: "easeInOut",
 																}}
 																style={{
@@ -5712,24 +5847,29 @@ export default function StreetMapScene({
 													inc.id,
 												)
 											}
-											className={`flex h-[92px] flex-col px-3 py-2 text-left text-xs transition-colors cursor-pointer ${isSelected
-												? "border-amber-500/80 bg-amber-900/50 text-amber-100"
-												: "border-amber-900/50 bg-black/40 text-amber-200/70 hover:border-amber-700/70 hover:text-amber-100"
-												} w-full rounded-lg border`}
+											className={`flex h-[92px] flex-col px-3 py-2 text-left text-xs transition-colors cursor-pointer ${
+												isSelected
+													? "border-amber-500/80 bg-amber-900/50 text-amber-100"
+													: "border-amber-900/50 bg-black/40 text-amber-200/70 hover:border-amber-700/70 hover:text-amber-100"
+											} w-full rounded-lg border`}
 										>
 											<div className="flex min-h-0 flex-1 flex-col justify-center">
 												<div className="flex h-[64px] w-full shrink-0 items-center gap-3">
 													<div
-														className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] ${inc.status === "resolved"
+														className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] ${
+															inc.status ===
+															"resolved"
 																? "border-amber-800/50 bg-amber-950/35 text-amber-200/70"
-																: inc.status === "resolving"
+																: inc.status ===
+																	  "resolving"
 																	? "border-amber-700/60 bg-amber-950/40 text-amber-200"
 																	: "border-red-900 bg-red-900/30 text-red-300"
-															}`}
+														}`}
 													>
 														{inc.status === "active"
 															? "!"
-															: inc.status === "resolving"
+															: inc.status ===
+																  "resolving"
 																? "…"
 																: "·"}
 													</div>
@@ -5755,12 +5895,12 @@ export default function StreetMapScene({
 														Math.max(
 															0,
 															inc.expiresAt -
-															inc.createdAt -
-															(nowTick -
-																inc.createdAt) *
-															getTimerSlowdownMultiplier(
-																state.purchasedUpgradeIds,
-															),
+																inc.createdAt -
+																(nowTick -
+																	inc.createdAt) *
+																	getTimerSlowdownMultiplier(
+																		state.purchasedUpgradeIds,
+																	),
 														),
 													)}
 												</div>
@@ -5775,11 +5915,11 @@ export default function StreetMapScene({
 													)}
 													onExpire={
 														isGameplayPausedByMinigame
-															? () => { }
+															? () => {}
 															: () =>
-																expireIncident(
-																	inc.id,
-																)
+																	expireIncident(
+																		inc.id,
+																	)
 													}
 													paused={
 														isGameplayPausedByMinigame
@@ -5981,23 +6121,28 @@ export default function StreetMapScene({
 									<button
 										type="button"
 										role="switch"
-										aria-checked={state.showCitizensNearIncidents}
+										aria-checked={
+											state.showCitizensNearIncidents
+										}
 										onClick={() =>
 											setState((s) => ({
 												...s,
-												showCitizensNearIncidents: !s.showCitizensNearIncidents,
+												showCitizensNearIncidents:
+													!s.showCitizensNearIncidents,
 											}))
 										}
-										className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:ring-offset-2 focus:ring-offset-black ${state.showCitizensNearIncidents
+										className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:ring-offset-2 focus:ring-offset-black ${
+											state.showCitizensNearIncidents
 												? "bg-amber-600/80"
 												: "bg-amber-900/40"
-											}`}
+										}`}
 									>
 										<span
-											className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white/90 shadow-lg ring-0 transition duration-200 ease-in-out mt-0.5 ${state.showCitizensNearIncidents
+											className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white/90 shadow-lg ring-0 transition duration-200 ease-in-out mt-0.5 ${
+												state.showCitizensNearIncidents
 													? "translate-x-4"
 													: "translate-x-0.5"
-												}`}
+											}`}
 										/>
 									</button>
 								</div>
@@ -6062,9 +6207,9 @@ export default function StreetMapScene({
 				</>
 			)}
 
-
 			{(state.activeMinigame?.type === "bomb_defusal" ||
-				(remoteBombIncidentId && remoteBombIncidentId !== dismissedRemoteBombIncidentId)) &&
+				(remoteBombIncidentId &&
+					remoteBombIncidentId !== dismissedRemoteBombIncidentId)) &&
 				!bombDefusalSession && (
 					<div className="fixed inset-0 z-[1200] flex items-center justify-center bg-black/80 px-4">
 						<div className="w-full max-w-xl rounded-xl border border-amber-900/40 bg-[#0d0c0e] p-6 shadow-2xl shadow-black/50">
@@ -6075,7 +6220,8 @@ export default function StreetMapScene({
 							<h2
 								className="mt-2 text-2xl font-bold tracking-tight text-amber-100"
 								style={{
-									fontFamily: "Georgia, 'Times New Roman', serif",
+									fontFamily:
+										"Georgia, 'Times New Roman', serif",
 									color: "#e4d5b7",
 								}}
 							>
@@ -6094,12 +6240,14 @@ export default function StreetMapScene({
 								- specific incident can trigger Bomb Defusal
 								<br />
 								- singleplayer does not trigger it
-								<br />
-								- the local terminal now opens the real Bomb Defusal modal instead of resolving immediately
+								<br />- the local terminal now opens the real
+								Bomb Defusal modal instead of resolving
+								immediately
 							</div>
 
 							<div className="mt-5 flex flex-wrap justify-end gap-3">
-								{state.activeMinigame?.type === "bomb_defusal" ? (
+								{state.activeMinigame?.type ===
+								"bomb_defusal" ? (
 									<>
 										<button
 											type="button"
@@ -6111,7 +6259,9 @@ export default function StreetMapScene({
 
 										<button
 											type="button"
-											onClick={() => openBombDefusalTerminal("A")}
+											onClick={() =>
+												openBombDefusalTerminal("A")
+											}
 											className="rounded-lg border border-amber-900/50 bg-black/40 px-4 py-2 text-sm font-semibold text-amber-100 transition-all duration-200 hover:bg-amber-950/20 hover:border-amber-700/40"
 										>
 											Resolve Successfully
@@ -6120,12 +6270,15 @@ export default function StreetMapScene({
 								) : (
 									<>
 										<div className="rounded-lg border border-amber-900/35 bg-black/30 px-4 py-2 text-sm text-amber-200/70">
-											Player B terminal is opening automatically on this client.
+											Player B terminal is opening
+											automatically on this client.
 										</div>
 
 										<button
 											type="button"
-											onClick={handleDismissBombPlaceholder}
+											onClick={
+												handleDismissBombPlaceholder
+											}
 											className="rounded-lg border border-amber-900/50 bg-black/40 px-4 py-2 text-sm text-amber-200/80 transition-all duration-200 hover:bg-amber-950/20 hover:border-amber-700/40 hover:text-amber-100"
 										>
 											Close
@@ -6144,11 +6297,19 @@ export default function StreetMapScene({
 					session={bombDefusalSession}
 					role={bombDefusalRole}
 					title="Bomb Defusal"
-					subtitle={bombDefusalRole === "A" ? "Player A terminal" : "Player B terminal"}
+					subtitle={
+						bombDefusalRole === "A"
+							? "Player A terminal"
+							: "Player B terminal"
+					}
 					onCutWire={handleBombDefusalCutWire}
 					onClickSymbol={handleBombDefusalClickSymbol}
 					onSubmitPhase2={handleBombDefusalSubmitPhase2}
-					onRestart={bombDefusalRole === "A" ? handleBombDefusalRestart : undefined}
+					onRestart={
+						bombDefusalRole === "A"
+							? handleBombDefusalRestart
+							: undefined
+					}
 				/>
 			)}
 
@@ -6169,15 +6330,15 @@ export default function StreetMapScene({
 				incident={
 					selectedIncident && selectedIncident.status === "active"
 						? {
-							id: selectedIncident.id,
-							category: selectedIncident.category,
-							typeLabel: selectedIncident.typeLabel,
-							title: selectedIncident.title,
-							summary: selectedIncident.summary,
-							createdAt: selectedIncident.createdAt,
-							expiresAt: selectedIncident.expiresAt,
-							successChance: selectedIncident.successChance,
-						}
+								id: selectedIncident.id,
+								category: selectedIncident.category,
+								typeLabel: selectedIncident.typeLabel,
+								title: selectedIncident.title,
+								summary: selectedIncident.summary,
+								createdAt: selectedIncident.createdAt,
+								expiresAt: selectedIncident.expiresAt,
+								successChance: selectedIncident.successChance,
+							}
 						: null
 				}
 				ownedVigilanteIds={state.ownedVigilanteIds}
@@ -6186,12 +6347,12 @@ export default function StreetMapScene({
 				onClose={() => setDeployModalOpen(false)}
 				onIncidentExpire={
 					isGameplayPausedByMinigame
-						? () => { }
+						? () => {}
 						: () => {
-							if (selectedIncident?.status === "active")
-								expireIncident(selectedIncident.id);
-							setDeployModalOpen(false);
-						}
+								if (selectedIncident?.status === "active")
+									expireIncident(selectedIncident.id);
+								setDeployModalOpen(false);
+							}
 				}
 				onConfirm={handleDeployConfirm}
 				purchasedUpgradeIds={state.purchasedUpgradeIds}
@@ -6346,7 +6507,8 @@ export default function StreetMapScene({
 							Game Paused
 						</p>
 						<p className="mt-2 text-sm text-amber-200/60">
-							The other player is in a minigame. Waiting for them to finish…
+							The other player is in a minigame. Waiting for them
+							to finish…
 						</p>
 					</div>
 				</div>
