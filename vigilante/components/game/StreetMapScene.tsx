@@ -5164,6 +5164,7 @@ export default function StreetMapScene({
 	const lastZoomTimeRef = useRef<number>(Date.now());
 
 	useEffect(() => {
+		const interval = setInterval(() => {
 		if (mode !== "singleplayer") return; // only for singleplayer
 		if (gameOverState.open) return; // stop when game over
 		if (isGameplayPausedByMinigame) return; // pause during minigames
@@ -5173,7 +5174,6 @@ export default function StreetMapScene({
 			return;
 		}
 
-		const interval = setInterval(() => {
 			const now = Date.now();
 			const elapsed = now - lastZoomTimeRef.current;
 			const remaining = Math.max(0, 300000 - elapsed);
