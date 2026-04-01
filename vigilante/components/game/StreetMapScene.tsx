@@ -4595,45 +4595,47 @@ export default function StreetMapScene({
 	]);
 
 	useEffect(() => {
-		if (isGameplayPausedByMinigame) return;
-
 		let alive = true;
-
+	
 		const MAX_RECRUITS = 3;
 		const SPAWN_INTERVAL_MS = 260_000;
-
+	
 		const scheduleNext = () => {
 			if (!alive) return;
-
+	
 			window.setTimeout(() => {
 				if (!alive) return;
-
+	
+				if (isGameplayPausedByMinigame) {
+					scheduleNext(); 
+					return;
+				}
+	
 				setState((s) => {
 					if (s.recruitLeads.length >= MAX_RECRUITS) return s;
-
 					if (s.ownedVigilanteIds.length >= 5) return s;
-
+	
 					const bounds = levelBoundsRef.current.get(s.level);
 					if (!bounds) return s;
-
+	
 					const unavailable = new Set([
 						...s.ownedVigilanteIds,
 						...s.recruitLeads.map((r) => r.vigilanteId),
 					]);
-
+	
 					const available = vigilantes.filter(
 						(v) => !unavailable.has(v.id),
 					);
-
+	
 					if (available.length === 0) return s;
-
+	
 					const undercoverAvailable = available.filter(
 						(v) => v.isUndercover,
 					);
 					const normalAvailable = available.filter(
 						(v) => !v.isUndercover,
 					);
-
+	
 					const undercoverAlreadyOnMap = s.recruitLeads.some(
 						(lead) => {
 							const match = vigilantes.find(
@@ -4642,7 +4644,7 @@ export default function StreetMapScene({
 							return match?.isUndercover;
 						},
 					);
-
+	
 					let chosen;
 					if (
 						!undercoverAlreadyOnMap &&
@@ -4663,7 +4665,7 @@ export default function StreetMapScene({
 								: available,
 						);
 					}
-
+	
 					return {
 						...s,
 						recruitLeads: [
@@ -4672,13 +4674,13 @@ export default function StreetMapScene({
 						],
 					};
 				});
-
+	
 				scheduleNext();
 			}, SPAWN_INTERVAL_MS);
 		};
-
+	
 		scheduleNext();
-
+	
 		return () => {
 			alive = false;
 		};
