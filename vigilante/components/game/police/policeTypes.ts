@@ -1,4 +1,4 @@
-﻿import type { LatLngTuple } from "leaflet";
+import type { LatLngTuple } from "leaflet";
 
 export type PoliceCharacterPinId =
 	| "cop-diaz"
@@ -32,6 +32,7 @@ export type PoliceCharacterConfig = {
 	pinId: PoliceCharacterPinId;
 	displayName: string;
 	initial: string;
+	portrait: string;
 	patrolRouteId: PatrolRouteId;
 	anchors: LatLngTuple[];
 	speeds: PoliceSpeedProfile;
@@ -62,6 +63,7 @@ export type PoliceRenderItem = {
 	pinId: PoliceCharacterPinId;
 	name: string;
 	initial: string;
+	portrait: string;
 	lat: number;
 	lng: number;
 	mode: PoliceMode;

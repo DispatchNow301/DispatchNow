@@ -27,10 +27,13 @@ import Inventory from "./Inventory";
 import PoliceSystem from "./police/policeSystem";
 import PoliceCaptureModal from "./police/policeCaptureModal";
 import type { PoliceEtaItem, PoliceRenderItem } from "./police/policeTypes";
+import VigilanteSystem from "./vigilante/VigilanteSystem";
+import type { VigilanteEtaItem, VigilanteRenderItem } from "./vigilante/vigilanteTypes";
 import IncidentChanceRollOverlay from "./IncidentChanceRollOverlay";
 import IncidentDeployModal from "./IncidentDeployModal";
 import GameOverOverlay from "./GameOverOverlay";
 import { IncidentTimerBar } from "./IncidentTimerBar";
+import VolumeSlider from "../menu/VolumeSlider";
 import { vigilantes } from "@/app/components/data/vigilante";
 import { useSfx } from "@/lib/sfx";
 import {
@@ -42,13 +45,24 @@ import {
 	type ResourcePoolEntry,
 } from "@/lib/resourcePool";
 import { mergePurchasedBuffIds } from "@/lib/purchasedBuffs";
-import { restartRun as restartRunGame } from "@/lib/gameStateUtils";
+import {
+	initialState,
+	loadState,
+	saveState,
+	restartRun as restartRunGame,
+} from "@/lib/gameStateUtils";
+import type {
+	GameState,
+	CareerStats,
+	Incident,
+	IncidentResolution,
+	IncidentStatus,
+	RecruitLead,
+} from "@/lib/gameTypes";
 import {
 	DEFAULT_CAREER_STATS,
 	mergeCareerStats,
-	type CareerStats,
 } from "@/lib/careerStats";
-import type { GameState, Incident, IncidentResolution, IncidentStatus, RecruitLead } from "@/lib/gameTypes";
 import { markCloudFlush, upsertGameSave } from "@/lib/cloudSaves";
 import { readSave, touchSave, type SaveSlotId } from "@/lib/saves";
 import { DEFAULT_ACHIEVEMENT_PROGRESS } from "@/lib/achievements";
@@ -119,7 +133,10 @@ async function callAISuccessCalc(params: {
 function calculateFallbackSuccessPercent(
 	baseChancePercent: number,
 	archetype: string,
-	vigilantes: Array<{ id: string; stats: { strength: number; intelligence: number; speed: number } }>,
+	vigilantes: Array<{
+		id: string;
+		stats: { strength: number; intelligence: number; speed: number };
+	}>,
 	resourceIds: string[],
 	buffIds: string[],
 ): number {
@@ -364,6 +381,7 @@ type CharacterPin = {
 	id: string;
 	name: string;
 	initial: string;
+	portrait?: string;
 	kind: CharacterKind;
 	lat: number;
 	lng: number;
@@ -968,19 +986,24 @@ function makeCharacterIcon(initial: string, kind: CharacterKind) {
 			? { border: "#1d4ed8", bg: "rgba(30,64,175,0.78)", text: "#dbeafe" }
 			: kind === "vigilante"
 				? {
-					border: "#b45309",
-					bg: "rgba(120,53,15,0.82)",
-					text: "#fde68a",
-				}
+						border: "#b45309",
+						bg: "rgba(120,53,15,0.82)",
+						text: "#fde68a",
+					}
 				: {
-					border: "#4b5563",
-					bg: "rgba(55,65,81,0.8)",
-					text: "#f3f4f6",
-				};
+						border: "#4b5563",
+						bg: "rgba(55,65,81,0.8)",
+						text: "#f3f4f6",
+					};
+
+	const size = 40;
+	const half = size / 2;
+	const innerSize = 34;
+	const fontSize = 16;
 
 	const html = `<div style="
-    width:44px;
-    height:44px;
+    width:${size}px;
+    height:${size}px;
     display:flex;
     align-items:center;
     justify-content:center;
@@ -990,8 +1013,8 @@ function makeCharacterIcon(initial: string, kind: CharacterKind) {
     pointer-events:auto;
   ">
     <div style="
-      width:30px;
-      height:30px;
+      width:${innerSize}px;
+      height:${innerSize}px;
       border-radius:999px;
       border:2px solid ${palette.border};
       background:${palette.bg};
@@ -1000,9 +1023,9 @@ function makeCharacterIcon(initial: string, kind: CharacterKind) {
       justify-content:center;
       color:${palette.text};
       font-weight:800;
-      font-size:14px;
+      font-size:${fontSize}px;
       text-shadow:0 0 4px rgba(0,0,0,0.8);
-      box-shadow:0 0 14px rgba(0,0,0,0.85);
+      box-shadow:0 0 10px rgba(0,0,0,0.85);
       pointer-events:none;
     ">${initial}</div>
   </div>`;
@@ -1010,15 +1033,114 @@ function makeCharacterIcon(initial: string, kind: CharacterKind) {
 	return L.divIcon({
 		html,
 		className: "vigilante-character-icon",
-		iconSize: [44, 44],
-		iconAnchor: [22, 22],
+		iconSize: [size, size],
+		iconAnchor: [half, half],
+	});
+}
+
+function makeVigilantePortraitIcon(portrait: string | object | null | undefined, _initial: string) {
+	// Handle both string paths and imported image modules (which have a src property)
+	let src = "";
+
+	if (typeof portrait === "string") {
+		src = portrait;
+	} else if (portrait && typeof portrait === "object" && "src" in portrait) {
+		// @ts-expect-error - Next.js image module has src property
+		src = portrait.src ?? "";
+	}
+
+	const size = 40;
+	const half = size / 2;
+	const html = `<div style="
+    width:${size}px;
+    height:${size}px;
+    border-radius:999px;
+    border:3px solid #b45309;
+    overflow:hidden;
+    box-shadow:0 0 12px rgba(180,83,9,0.4), 0 0 6px rgba(0,0,0,0.6);
+    background:rgba(120,53,15,0.82);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+  ">
+    <img
+      src="${src}"
+      alt=""
+      style="
+        width:100%;
+        height:100%;
+        object-fit:cover;
+        pointer-events:none;
+      "
+      onerror="this.parentElement.style.background='rgba(120,53,15,0.82)'; this.style.display='none'"
+    />
+  </div>`;
+
+	return L.divIcon({
+		html,
+		className: "vigilante-character-icon",
+		iconSize: [size, size],
+		iconAnchor: [half, half],
+	});
+}
+
+function makePolicePortraitIcon(portrait: string | null | undefined, _initial: string) {
+	// Handle both string paths and imported image modules
+	let src = "";
+
+	if (typeof portrait === "string") {
+		src = portrait;
+	} else if (portrait && typeof portrait === "object" && "src" in portrait) {
+		// @ts-expect-error - Next.js image module has src property
+		src = portrait.src ?? "";
+	}
+
+	const size = 40;
+	const half = size / 2;
+	const html = `<div style="
+    width:${size}px;
+    height:${size}px;
+    border-radius:999px;
+    border:3px solid #1d4ed8;
+    overflow:hidden;
+    box-shadow:0 0 12px rgba(29,78,216,0.4), 0 0 6px rgba(0,0,0,0.6);
+    background:rgba(30,64,175,0.78);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+  ">
+    <img
+      src="${src}"
+      alt=""
+      style="
+        width:100%;
+        height:100%;
+        object-fit:cover;
+        pointer-events:none;
+      "
+      onerror="this.parentElement.style.background='rgba(30,64,175,0.78)'; this.style.display='none'"
+    />
+  </div>`;
+
+	return L.divIcon({
+		html,
+		className: "police-character-icon",
+		iconSize: [size, size],
+		iconAnchor: [half, half],
 	});
 }
 
 function makeRecruitIcon(initial: string) {
+	const size = 40;
+	const half = size / 2;
+	const innerSize = 34;
+	const fontSize = 16;
+
 	const html = `<div style="
-    width:44px;
-    height:44px;
+    width:${size}px;
+    height:${size}px;
     display:flex;
     align-items:center;
     justify-content:center;
@@ -1027,8 +1149,8 @@ function makeRecruitIcon(initial: string) {
     pointer-events:none;
   ">
     <div style="
-      width:34px;
-      height:34px;
+      width:${innerSize}px;
+      height:${innerSize}px;
       border-radius:999px;
       border:2px solid #b45309;
       background:rgba(120,53,15,0.86);
@@ -1037,9 +1159,9 @@ function makeRecruitIcon(initial: string) {
       justify-content:center;
       color:#fde68a;
       font-weight:800;
-      font-size:15px;
+      font-size:${fontSize}px;
       text-shadow:0 0 4px rgba(0,0,0,0.85);
-      box-shadow:0 0 18px rgba(120,53,15,0.55);
+      box-shadow:0 0 12px rgba(120,53,15,0.55);
       pointer-events:none;
     ">${initial}</div>
   </div>`;
@@ -1047,8 +1169,8 @@ function makeRecruitIcon(initial: string) {
 	return L.divIcon({
 		html,
 		className: "vigilante-recruit-icon",
-		iconSize: [44, 44],
-		iconAnchor: [22, 22],
+		iconSize: [size, size],
+		iconAnchor: [half, half],
 	});
 }
 
@@ -1132,6 +1254,8 @@ function ZoomController({
 	onBoundsReady: (level: number, bounds: LatLngBounds) => void;
 }) {
 	const map = useMap();
+	const [zoomRemainingMs, setZoomRemainingMs] = useState(300000);
+	const lastZoomTimeRef = useRef<number>(Date.now());
 
 	useEffect(() => {
 		const lvl = levelConfig(level);
@@ -1174,10 +1298,15 @@ function CharacterMarkerItem({
 }) {
 	const markerRef = useRef<L.Marker | null>(null);
 
-	const icon = useMemo(
-		() => makeCharacterIcon(pin.initial, pin.kind),
-		[pin.initial, pin.kind],
-	);
+	const icon = useMemo(() => {
+		if (pin.kind === "vigilante" && pin.portrait) {
+			return makeVigilantePortraitIcon(pin.portrait, pin.initial);
+		}
+		if (pin.kind === "police" && pin.portrait) {
+			return makePolicePortraitIcon(pin.portrait, pin.initial);
+		}
+		return makeCharacterIcon(pin.initial, pin.kind);
+	}, [pin.initial, pin.kind, pin.portrait]);
 
 	useEffect(() => {
 		if (!markerRef.current) return;
@@ -1480,13 +1609,24 @@ function parseIncidentResolution(raw: unknown): IncidentResolution | null {
 		adjustedPercent: o.adjustedPercent,
 		beforeLuckPercent: o.beforeLuckPercent,
 		rolled: o.rolled,
-		baseChancePercent: typeof o.baseChancePercent === "number" ? o.baseChancePercent : 50,
-		resourceMultiplier: typeof o.resourceMultiplier === "number" ? o.resourceMultiplier : 1,
-		buffMultiplier: typeof o.buffMultiplier === "number" ? o.buffMultiplier : 1,
-		incidentSpecificMultiplier: typeof o.incidentSpecificMultiplier === "number" ? o.incidentSpecificMultiplier : 1,
-		vigilanteMultiplier: typeof o.vigilanteMultiplier === "number" ? o.vigilanteMultiplier : 1,
-		avgArchetypeFit: typeof o.avgArchetypeFit === "number" ? o.avgArchetypeFit : 0,
-		luckDeltaPercent: typeof o.luckDeltaPercent === "number" ? o.luckDeltaPercent : 0,
+		baseChancePercent:
+			typeof o.baseChancePercent === "number" ? o.baseChancePercent : 50,
+		resourceMultiplier:
+			typeof o.resourceMultiplier === "number" ? o.resourceMultiplier : 1,
+		buffMultiplier:
+			typeof o.buffMultiplier === "number" ? o.buffMultiplier : 1,
+		incidentSpecificMultiplier:
+			typeof o.incidentSpecificMultiplier === "number"
+				? o.incidentSpecificMultiplier
+				: 1,
+		vigilanteMultiplier:
+			typeof o.vigilanteMultiplier === "number"
+				? o.vigilanteMultiplier
+				: 1,
+		avgArchetypeFit:
+			typeof o.avgArchetypeFit === "number" ? o.avgArchetypeFit : 0,
+		luckDeltaPercent:
+			typeof o.luckDeltaPercent === "number" ? o.luckDeltaPercent : 0,
 	};
 
 	// Override with any additional optional fields
@@ -1494,295 +1634,13 @@ function parseIncidentResolution(raw: unknown): IncidentResolution | null {
 		base.staffingSupportMultiplier = o.staffingSupportMultiplier;
 	if (typeof o.gearPresenceMultiplier === "number")
 		base.gearPresenceMultiplier = o.gearPresenceMultiplier;
-	if (typeof o.aiReasoning === "string")
-		base.aiReasoning = o.aiReasoning;
+	if (typeof o.aiReasoning === "string") base.aiReasoning = o.aiReasoning;
 	return base;
 }
 
-function parseStoredIncident(raw: unknown): Incident | null {
-	if (!raw || typeof raw !== "object") return null;
-	const o = raw as Record<string, unknown>;
-	if (typeof o.id !== "string") return null;
-	if (typeof o.lat !== "number" || typeof o.lng !== "number") return null;
-	const status = normalizeIncidentStatus(o.status);
-	if (status !== "active" && status !== "resolving" && status !== "resolved")
-		return null;
-	if (typeof o.title !== "string" || typeof o.summary !== "string")
-		return null;
-	if (typeof o.createdAt !== "number" || typeof o.expiresAt !== "number")
-		return null;
-	if (typeof o.successChance !== "number") return null;
-	const category = normalizeIncidentArchetype(o.category);
-	const typeLabel =
-		typeof o.typeLabel === "string" && o.typeLabel.length > 0
-			? o.typeLabel
-			: fallbackTypeLabel(category);
-	const deployedResourceIds = Array.isArray(o.deployedResourceIds)
-		? (o.deployedResourceIds as unknown[]).filter(
-			(x): x is string => typeof x === "string",
-		)
-		: undefined;
-	const deployedVigilanteIds = Array.isArray(o.deployedVigilanteIds)
-		? (o.deployedVigilanteIds as unknown[]).filter(
-			(x): x is string => typeof x === "string",
-		)
-		: undefined;
-	const resolution = parseIncidentResolution(o.resolution);
-	return {
-		id: o.id,
-		category,
-		typeLabel,
-		status,
-		lat: o.lat,
-		lng: o.lng,
-		title: o.title,
-		summary: normalizeIncidentDescription(o.summary),
-		createdAt: o.createdAt,
-		expiresAt: o.expiresAt,
-		successChance: o.successChance,
-		assignedResources: Array.isArray(o.assignedResources)
-			? o.assignedResources
-			: [],
-		deployedResourceIds:
-			deployedResourceIds && deployedResourceIds.length > 0
-				? deployedResourceIds
-				: undefined,
-		deployedVigilanteIds:
-			deployedVigilanteIds && deployedVigilanteIds.length > 0
-				? deployedVigilanteIds
-				: undefined,
-		resolution: resolution ?? undefined,
-	};
-}
-
-function pruneExpiredInjuries(
-	map: Record<string, number> | undefined,
-	now: number,
-): Record<string, number> {
-	if (!map) return {};
-	const next: Record<string, number> = {};
-	for (const [id, until] of Object.entries(map)) {
-		if (typeof until === "number" && until > now) next[id] = until;
-	}
-	return next;
-}
-
-function mergeResourcePool(
-	partial: unknown,
-): Record<string, ResourcePoolEntry> {
-	const merged: Record<string, ResourcePoolEntry> = {
-		...DEFAULT_RESOURCE_POOL,
-	};
-	if (!partial || typeof partial !== "object") return merged;
-	for (const [k, v] of Object.entries(partial)) {
-		if (!v || typeof v !== "object") continue;
-		const e = v as Record<string, unknown>;
-		if (typeof e.qty !== "number" || typeof e.deployed !== "number")
-			continue;
-		const qty = Math.max(0, e.qty);
-		merged[k] = {
-			qty,
-			deployed: Math.max(0, Math.min(e.deployed, qty)),
-		};
-	}
-	return merged;
-}
 
 function isOngoingIncident(i: Incident): boolean {
 	return i.status === "active" || i.status === "resolving";
-}
-
-function initialState(): GameState {
-	return {
-		level: 1,
-		selectedIncidentId: null,
-		incidents: [],
-		showIncidentPanel: true,
-		showMinigamePanel: false,
-		showPolicePanel: false,
-		showInventoryPanel: true,
-		inventoryTab: "vigilantes",
-		ownedVigilanteIds: ["bruce", "parya"],
-		recruitLeads: [],
-		consumedTheftSiteIds: [],
-		resourcePool: { ...DEFAULT_RESOURCE_POOL },
-		credits: 500,
-		purchasedUpgradeIds: [],
-		vigilanteInjuryUntil: {},
-		careerStats: { ...DEFAULT_CAREER_STATS },
-		purchasedBuffIds: mergePurchasedBuffIds(undefined),
-		unlockedAchievementIds: [],
-		achievementProgress: {
-			...DEFAULT_ACHIEVEMENT_PROGRESS,
-			uniqueVigilantesOwned: new Set(["bruce", "parya"]),
-			sessionStartTime: Date.now(),
-		},
-		activeMinigame: null,
-		reputation: 100,
-	};
-}
-
-function loadState(saveKey: string): GameState {
-	try {
-		const raw = localStorage.getItem(saveKey);
-		if (!raw) return initialState();
-		const p = JSON.parse(raw) as Partial<GameState>;
-		const rawShowIncidentPanel =
-			typeof p.showIncidentPanel === "boolean"
-				? p.showIncidentPanel
-				: true;
-		const rawShowMinigamePanel =
-			typeof p.showMinigamePanel === "boolean"
-				? p.showMinigamePanel
-				: false;
-		const rawShowPolicePanel =
-			typeof p.showPolicePanel === "boolean" ? p.showPolicePanel : false;
-
-		const activeLeftTab = rawShowMinigamePanel
-			? "minigame"
-			: rawShowPolicePanel
-				? "police"
-				: rawShowIncidentPanel
-					? "incident"
-					: null;
-
-		const selectedFromSave =
-			typeof p.selectedIncidentId === "string"
-				? p.selectedIncidentId
-				: null;
-
-		// Load achievement progress
-		let achievementProgress: AchievementProgress = {
-			...DEFAULT_ACHIEVEMENT_PROGRESS,
-		};
-		if (p.achievementProgress) {
-			const ap = p.achievementProgress;
-			achievementProgress = {
-				totalCreditsEarned:
-					typeof ap.totalCreditsEarned === "number"
-						? Math.max(0, ap.totalCreditsEarned)
-						: 0,
-				highestSinglePayout:
-					typeof ap.highestSinglePayout === "number"
-						? Math.max(0, ap.highestSinglePayout)
-						: 0,
-				currentStreak:
-					typeof ap.currentStreak === "number"
-						? Math.max(0, ap.currentStreak)
-						: 0,
-				bestStreak:
-					typeof ap.bestStreak === "number"
-						? Math.max(0, ap.bestStreak)
-						: 0,
-				recentResolutions: Array.isArray(ap.recentResolutions)
-					? ap.recentResolutions
-					: [],
-				dispatchesStarted:
-					typeof ap.dispatchesStarted === "number"
-						? Math.max(0, ap.dispatchesStarted)
-						: 0,
-				incidentsByArchetype:
-					typeof ap.incidentsByArchetype === "object"
-						? ap.incidentsByArchetype
-						: {},
-				maxResourceInventory:
-					typeof ap.maxResourceInventory === "object"
-						? ap.maxResourceInventory
-						: {},
-				uniqueVigilantesOwned:
-					p.ownedVigilanteIds && Array.isArray(p.ownedVigilanteIds)
-						? new Set(p.ownedVigilanteIds as string[])
-						: new Set(["bruce", "parya"]),
-				vigilanteInjuries:
-					typeof ap.vigilanteInjuries === "number"
-						? Math.max(0, ap.vigilanteInjuries)
-						: 0,
-				totalPlaytimeMs:
-					typeof ap.totalPlaytimeMs === "number"
-						? Math.max(0, ap.totalPlaytimeMs)
-						: 0,
-				sessionStartTime:
-					typeof ap.sessionStartTime === "number"
-						? ap.sessionStartTime
-						: Date.now(),
-			};
-		}
-
-		return {
-			level:
-				typeof p.level === "number" && p.level >= 1 && p.level <= 3
-					? p.level
-					: 1,
-			selectedIncidentId:
-				activeLeftTab === "incident" ? selectedFromSave : null,
-			incidents: Array.isArray(p.incidents)
-				? p.incidents
-					.map(parseStoredIncident)
-					.filter((x): x is Incident => x !== null)
-				: [],
-			showIncidentPanel: activeLeftTab === "incident",
-			showMinigamePanel: activeLeftTab === "minigame",
-			showPolicePanel: activeLeftTab === "police",
-			showInventoryPanel:
-				typeof p.showInventoryPanel === "boolean"
-					? p.showInventoryPanel
-					: true,
-			inventoryTab:
-				p.inventoryTab === "vigilantes" ||
-					p.inventoryTab === "resources" ||
-					p.inventoryTab === "buffs"
-					? p.inventoryTab
-					: "vigilantes",
-			ownedVigilanteIds: Array.isArray(p.ownedVigilanteIds)
-				? (p.ownedVigilanteIds as string[])
-				: ["bruce", "parya"],
-			recruitLeads: Array.isArray(p.recruitLeads)
-				? (p.recruitLeads as RecruitLead[])
-				: [],
-			consumedTheftSiteIds: Array.isArray(p.consumedTheftSiteIds)
-				? (p.consumedTheftSiteIds as string[]).filter(
-					(id): id is string => typeof id === "string",
-				)
-				: [],
-			resourcePool: mergeResourcePool(p.resourcePool),
-			credits:
-				typeof p.credits === "number" && Number.isFinite(p.credits)
-					? Math.max(0, Math.floor(p.credits))
-					: 500,
-			vigilanteInjuryUntil: pruneExpiredInjuries(
-				p.vigilanteInjuryUntil as Record<string, number> | undefined,
-				Date.now(),
-			),
-			careerStats: mergeCareerStats(p.careerStats),
-			purchasedUpgradeIds: Array.isArray(p.purchasedUpgradeIds)
-				? (p.purchasedUpgradeIds as string[])
-				: [],
-			purchasedBuffIds: mergePurchasedBuffIds(p.purchasedBuffIds),
-			unlockedAchievementIds: Array.isArray(p.unlockedAchievementIds)
-				? (
-					p.unlockedAchievementIds as
-					| string[]
-					| UnlockedAchievement[]
-				).map((a) =>
-					typeof a === "string"
-						? { achievementId: a, unlockedAt: Date.now() }
-						: a,
-				)
-				: [],
-			achievementProgress,
-			activeMinigame: null,
-			reputation:
-				typeof p.reputation === "number"
-					? Math.max(0, Math.min(100, p.reputation))
-					: 50,
-		};
-	} catch {
-		return initialState();
-	}
-}
-
-function saveState(saveKey: string, state: GameState) {
-	localStorage.setItem(saveKey, JSON.stringify(state));
 }
 
 function formatBombDefusalError(error: unknown): string {
@@ -1798,7 +1656,9 @@ function formatBombDefusalError(error: unknown): string {
 function mapBombDefusalRowToSession(
 	row:
 		| MultiplayerBombDefusalSessionRow
-		| (MultiplayerBombDefusalSessionRow & { session_state: BombDefusalSession }),
+		| (MultiplayerBombDefusalSessionRow & {
+				session_state: BombDefusalSession;
+		  }),
 ): BombDefusalSession {
 	if ("session_state" in row && row.session_state) {
 		return row.session_state;
@@ -1998,7 +1858,9 @@ export default function StreetMapScene({
 	} | null>(null);
 
 	const isGameplayPausedByMinigame =
-		inventorySorterMode !== null || state.activeMinigame !== null || pausedByOther;
+		inventorySorterMode !== null ||
+		state.activeMinigame !== null ||
+		pausedByOther;
 
 	// ── Pause tracking refs ───────────────────────────────────────────────────
 	// pauseStartedAtRef: wall-clock time when the current pause began.
@@ -2111,7 +1973,8 @@ export default function StreetMapScene({
 				...s,
 				careerStats: {
 					...s.careerStats,
-					totalPlaytimeMs: (s.careerStats.totalPlaytimeMs ?? 0) + 1000,
+					totalPlaytimeMs:
+						(s.careerStats.totalPlaytimeMs ?? 0) + 1000,
 				},
 			}));
 		}, 1000);
@@ -2205,20 +2068,9 @@ export default function StreetMapScene({
 			id: `${Date.now()}-${Math.random().toString(36).substr(2, 8)}`,
 		};
 
-		// If inventory is visible, close it first then show dialogue
-		if (state.showInventoryPanel) {
-			inventoryWasOpenRef.current = true;
-			pendingDialogueRef.current = dialogueWithId; // ← store with id
-			await waitForInventoryClose();
-			if (pendingDialogueRef.current) {
-				dialogueOpenRef.current = true;
-				setDialogue(pendingDialogueRef.current);
-				pendingDialogueRef.current = null;
-			}
-		} else {
-			dialogueOpenRef.current = true;
-			setDialogue(dialogueWithId);
-		}
+		// Show dialogue immediately - don't close inventory
+		dialogueOpenRef.current = true;
+		setDialogue(dialogueWithId);
 	};
 
 	const handlePoliceResolveIncident = useCallback((incidentId: string) => {
@@ -2256,13 +2108,35 @@ export default function StreetMapScene({
 		}
 	}, []);
 
+	const handleVigilanteResolveIncident = useCallback((incidentId: string) => {
+		setState((s) => {
+			const incident = s.incidents.find((i) => i.id === incidentId);
+			const deployedIds = incident?.deployedVigilanteIds ?? [];
+
+			// Set incident to resolving state and prepare for dice roll
+			return {
+				...s,
+				selectedIncidentId:
+					s.selectedIncidentId === incidentId ? null : s.selectedIncidentId,
+				incidents: s.incidents.map((inc) =>
+					inc.id === incidentId
+						? { ...inc, status: "resolving" as const }
+						: inc
+				),
+			};
+		});
+
+		// Trigger dice roll for vigilante resolution (will be handled by effect)
+	}, []);
+
 	const toggleExclusiveLeftPanel = useCallback(
-		(panel: "incident" | "minigame" | "police") => {
+		(panel: "incident" | "minigame" | "police" | "options") => {
 			setState((s) => {
 				const isSamePanelOpen =
 					(panel === "incident" && s.showIncidentPanel) ||
 					(panel === "minigame" && s.showMinigamePanel) ||
-					(panel === "police" && s.showPolicePanel);
+					(panel === "police" && s.showPolicePanel) ||
+					(panel === "options" && s.showOptionsPanel);
 
 				if (isSamePanelOpen) {
 					return {
@@ -2270,6 +2144,7 @@ export default function StreetMapScene({
 						showIncidentPanel: false,
 						showMinigamePanel: false,
 						showPolicePanel: false,
+						showOptionsPanel: false,
 						selectedIncidentId:
 							panel === "incident" ? null : s.selectedIncidentId,
 					};
@@ -2280,6 +2155,7 @@ export default function StreetMapScene({
 					showIncidentPanel: panel === "incident",
 					showMinigamePanel: panel === "minigame",
 					showPolicePanel: panel === "police",
+					showOptionsPanel: panel === "options",
 					selectedIncidentId:
 						panel === "incident" ? s.selectedIncidentId : null,
 				};
@@ -2288,34 +2164,10 @@ export default function StreetMapScene({
 		[],
 	);
 
-	// Dialogue-Inventory Interaction: auto-close inventory when dialogue opens,
-	// and restore it when dialogue closes only if it was open before.
-	// Note: `inventoryWasOpenRef` is set by `openDialogue` before dialogue appears.
-	useEffect(() => {
-		if (dialogue) {
-			// Dialogue opened: close inventory if it's still open
-			if (state.showInventoryPanel) {
-				setState((s) => ({
-					...s,
-					showInventoryPanel: false,
-				}));
-			}
-		} else {
-			// Dialogue closed: restore inventory only if it was previously open
-			if (inventoryWasOpenRef.current) {
-				setState((s) => ({
-					...s,
-					showInventoryPanel: true,
-				}));
-			}
-			// Reset the ref for next time
-			inventoryWasOpenRef.current = false;
-			// Also reset dialogue open flag when dialogue closes
-			dialogueOpenRef.current = false;
-		}
-		// Only run when dialogue opens/closes; intentionally depend on `dialogue`
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [dialogue]);
+	// Dialogue-Inventory Interaction: inventory can stay open while dialogue shows
+	// (no auto-close behavior)
+	// Removed: auto-close inventory when dialogue opens
+	// Note: inventoryWasOpenRef and dialogueOpenRef kept for potential future use
 
 	// TTS: speak dialogue text when it changes, but only once per unique text
 	useEffect(() => {
@@ -2329,17 +2181,25 @@ export default function StreetMapScene({
 					.then(() => {
 						// Only close if the dialogue that finished is still the active one
 						if (currentDialogueIdRef.current === dialogue.id) {
+							dialogueOpenRef.current = false;
 							setDialogue(null);
 						}
 					})
 					.catch((err) => {
 						console.warn("[TTS] failed to speak dialogue:", err);
+						// Even on TTS failure, close the dialogue and clear the blocking flag
+						if (currentDialogueIdRef.current === dialogue.id) {
+							dialogueOpenRef.current = false;
+							setDialogue(null);
+						}
 					});
 			}
 		} else {
 			tts.stop();
 			lastSpokenTextRef.current = null;
-			currentDialogueIdRef.current = null; // ← clear ref when no dialogue
+			currentDialogueIdRef.current = null;
+			// Reset the blocking flag when dialogue is not active
+			dialogueOpenRef.current = false;
 		}
 	}, [dialogue, tts]);
 
@@ -2418,6 +2278,18 @@ export default function StreetMapScene({
 		contextLabel: string;
 	} | null>(null);
 
+	// Separate dice roll state for vigilante resolutions (they don't use resources)
+	const [vigilanteRollOverlay, setVigilanteRollOverlay] = useState<{
+		incidentId: string;
+		rolled: number;
+		adjustedPercent: number;
+		beforeLuckPercent: number;
+		success: boolean;
+		phase: "rolling" | "outcome";
+		breakdown: DispatchRollBreakdown;
+		contextLabel: string;
+	} | null>(null);
+
 	const resolveIncidentTimeoutRef = useRef<number | null>(null);
 	const cloudPushInFlightRef = useRef(false);
 
@@ -2428,20 +2300,29 @@ export default function StreetMapScene({
 		PoliceRenderItem[]
 	>(() =>
 		STATIC_CHARACTER_BASES.filter((pin) => pin.kind === "police").map(
-			(pin) => ({
-				pinId: pin.id as PoliceRenderItem["pinId"],
-				name: pin.name,
-				initial: pin.initial,
-				lat: pin.lat,
-				lng: pin.lng,
-				mode: "patrolling",
-				visiblePath: [],
-				assignedIncidentId: null,
-			}),
+			(pin) => {
+				const officer = NPC_DIALOGUE.police.find((p) => p.id === pin.id);
+				return {
+					pinId: pin.id as PoliceRenderItem["pinId"],
+					name: pin.name,
+					initial: pin.initial,
+					portrait: officer?.portrait ?? "",
+					lat: pin.lat,
+					lng: pin.lng,
+					mode: "patrolling",
+					visiblePath: [],
+					assignedIncidentId: null,
+				};
+			},
 		),
 	);
 
 	const [policeEtaItems, setPoliceEtaItems] = useState<PoliceEtaItem[]>([]);
+
+	const [vigilanteRenderItems, setVigilanteRenderItems] = useState<
+		VigilanteRenderItem[]
+	>([]);
+	const [vigilanteEtaItems, setVigilanteEtaItems] = useState<VigilanteEtaItem[]>([]);
 
 	const levelBoundsRef = useRef<Map<number, LatLngBounds>>(new Map());
 	const spawnPlacesByLevelRef = useRef<Map<number, OsmPlace[]>>(new Map());
@@ -2490,7 +2371,8 @@ export default function StreetMapScene({
 							id: row.marker_id,
 							category: archetype,
 							typeLabel,
-							status: row.status === "active" ? "active" : "resolved",
+							status:
+								row.status === "active" ? "active" : "resolved",
 							lat: row.x,
 							lng: row.y,
 							title: row.title,
@@ -2520,10 +2402,14 @@ export default function StreetMapScene({
 							// Keep local gameplay state, but sync status from DB
 							merged.push({
 								...local,
-								status: dbInc.status === "resolved" ? "resolved" : local.status,
-								assignedResources: dbInc.assignedResources.length > 0
-									? dbInc.assignedResources
-									: local.assignedResources,
+								status:
+									dbInc.status === "resolved"
+										? "resolved"
+										: local.status,
+								assignedResources:
+									dbInc.assignedResources.length > 0
+										? dbInc.assignedResources
+										: local.assignedResources,
 							});
 						} else {
 							merged.push(dbInc);
@@ -2532,7 +2418,10 @@ export default function StreetMapScene({
 
 					// Keep locally-resolving incidents not yet in DB
 					for (const local of prev.incidents) {
-						if (!dbIds.has(local.id) && local.status === "resolving") {
+						if (
+							!dbIds.has(local.id) &&
+							local.status === "resolving"
+						) {
 							merged.push(local);
 						}
 					}
@@ -2640,7 +2529,10 @@ export default function StreetMapScene({
 				if (!active || !session) return;
 				applySessionState(session);
 			} catch (error) {
-				console.error("Failed to load multiplayer session state:", error);
+				console.error(
+					"Failed to load multiplayer session state:",
+					error,
+				);
 			}
 		};
 
@@ -2716,6 +2608,193 @@ export default function StreetMapScene({
 		}
 	}, [cloudSync]);
 
+	// Watch for vigilante-completed incidents that need dice rolls
+	useEffect(() => {
+		// Don't trigger if gameplay is paused or overlay is already showing
+		if (isGameplayPausedByMinigame || chanceRollOverlay) return;
+
+		const incidentsNeedingRoll = state.incidents.filter(
+			(inc) =>
+				inc.status === "resolving" &&
+				inc.deployedVigilanteIds &&
+				inc.deployedVigilanteIds.length > 0 &&
+				!inc.resolution, // Not yet resolved
+		);
+
+		if (incidentsNeedingRoll.length === 0) return;
+
+		const incident = incidentsNeedingRoll[0];
+		const incidentId = incident.id;
+		const deployedVigIds = incident.deployedVigilanteIds ?? [];
+
+		const deployedVigs = vigilantes.filter((v) =>
+			deployedVigIds.includes(v.id),
+		);
+
+		if (deployedVigs.length === 0) return;
+
+		// Extract resource IDs from assignedResources (AssignedResource[] -> string[])
+		const resourceIds = (incident.assignedResources ?? []).map(
+			(r) => r.resource,
+		);
+
+		// Calculate success chance using the same logic as manual deployment
+		const result = calculateSimpleSuccess(
+			incident.successChance,
+			incident.category,
+			incident.typeLabel,
+			deployedVigs,
+			resourceIds,
+			state.purchasedUpgradeIds,
+			0, // No rapid response bonus for auto-resolved
+		);
+
+		const rolled = generateRoll(result.avgArchetypeFit);
+
+		const rollOutcome: IncidentRollResolution = {
+			success: rolled < result.beforeLuckPercent,
+			adjustedPercent: result.successPercent,
+			beforeLuckPercent: result.beforeLuckPercent,
+			rolled,
+			baseChancePercent: incident.successChance,
+			resourceMultiplier: 1,
+			buffMultiplier: 1,
+			incidentSpecificMultiplier: result.incidentSpecificMultiplier,
+			vigilanteMultiplier: 1,
+			avgArchetypeFit: result.avgArchetypeFit,
+			staffingSupportMultiplier: 1,
+			gearPresenceMultiplier: 1,
+			luckDeltaPercent: 0,
+		};
+
+		// Show the dice roll overlay
+		setChanceRollOverlay({
+			incidentId: incidentId,
+			rolled: rollOutcome.rolled,
+			adjustedPercent: rollOutcome.adjustedPercent,
+			beforeLuckPercent: rollOutcome.beforeLuckPercent,
+			success: rollOutcome.success,
+			phase: "rolling",
+			hadDeployedGear: resourceIds.length > 0,
+			breakdown: {
+				baseChancePercent: rollOutcome.baseChancePercent,
+				resourceMultiplier: rollOutcome.resourceMultiplier,
+				buffMultiplier: rollOutcome.buffMultiplier,
+				incidentSpecificMultiplier: rollOutcome.incidentSpecificMultiplier,
+				vigilanteMultiplier: rollOutcome.vigilanteMultiplier,
+				avgArchetypeFit: rollOutcome.avgArchetypeFit,
+				staffingSupportMultiplier: rollOutcome.staffingSupportMultiplier,
+				gearPresenceMultiplier: rollOutcome.gearPresenceMultiplier,
+				luckDeltaPercent: rollOutcome.luckDeltaPercent,
+			},
+			contextLabel: `${incident.typeLabel} · ${fallbackTypeLabel(incident.category)}`,
+		});
+
+		// Set timeout to finish resolution after roll animation
+		const RESOLVE_MS = 2600;
+		const finishIncidentResolution = () => {
+			resolveIncidentTimeoutRef.current = null;
+			resolveIncidentDueAtRef.current = null;
+			resolveIncidentResumeFnRef.current = null;
+			pausedResolveRemainingMsRef.current = null;
+
+			setState((s) => {
+				const cur = s.incidents.find((x) => x.id === incidentId);
+				if (!cur || cur.status !== "resolving") return s;
+
+				const deployed = cur.deployedResourceIds ?? [];
+				let pool = s.resourcePool;
+				if (deployed.length > 0) {
+					if (rollOutcome.success) {
+						pool = returnDeployment(pool, deployed);
+					} else if (rollScavengerSalvage(s.purchasedUpgradeIds)) {
+						pool = returnDeployment(pool, deployed);
+					} else {
+						pool = forfeitDeployment(pool, deployed);
+					}
+				}
+
+				const missionCredits = rollOutcome.success ? 80 : 20;
+				const reputationDelta = rollOutcome.success ? 0 : -33;
+
+				const achievementUpdates = achievements.trackIncidentResolution(
+					incident.category,
+					rollOutcome.success,
+					missionCredits,
+				);
+
+				return {
+					...s,
+					resourcePool: pool,
+					credits: Math.max(0, s.credits + missionCredits),
+					careerStats: {
+						...s.careerStats,
+						dispatchesCompleted: s.careerStats.dispatchesCompleted + 1,
+						incidentsResolvedSuccess:
+							s.careerStats.incidentsResolvedSuccess +
+							(rollOutcome.success ? 1 : 0),
+						incidentsResolvedFailure:
+							s.careerStats.incidentsResolvedFailure +
+							(rollOutcome.success ? 0 : 1),
+					},
+					achievementProgress: {
+						...s.achievementProgress,
+						...achievementUpdates,
+					},
+					incidents: s.incidents.map((x) =>
+						x.id === incidentId
+							? {
+									...x,
+									status: "resolved" as const,
+									deployedResourceIds: [],
+									resolution: {
+										success: rollOutcome.success,
+										adjustedPercent: rollOutcome.adjustedPercent,
+										beforeLuckPercent: rollOutcome.beforeLuckPercent,
+										rolled: rollOutcome.rolled,
+										baseChancePercent: rollOutcome.baseChancePercent,
+										resourceMultiplier: rollOutcome.resourceMultiplier,
+										buffMultiplier: rollOutcome.buffMultiplier,
+										incidentSpecificMultiplier:
+											rollOutcome.incidentSpecificMultiplier,
+										vigilanteMultiplier: rollOutcome.vigilanteMultiplier,
+										avgArchetypeFit: rollOutcome.avgArchetypeFit,
+										staffingSupportMultiplier:
+											rollOutcome.staffingSupportMultiplier,
+										gearPresenceMultiplier:
+											rollOutcome.gearPresenceMultiplier,
+										luckDeltaPercent: rollOutcome.luckDeltaPercent,
+									} as IncidentResolution,
+								}
+							: x,
+					),
+					reputation: Math.max(
+						0,
+						Math.min(100, s.reputation + reputationDelta),
+					),
+				};
+			});
+
+			if (!rollOutcome.success) {
+				triggerReputationLoss(33);
+			}
+
+			setChanceRollOverlay((prev) =>
+				prev && prev.incidentId === incidentId
+					? { ...prev, phase: "outcome" }
+					: prev,
+			);
+		};
+
+		resolveIncidentResumeFnRef.current = finishIncidentResolution;
+		resolveIncidentDueAtRef.current = Date.now() + RESOLVE_MS;
+
+		resolveIncidentTimeoutRef.current = window.setTimeout(
+			finishIncidentResolution,
+			RESOLVE_MS,
+		);
+	}, [state.incidents, chanceRollOverlay, isGameplayPausedByMinigame]); // Dependencies
+
 	useEffect(() => {
 		if (!cloudSync) return;
 		const id = window.setInterval(() => {
@@ -2785,10 +2864,10 @@ export default function StreetMapScene({
 						incident.status === "resolved"
 							? incident
 							: {
-								...incident,
-								createdAt: incident.createdAt + pausedMs,
-								expiresAt: incident.expiresAt + pausedMs,
-							},
+									...incident,
+									createdAt: incident.createdAt + pausedMs,
+									expiresAt: incident.expiresAt + pausedMs,
+								},
 					),
 					recruitLeads: s.recruitLeads.map((lead) => ({
 						...lead,
@@ -2933,7 +3012,6 @@ export default function StreetMapScene({
 	const handleIncidentSelect = (id: string) => {
 		setSelectedRecruitLeadId(null);
 		setSelectedOwnedVigilanteId(null);
-		setDialogue(null);
 		setShowVettingModal(false);
 		setSelectedTheftSiteId(null);
 		setState((s) => {
@@ -2952,6 +3030,7 @@ export default function StreetMapScene({
 				showIncidentPanel: true,
 				showMinigamePanel: false,
 				showPolicePanel: false,
+				showOptionsPanel: false,
 			};
 		});
 	};
@@ -2960,7 +3039,6 @@ export default function StreetMapScene({
 	const handleIncidentPanelRowClick = (id: string) => {
 		setSelectedRecruitLeadId(null);
 		setSelectedOwnedVigilanteId(null);
-		setDialogue(null);
 		setShowVettingModal(false);
 		setSelectedTheftSiteId(null);
 		setState((s) => ({
@@ -2969,31 +3047,48 @@ export default function StreetMapScene({
 			showIncidentPanel: true,
 			showMinigamePanel: false,
 			showPolicePanel: false,
+			showOptionsPanel: false,
 		}));
 	};
 
 	const handleRecruitSelect = (lead: RecruitLead) => {
-		setDialogue(null);
 		setShowVettingModal(false);
 		setSelectedTheftSiteId(null);
-		setState((s) => ({ ...s, selectedIncidentId: null }));
+		setState((s) => ({
+			...s,
+			selectedIncidentId: null,
+			showIncidentPanel: false,
+			showPolicePanel: false,
+			showOptionsPanel: false,
+		}));
 		setOverlayMode("recruit");
 		setSelectedOwnedVigilanteId(null);
 		setSelectedRecruitLeadId(lead.id);
 	};
 
 	const handleOwnedVigilanteSelect = (vigilanteId: string) => {
-		setDialogue(null);
 		setShowVettingModal(false);
 		setSelectedTheftSiteId(null);
-		setState((s) => ({ ...s, selectedIncidentId: null }));
+		setState((s) => ({
+			...s,
+			selectedIncidentId: null,
+			showIncidentPanel: false,
+			showPolicePanel: false,
+			showOptionsPanel: false,
+		}));
 		setOverlayMode("owned");
 		setSelectedRecruitLeadId(null);
 		setSelectedOwnedVigilanteId(vigilanteId);
 	};
 
 	const handleCharacterSelect = (pin: CharacterPin) => {
-		setState((s) => ({ ...s, selectedIncidentId: null }));
+		setState((s) => ({
+			...s,
+			selectedIncidentId: null,
+			showIncidentPanel: false,
+			showPolicePanel: false,
+			showOptionsPanel: false,
+		}));
 		setSelectedRecruitLeadId(null);
 		setSelectedOwnedVigilanteId(null);
 		setShowVettingModal(false);
@@ -3012,15 +3107,15 @@ export default function StreetMapScene({
 				pastIncidents: getPastIncidentsForAI(state.incidents, 10),
 				currentIncident: state.selectedIncidentId
 					? {
-						type:
-							state.incidents.find(
-								(i) => i.id === state.selectedIncidentId,
-							)?.category || "unknown",
-						description:
-							state.incidents.find(
-								(i) => i.id === state.selectedIncidentId,
-							)?.summary || "",
-					}
+							type:
+								state.incidents.find(
+									(i) => i.id === state.selectedIncidentId,
+								)?.category || "unknown",
+							description:
+								state.incidents.find(
+									(i) => i.id === state.selectedIncidentId,
+								)?.summary || "",
+						}
 					: undefined,
 				situation:
 					"Vigilante reporting to their handler or discussing the mission.",
@@ -3077,15 +3172,15 @@ export default function StreetMapScene({
 				pastIncidents: getPastIncidentsForAI(state.incidents, 10),
 				currentIncident: state.selectedIncidentId
 					? {
-						type:
-							state.incidents.find(
-								(i) => i.id === state.selectedIncidentId,
-							)?.category || "unknown",
-						description:
-							state.incidents.find(
-								(i) => i.id === state.selectedIncidentId,
-							)?.summary || "",
-					}
+							type:
+								state.incidents.find(
+									(i) => i.id === state.selectedIncidentId,
+								)?.category || "unknown",
+							description:
+								state.incidents.find(
+									(i) => i.id === state.selectedIncidentId,
+								)?.summary || "",
+						}
 					: undefined,
 				situation:
 					"Citizen reporting information or reacting to ongoing events in the neighborhood.",
@@ -3132,15 +3227,15 @@ export default function StreetMapScene({
 				pastIncidents: getPastIncidentsForAI(state.incidents, 10),
 				currentIncident: state.selectedIncidentId
 					? {
-						type:
-							state.incidents.find(
-								(i) => i.id === state.selectedIncidentId,
-							)?.category || "unknown",
-						description:
-							state.incidents.find(
-								(i) => i.id === state.selectedIncidentId,
-							)?.summary || "",
-					}
+							type:
+								state.incidents.find(
+									(i) => i.id === state.selectedIncidentId,
+								)?.category || "unknown",
+							description:
+								state.incidents.find(
+									(i) => i.id === state.selectedIncidentId,
+								)?.summary || "",
+						}
 					: undefined,
 				situation:
 					"Chief Williams discussing the state of the city and vigilante operations.",
@@ -3190,15 +3285,15 @@ export default function StreetMapScene({
 			pastIncidents: getPastIncidentsForAI(state.incidents, 10),
 			currentIncident: state.selectedIncidentId
 				? {
-					type:
-						state.incidents.find(
-							(i) => i.id === state.selectedIncidentId,
-						)?.category || "unknown",
-					description:
-						state.incidents.find(
-							(i) => i.id === state.selectedIncidentId,
-						)?.summary || "",
-				}
+						type:
+							state.incidents.find(
+								(i) => i.id === state.selectedIncidentId,
+							)?.category || "unknown",
+						description:
+							state.incidents.find(
+								(i) => i.id === state.selectedIncidentId,
+							)?.summary || "",
+					}
 				: undefined,
 			situation:
 				"Police officer discussing the incident or giving orders to vigilantes.",
@@ -3227,11 +3322,16 @@ export default function StreetMapScene({
 	};
 
 	const handleTheftSiteSelect = (site: TheftSite) => {
-		setDialogue(null);
 		setSelectedRecruitLeadId(null);
 		setSelectedOwnedVigilanteId(null);
 		setShowVettingModal(false);
-		setState((s) => ({ ...s, selectedIncidentId: null }));
+		setState((s) => ({
+			...s,
+			selectedIncidentId: null,
+			showIncidentPanel: false,
+			showPolicePanel: false,
+			showOptionsPanel: false,
+		}));
 		setSelectedTheftSiteId(site.id);
 	};
 
@@ -3274,10 +3374,15 @@ export default function StreetMapScene({
 			showIncidentPanel: true,
 			showMinigamePanel: false,
 			showPolicePanel: false,
+			showOptionsPanel: false,
+			// Reputation penalty for theft
+			reputation: Math.max(0, s.reputation - 25),
 		}));
 
 		if (mode === "multiplayer" && sessionId) {
-			const nextConsumed = stateRef.current.consumedTheftSiteIds.includes(site.id)
+			const nextConsumed = stateRef.current.consumedTheftSiteIds.includes(
+				site.id,
+			)
 				? stateRef.current.consumedTheftSiteIds
 				: [...stateRef.current.consumedTheftSiteIds, site.id];
 
@@ -3332,10 +3437,10 @@ export default function StreetMapScene({
 				careerStats: alreadyOwned
 					? s.careerStats
 					: {
-						...s.careerStats,
-						vigilantesRecruited:
-							s.careerStats.vigilantesRecruited + 1,
-					},
+							...s.careerStats,
+							vigilantesRecruited:
+								s.careerStats.vigilantesRecruited + 1,
+						},
 			};
 		});
 
@@ -4124,15 +4229,15 @@ export default function StreetMapScene({
 					incidents: s.incidents.map((x) =>
 						x.id === id
 							? {
-								...x,
-								status: "resolving" as const,
-								deployedResourceIds: [
-									...payload.resourceIds,
-								],
-								deployedVigilanteIds: [
-									...payload.vigilanteIds,
-								],
-							}
+									...x,
+									status: "resolving" as const,
+									deployedResourceIds: [
+										...payload.resourceIds,
+									],
+									deployedVigilanteIds: [
+										...payload.vigilanteIds,
+									],
+								}
 							: x,
 					),
 					activeMinigame: {
@@ -4196,11 +4301,11 @@ export default function StreetMapScene({
 				incidents: s.incidents.map((x) =>
 					x.id === id
 						? {
-							...x,
-							status: "resolving" as const,
-							deployedResourceIds: [...payload.resourceIds],
-							deployedVigilanteIds: [...payload.vigilanteIds],
-						}
+								...x,
+								status: "resolving" as const,
+								deployedResourceIds: [...payload.resourceIds],
+								deployedVigilanteIds: [...payload.vigilanteIds],
+							}
 						: x,
 				),
 			};
@@ -4372,10 +4477,25 @@ export default function StreetMapScene({
 
 		let alive = true;
 		const MAX_ACTIVE = 100;
-		const SPAWN_INTERVAL_MS = 5_000;
+
+		const getSpawnIntervalForLevel = (level: number) => {
+			switch (level) {
+				case 1:
+					return 30_000;
+				case 2:
+					return 20_000;
+				case 3:
+					return 15_000;
+				default:
+					return 30_000;
+			}
+		};
 
 		const scheduleNext = () => {
 			if (!alive) return;
+			const currentLevel = stateRef.current.level;
+			const interval = getSpawnIntervalForLevel(currentLevel);
+
 			window.setTimeout(() => {
 				if (!alive) return;
 
@@ -4458,7 +4578,7 @@ export default function StreetMapScene({
 					};
 				});
 				scheduleNext();
-			}, SPAWN_INTERVAL_MS);
+			}, interval);
 		};
 
 		scheduleNext();
@@ -4471,6 +4591,7 @@ export default function StreetMapScene({
 		isHost,
 		sessionId,
 		startPlacesFetchForLevel,
+		state.level,
 	]);
 
 	useEffect(() => {
@@ -4531,10 +4652,10 @@ export default function StreetMapScene({
 							Math.random() < 0.45
 								? randomFrom(undercoverAvailable)
 								: randomFrom(
-									normalAvailable.length > 0
-										? normalAvailable
-										: available,
-								);
+										normalAvailable.length > 0
+											? normalAvailable
+											: available,
+									);
 					} else {
 						chosen = randomFrom(
 							normalAvailable.length > 0
@@ -4653,11 +4774,11 @@ export default function StreetMapScene({
 					careerStats:
 						expiredIncidentIds.size > 0
 							? {
-								...prev.careerStats,
-								incidentsExpired:
-									prev.careerStats.incidentsExpired +
-									expiredIncidentIds.size,
-							}
+									...prev.careerStats,
+									incidentsExpired:
+										prev.careerStats.incidentsExpired +
+										expiredIncidentIds.size,
+								}
 							: prev.careerStats,
 					// Reputation penalty for expiration handled in expireIncident, but this bypasses that.
 					// We'll add reputation penalty here for consistency.
@@ -4677,6 +4798,11 @@ export default function StreetMapScene({
 	}, [isGameplayPausedByMinigame, mode, sessionId, selectedRecruitLeadId]);
 
 	const incidentCitizenPins = useMemo(() => {
+		// If citizens are disabled, return empty array
+		if (!state.showCitizensNearIncidents) {
+			return [];
+		}
+
 		const activeIncidents = state.incidents.filter(isOngoingIncident);
 
 		const citizenTemplates = [
@@ -4701,38 +4827,31 @@ export default function StreetMapScene({
 					lng: stable.lng,
 				};
 			});
-	}, [state.incidents]);
+	}, [state.incidents, state.showCitizensNearIncidents]);
 
 	const visibleDynamicPins = useMemo(() => {
 		const policePins: CharacterPin[] = policeRenderItems.map((item) => ({
 			id: item.pinId,
 			name: item.name,
 			initial: item.initial,
+			portrait: item.portrait,
 			kind: "police",
 			lat: item.lat,
 			lng: item.lng,
 		}));
 
-		const ownedRoster = vigilantes.filter((v) =>
-			state.ownedVigilanteIds.includes(v.id),
-		);
+		const vigilantePins: CharacterPin[] = vigilanteRenderItems.map((item) => ({
+			id: item.pinId,
+			name: item.name,
+			initial: item.initial,
+			portrait: item.portrait,
+			kind: "vigilante",
+			lat: item.lat,
+			lng: item.lng,
+		}));
 
-		const ownedPins: CharacterPin[] = ownedRoster.map((v, i) => {
-			const off =
-				OWNED_VIG_MARKER_OFFSETS[i % OWNED_VIG_MARKER_OFFSETS.length];
-
-			return {
-				id: v.id,
-				name: v.alias,
-				initial: v.name[0]?.toUpperCase() ?? "V",
-				kind: "vigilante",
-				lat: BASE[0] + off.dLat,
-				lng: BASE[1] + off.dLng,
-			};
-		});
-
-		return [...incidentCitizenPins, ...policePins, ...ownedPins];
-	}, [state.ownedVigilanteIds, incidentCitizenPins, policeRenderItems]);
+		return [...incidentCitizenPins, ...policePins, ...vigilantePins];
+	}, [incidentCitizenPins, policeRenderItems, vigilanteRenderItems]);
 
 	const zoomConfig = useMemo(
 		() => ({
@@ -4770,8 +4889,8 @@ export default function StreetMapScene({
 		() =>
 			selectedRecruitLead
 				? (vigilantes.find(
-					(v) => v.id === selectedRecruitLead.vigilanteId,
-				) ?? null)
+						(v) => v.id === selectedRecruitLead.vigilanteId,
+					) ?? null)
 				: null,
 		[selectedRecruitLead],
 	);
@@ -4858,6 +4977,40 @@ export default function StreetMapScene({
 		});
 	}, [state.incidents]);
 
+	const [zoomRemainingMs, setZoomRemainingMs] = useState(300000);
+	const lastZoomTimeRef = useRef<number>(Date.now());
+
+	useEffect(() => {
+		if (mode !== "singleplayer") return; // only for singleplayer
+		if (gameOverState.open) return; // stop when game over
+		if (isGameplayPausedByMinigame) return; // pause during minigames
+
+		if (state.level >= 3) {
+			setZoomRemainingMs(0); // no further zoom
+			return;
+		}
+
+		const interval = setInterval(() => {
+			const now = Date.now();
+			const elapsed = now - lastZoomTimeRef.current;
+			const remaining = Math.max(0, 300000 - elapsed);
+			setZoomRemainingMs(remaining);
+
+			if (remaining <= 0) {
+				setState((s) => {
+					if (s.level < 3) {
+						return { ...s, level: s.level + 1 };
+					}
+					return s;
+				});
+				lastZoomTimeRef.current = now; // reset for next minute
+				setZoomRemainingMs(300000);
+			}
+		}, 250); // update 4 times per second
+
+		return () => clearInterval(interval);
+	}, [mode, gameOverState.open, isGameplayPausedByMinigame, state.level]);
+
 	return (
 		<div className="fixed inset-0">
 			<style>{`
@@ -4883,7 +5036,8 @@ export default function StreetMapScene({
         .leaflet-pane.theftSitePane { z-index: 900 !important; }
         .leaflet-marker-icon.vigilante-character-icon,
         .leaflet-marker-icon.vigilante-recruit-icon,
-        .leaflet-marker-icon.vigilante-theftsite-icon {
+        .leaflet-marker-icon.vigilante-theftsite-icon,
+        .leaflet-marker-icon.police-character-icon {
           pointer-events: auto !important;
         }
 
@@ -4892,7 +5046,9 @@ export default function StreetMapScene({
         .vigilante-recruit-icon > div,
         .vigilante-recruit-icon > div > div,
         .vigilante-theftsite-icon > div,
-        .vigilante-theftsite-icon > div > div {
+        .vigilante-theftsite-icon > div > div,
+        .police-character-icon > div,
+        .police-character-icon > div > div {
           cursor: pointer !important;
           pointer-events: none !important;
         }
@@ -4976,6 +5132,18 @@ export default function StreetMapScene({
 				))}
 			</AnimatePresence>
 
+			{/* New zoom timer */}
+			{mode === "singleplayer" && !gameOverState.open && (
+				<div className="absolute top-4 left-4 z-[970] bg-black/50 backdrop-blur-sm rounded-lg px-3 py-2 border border-amber-900/40 text-amber-100 text-xs pointer-events-none">
+					Level {state.level}
+					{state.level < 3 && (
+						<span className="ml-2 text-amber-300/70">
+							({Math.ceil(zoomRemainingMs / 1000)}s)
+						</span>
+					)}
+				</div>
+			)}
+
 			<MapContainer
 				center={CENTER}
 				zoom={zoomConfig.initialZoom}
@@ -5035,6 +5203,40 @@ export default function StreetMapScene({
 							? new Date(multiplayerStartedAt).getTime()
 							: null
 					}
+				/>
+				<VigilanteSystem
+					incidents={state.incidents.map((incident) => ({
+						id: incident.id,
+						lat: incident.lat,
+						lng: incident.lng,
+						status:
+							incident.status === "active"
+								? "active"
+								: incident.status === "resolved"
+									? "resolved"
+									: "resolving",
+						createdAt: incident.createdAt,
+						expiresAt: incident.expiresAt,
+						deployedVigilanteIds: incident.deployedVigilanteIds,
+					}))}
+					ownedVigilanteSheets={vigilantes.filter((v) =>
+						state.ownedVigilanteIds.includes(v.id),
+					).map((v) => ({
+						id: v.id,
+						name: v.name,
+						alias: v.alias,
+						stats: v.stats,
+						portrait: v.portrait,
+					}))}
+					ownedVigilanteIds={state.ownedVigilanteIds}
+					onVigilanteRenderUpdate={setVigilanteRenderItems}
+					onVigilanteEtaUpdate={setVigilanteEtaItems}
+					onVigilanteResolveIncident={handleVigilanteResolveIncident}
+					paused={isGameplayPausedByMinigame}
+					timerSlowdownMultiplier={getTimerSlowdownMultiplier(
+						state.purchasedUpgradeIds,
+					)}
+					getBaseLocation={() => BASE}
 				/>
 				<CharacterMarkers
 					pins={visibleDynamicPins}
@@ -5119,9 +5321,9 @@ export default function StreetMapScene({
 														isGameplayPausedByMinigame
 															? () => { }
 															: () =>
-																expireRecruitLead(
-																	selectedRecruitLead.id,
-																)
+																	expireRecruitLead(
+																		selectedRecruitLead.id,
+																	)
 													}
 													paused={
 														isGameplayPausedByMinigame
@@ -5218,109 +5420,106 @@ export default function StreetMapScene({
 
 			<AnimatePresence>
 				{dialogue ? (
-					<>
-						{/* Backdrop – closes dialogue when clicked outside */}
-						<motion.div
-							initial={{ opacity: 0 }}
-							animate={{ opacity: 1 }}
-							exit={{ opacity: 0 }}
-							transition={{ duration: 0.2 }}
-							className="fixed inset-0 z-[2015] bg-black/30"
-							onClick={() => setDialogue(null)}
-						/>
-						{/* Dialogue container – stop propagation to prevent backdrop click from closing */}
-						<motion.div
-							initial={{ opacity: 0, y: 16 }}
-							animate={{ opacity: 1, y: 0 }}
-							exit={{ opacity: 0, y: 10 }}
-							transition={{ duration: 0.2, ease: "easeOut" }}
-							className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[2020] w-[min(52vw,720px)] min-w-[320px]"
-							onClick={(e) => e.stopPropagation()}
-						>
-							<div className="overflow-hidden rounded-xl border border-amber-900/40 bg-black/75 shadow-lg backdrop-blur-md relative">
-								{dialogue.dialogueType && (
-									<div className="absolute top-3 right-4 flex items-center justify-center rounded-full py-1 px-3 text-[9px] leading-none font-bold uppercase tracking-wider bg-transparent text-amber-400 border border-amber-900/40">
-										{dialogue.dialogueType === "past"
-											? "reminiscing"
-											: dialogue.dialogueType ===
-												"current"
-												? "responding"
-												: dialogue.dialogueType ===
-													"story"
-													? "story"
-													: ""}
-									</div>
-								)}
-								<div className="flex items-start">
-									<div className="shrink-0 border-r border-amber-900/30">
-										<div className="relative h-[160px] w-[120px] overflow-hidden rounded-none pt-10">
-											<Image
-												src={dialogue.portrait}
-												alt={dialogue.name}
-												fill
-												className="object-cover object-top"
-												sizes="132px"
-											/>
-										</div>
-									</div>
-									<div className="flex h-[160px] flex-1 flex-col justify-between px-4 py-3">
-										<div>
-											<div className="text-[10px] uppercase tracking-[0.2em] text-amber-400/70">
-												{dialogue.role}
-											</div>
-											<div className="flex items-center gap-2 mt-1">
-												<div className="text-base font-bold text-amber-100">
-													{dialogue.name}
-												</div>
-											</div>
+        <>
+          {/* Backdrop closes the dialogue when clicking outside */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-[2015] bg-black/30"
+            onClick={() => setDialogue(null)}
+          />
 
-											{/* Spectrogram animation */}
-											<div className="mt-3 h-5 overflow-hidden">
-												<div className="flex h-full items-end gap-[3px]">
-													{Array.from({
-														length: 20,
-													}).map((_, i) => (
-														<div
-															key={i}
-															className="flex h-4 items-end"
-														>
-															<motion.div
-																className="w-[2px] rounded-full bg-amber-400/70"
-																animate={{
-																	height: [
-																		3, 12,
-																		5, 16,
-																		4,
-																	],
-																}}
-																transition={{
-																	duration: 0.8,
-																	repeat: Infinity,
-																	repeatType:
-																		"loop",
-																	delay:
-																		i *
-																		0.05,
-																	ease: "easeInOut",
-																}}
-																style={{
-																	height: 4,
-																}}
-															/>
-														</div>
-													))}
-												</div>
-											</div>
-
-											<p className="mt-2 line-clamp-2 text-sm leading-relaxed text-amber-100/80">
-												{dialogue.text}
-											</p>
+          {/* Dialogue container */}
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            className="absolute bottom-6 left-1/2 z-[2020] w-[min(52vw,720px)] min-w-[320px] -translate-x-1/2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="relative overflow-hidden rounded-xl border border-amber-900/40 bg-black/75 shadow-lg backdrop-blur-md">
+              {dialogue.dialogueType && (
+                <div className="absolute top-3 right-4 flex items-center justify-center rounded-full border border-amber-900/40 bg-transparent px-3 py-1 text-[9px] font-bold leading-none uppercase tracking-wider text-amber-400">
+                  {dialogue.dialogueType === "past"
+                    ? "reminiscing"
+                    : dialogue.dialogueType === "current"
+                      ? "responding"
+                      : dialogue.dialogueType === "story"
+                        ? "story"
+                        : ""}
+                </div>
+              )}
+              <div className="flex items-start">
+                <div className="shrink-0 border-r border-amber-900/30">
+                  <div className="relative h-[160px] w-[120px] overflow-hidden rounded-none pt-10">
+                    <Image
+                      src={dialogue.portrait}
+                      alt={dialogue.name}
+                      fill
+                      className="object-cover object-top"
+                      sizes="132px"
+                    />
+                  </div>
+                </div>    
+									</div>
+								</div>
+								<div className="flex h-[160px] flex-1 flex-col justify-between px-4 py-3">
+									<div>
+										<div className="text-[10px] uppercase tracking-[0.2em] text-amber-400/70">
+											{dialogue.role}
 										</div>
+										<div className="flex items-center gap-2 mt-1">
+											<div className="text-base font-bold text-amber-100">
+												{dialogue.name}
+											</div>
+										</div>
+
+										{/* Spectrogram animation */}
+										<div className="mt-3 h-5 overflow-hidden">
+											<div className="flex h-full items-end gap-[3px]">
+												{Array.from({
+													length: 20,
+												}).map((_, i) => (
+													<div
+														key={i}
+														className="flex h-4 items-end"
+													>
+														<motion.div
+															className="w-[2px] rounded-full bg-amber-400/70"
+															animate={{
+																height: [
+																	3, 12, 5,
+																	16, 4,
+																],
+															}}
+															transition={{
+																duration: 0.8,
+																repeat: Infinity,
+																repeatType:
+																	"loop",
+																delay: i * 0.05,
+																ease: "easeInOut",
+															}}
+															style={{
+																height: 4,
+															}}
+														/>
+													</div>
+												))}
+											</div>
+										</div>
+
+									<p className="mt-2 text-sm leading-relaxed text-amber-100/80">
+										{dialogue.text}
+									</p>
 									</div>
 								</div>
 							</div>
-						</motion.div>
-					</>
+						</div>
+					</motion.div>
 				) : null}
 			</AnimatePresence>
 
@@ -5518,37 +5717,55 @@ export default function StreetMapScene({
 												} w-full rounded-lg border`}
 										>
 											<div className="flex min-h-0 flex-1 flex-col justify-center">
-												<div className="flex h-[64px] w-full shrink-0 items-center gap-3">
-													<div
-														className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] ${inc.status ===
-															"resolved"
-															? "border-amber-800/50 bg-amber-950/35 text-amber-200/70"
-															: inc.status ===
-																"resolving"
-																? "border-amber-700/60 bg-amber-950/40 text-amber-200"
-																: "border-red-900 bg-red-900/30 text-red-300"
-															}`}
-													>
-														{inc.status === "active"
-															? "!"
-															: inc.status ===
-																"resolving"
-																? "…"
-																: "·"}
-													</div>
-													<div className="flex h-[64px] min-w-0 flex-1 flex-col justify-center gap-1 overflow-hidden">
-														<div className="max-h-[26px] overflow-hidden font-semibold text-[12px] leading-[13px] tracking-tight text-amber-50/95">
-															{inc.title}
-														</div>
-														<div
-															className="max-h-[26px] overflow-hidden text-[11px] leading-[13px] text-amber-200/70"
-															title={inc.summary}
-														>
-															{inc.summary}
-														</div>
-													</div>
+                        <div className="flex h-[64px] w-full shrink-0 items-center gap-3">
+                          <div
+                            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] ${
+                              inc.status === "resolved"
+                                ? "border-amber-800/50 bg-amber-950/35 text-amber-200/70"
+                                : inc.status === "resolving"
+                                  ? "border-amber-700/60 bg-amber-950/40 text-amber-200"
+                                  : "border-red-900 bg-red-900/30 text-red-300"
+                            }`}
+                          >
+                            {inc.status === "active"
+                              ? "!"
+                              : inc.status === "resolving"
+                                ? "…"
+                                : "·"}
+                          </div>
+                          <div className="flex h-[64px] min-w-0 flex-1 flex-col justify-center gap-1 overflow-hidden">
+                            <div className="max-h-[26px] overflow-hidden font-semibold text-[12px] leading-[13px] tracking-tight text-amber-50/95">
+                              {inc.title}
+                            </div>
+                            <div
+                              className="max-h-[26px] overflow-hidden text-[11px] leading-[13px] text-amber-200/70"
+                              title={inc.summary}
+                            >
+                              {inc.summary}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+											{/* ADD THIS BLOCK: Countdown for active incidents */}
+											{inc.status === "active" && (
+												<div className="mt-1 text-[10px] text-amber-200/70">
+													Expires in:{" "}
+													{formatEta(
+														Math.max(
+															0,
+															inc.expiresAt -
+																inc.createdAt -
+																(nowTick -
+																	inc.createdAt) *
+																	getTimerSlowdownMultiplier(
+																		state.purchasedUpgradeIds,
+																	),
+														),
+													)}
 												</div>
-											</div>
+											)}
+
 											{inc.status === "active" ? (
 												<IncidentTimerBar
 													createdAt={inc.createdAt}
@@ -5560,9 +5777,9 @@ export default function StreetMapScene({
 														isGameplayPausedByMinigame
 															? () => { }
 															: () =>
-																expireIncident(
-																	inc.id,
-																)
+																	expireIncident(
+																		inc.id,
+																	)
 													}
 													paused={
 														isGameplayPausedByMinigame
@@ -5664,7 +5881,7 @@ export default function StreetMapScene({
 											className="w-full text-left rounded-lg border px-3 py-2 text-xs border-amber-900/50 bg-black/40 text-amber-200/80 shadow-[inset_0_1px_0_rgba(251,191,36,0.03)]"
 										>
 											<div className="flex items-start gap-3">
-												<div className="mt-0.5 h-5 w-5 rounded-full border border-red-900 bg-red-900/30 flex items-center justify-center text-[11px] text-red-300">
+												<div className="mt-0.5 h-7 w-7 rounded-full border border-red-900 bg-red-900/30 flex items-center justify-center text-sm text-red-300">
 													P
 												</div>
 												<div className="flex-1">
@@ -5711,6 +5928,87 @@ export default function StreetMapScene({
 				</AnimatePresence>
 			</div>
 
+			{/* Options Tab (below police, matches style) */}
+			<div
+				className="fixed left-0 flex items-start"
+				style={{ top: 120 + 40, zIndex: 2000 }}
+			>
+				<div className="pointer-events-auto">
+					<button
+						type="button"
+						onClick={() => toggleExclusiveLeftPanel("options")}
+						className="cursor-pointer rounded-r-full rounded-l-none border border-amber-900/60 bg-black/75 px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-amber-200/80 hover:border-amber-500/80 hover:text-amber-100 transition-colors flex items-center gap-1 shadow-[0_0_18px_rgba(120,53,15,0.18)]"
+					>
+						<span>Options</span>
+						<span className="text-[11px] flex items-center">
+							{state.showOptionsPanel ? (
+								<ChevronLeft className="w-3 h-3" aria-hidden />
+							) : (
+								<ChevronRight className="w-3 h-3" aria-hidden />
+							)}
+						</span>
+					</button>
+				</div>
+
+				<AnimatePresence initial={false}>
+					{state.showOptionsPanel && (
+						<motion.div
+							key="options-panel"
+							initial={{ x: -320, opacity: 0 }}
+							animate={{ x: 0, opacity: 1 }}
+							exit={{ x: -320, opacity: 0 }}
+							transition={{
+								type: "tween",
+								duration: 0.22,
+								ease: "easeOut",
+							}}
+							className="pointer-events-auto ml-2 w-72 max-w-[80vw] rounded-xl border border-amber-900/40 bg-black/55 backdrop-blur-md shadow-xl shadow-black/60 flex flex-col"
+						>
+							<div className="flex items-center justify-between px-4 py-3 border-b border-amber-900/40">
+								<div className="text-xs font-semibold tracking-[0.18em] uppercase text-amber-300/80">
+									Options
+								</div>
+							</div>
+
+						<div className="flex-1 p-4 space-y-4">
+							<VolumeSlider />
+
+							{/* Citizens Near Incidents Toggle */}
+							<div className="flex items-center justify-between">
+								<div className="text-[11px] uppercase tracking-[0.16em] text-amber-200/80">
+									Citizens at Incidents
+								</div>
+								<button
+									type="button"
+									role="switch"
+									aria-checked={state.showCitizensNearIncidents}
+									onClick={() =>
+										setState((s) => ({
+											...s,
+											showCitizensNearIncidents: !s.showCitizensNearIncidents,
+										}))
+									}
+									className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:ring-offset-2 focus:ring-offset-black ${
+										state.showCitizensNearIncidents
+											? "bg-amber-600/80"
+											: "bg-amber-900/40"
+									}`}
+								>
+									<span
+										className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white/90 shadow-lg ring-0 transition duration-200 ease-in-out mt-0.5 ${
+											state.showCitizensNearIncidents
+												? "translate-x-4"
+												: "translate-x-0.5"
+										}`}
+									/>
+								</button>
+							</div>
+						</div>
+						</motion.div>
+					)}
+				</AnimatePresence>
+			</div>
+
 			{chanceRollOverlay && (
 				<IncidentChanceRollOverlay
 					rolled={chanceRollOverlay.rolled}
@@ -5734,7 +6032,11 @@ export default function StreetMapScene({
 							if (mode === "multiplayer" && sessionId) {
 								const sb = getSupabaseBrowserClient();
 								sb.auth.getUser().then(({ data }) => {
-									if (data?.user?.id) void updateSessionPausedBy(sessionId, data.user.id);
+									if (data?.user?.id)
+										void updateSessionPausedBy(
+											sessionId,
+											data.user.id,
+										);
 								});
 							}
 						}
@@ -5869,15 +6171,15 @@ export default function StreetMapScene({
 				incident={
 					selectedIncident && selectedIncident.status === "active"
 						? {
-							id: selectedIncident.id,
-							category: selectedIncident.category,
-							typeLabel: selectedIncident.typeLabel,
-							title: selectedIncident.title,
-							summary: selectedIncident.summary,
-							createdAt: selectedIncident.createdAt,
-							expiresAt: selectedIncident.expiresAt,
-							successChance: selectedIncident.successChance,
-						}
+								id: selectedIncident.id,
+								category: selectedIncident.category,
+								typeLabel: selectedIncident.typeLabel,
+								title: selectedIncident.title,
+								summary: selectedIncident.summary,
+								createdAt: selectedIncident.createdAt,
+								expiresAt: selectedIncident.expiresAt,
+								successChance: selectedIncident.successChance,
+							}
 						: null
 				}
 				ownedVigilanteIds={state.ownedVigilanteIds}
@@ -5888,10 +6190,10 @@ export default function StreetMapScene({
 					isGameplayPausedByMinigame
 						? () => { }
 						: () => {
-							if (selectedIncident?.status === "active")
-								expireIncident(selectedIncident.id);
-							setDeployModalOpen(false);
-						}
+								if (selectedIncident?.status === "active")
+									expireIncident(selectedIncident.id);
+								setDeployModalOpen(false);
+							}
 				}
 				onConfirm={handleDeployConfirm}
 				purchasedUpgradeIds={state.purchasedUpgradeIds}
@@ -6086,7 +6388,8 @@ export default function StreetMapScene({
 						startingValuesRef.current?.vigilanteCount ??
 						state.ownedVigilanteIds.length,
 					policeHeat: 100 - state.reputation, // police heat as inverse of reputation
-					lootedResources: state.achievementProgress.totalCreditsEarned || 0,
+					lootedResources:
+						state.achievementProgress.totalCreditsEarned || 0,
 				}}
 				onQuit={() => {
 					// For now, quit goes to main menu or reloads

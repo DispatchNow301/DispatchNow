@@ -98,7 +98,7 @@ interface CalculationResult {
 	reasoning: string;
 }
 
-function calculateSuccessChance(
+export function calculateSuccessChance(
 	req: SuccessCalculationRequest,
 ): CalculationResult {
 	const incidentType = req.incidentType.toLowerCase();
