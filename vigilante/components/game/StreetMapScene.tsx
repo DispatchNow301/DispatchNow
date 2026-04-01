@@ -5018,6 +5018,47 @@ export default function StreetMapScene({
 		return () => window.clearInterval(id);
 	}, [isGameplayPausedByMinigame]);
 
+	const incidentLiveRef = useRef<HTMLDivElement>(null);
+	const incidentAnnoucedRef = useRef<Record<string, { sixty: boolean, thirty: boolean }>>({});
+
+	useEffect(() => {
+		if (!incidentLiveRef.current) return;
+
+		const active = state.incidents.filter(
+			(inc) => inc.status === "active" && inc.expiresAt > nowTick
+		);
+
+		if (active.length === 0) return;
+
+		const mostUrgent = active.sort((a, b) => a.expiresAt - b.expiresAt)[0];
+		const secondsLeft = Math.round((mostUrgent.expiresAt - nowTick) / 1000);
+
+		if (!incidentAnnoucedRef.current[mostUrgent.id]) {
+			incidentAnnoucedRef.current[mostUrgent.id] = { sixty: false, thirty: false };
+		}
+
+		const track = incidentAnnoucedRef.current[mostUrgent.id];
+
+		if (secondsLeft <= 30 && !track.thirty) {
+			track.thirty = true;
+			incidentLiveRef.current.textContent =
+				"Urgent: an incident expires in approximately 30 seconds.";
+		} else if (secondsLeft <= 60 && !track.sixty) {
+			track.sixty = true;
+			incidentLiveRef.current.textContent =
+				"Warning: an incident expires in approximately one minute.";
+		}
+
+		for (const id of Object.keys(incidentAnnoucedRef.current)) {
+			const stillExists = state.incidents.some(
+				(inc) => inc.id === id && inc.status === "active"
+			);
+			if (!stillExists) {
+				delete incidentAnnoucedRef.current[id];
+			}
+		}
+	}, [nowTick, state.incidents]);
+
 	const selectedRecruitMsLeft = selectedRecruitLead
 		? Math.max(0, selectedRecruitLead.expiresAt - nowTick)
 		: 0;
@@ -5243,6 +5284,13 @@ export default function StreetMapScene({
           will-change: opacity, transform;
         }
       `}</style>
+
+			<div
+				ref={incidentLiveRef}
+				aria-live="assertive"
+				aria-atomic="true"
+				className="sr-only"
+			/>
 
 			{/* Reputation loss notifications */}
 			<AnimatePresence mode="popLayout">

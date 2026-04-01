@@ -51,7 +51,11 @@ export const IncidentTimerBar = React.memo(function IncidentTimerBar({
     const ratio = Math.max(0, Math.min(1, remainingMs / totalMs));
 
     return (
-        <div className="mt-2 h-[3px] w-full overflow-hidden rounded-full bg-amber-900/40">
+        <div 
+            className="mt-2 h-[3px] w-full overflow-hidden rounded-full bg-amber-900/40"
+            role="timer"
+            aria-label={`Incident timer: ${Math.round(ratio * 100)}% remaining`}
+        >
             <div
                 className="h-full origin-left bg-amber-500/70 transition-[width] duration-100 linear"
                 style={{ width: `${ratio * 100}%` }}
