@@ -372,6 +372,35 @@ export default function FireMinigame({ difficulty = 0, onSuccess, onFailure }: P
 		return () => clearTimeout(t);
 	}, [result]);
 
+	useEffect(() => {
+		// Only listen for keys when the game is actively being played
+		if (phase !== "playing") return;
+
+		const onKeyDown = (e: KeyboardEvent) => {
+			// Space bar or Enter key held down = same as holding the mouse button
+			if (e.key === " " || e.key === "Enter") {
+				e.preventDefault(); // stops the page from scrolling when Space is pressed
+				press();
+			}
+		};
+
+		const onKeyUp = (e: KeyboardEvent) => {
+			// Releasing Space or Enter = same as lifting the mouse button
+			if (e.key === " " || e.key === "Enter") {
+				release();
+			}
+		};
+
+		window.addEventListener("keydown", onKeyDown);
+		window.addEventListener("keyup", onKeyUp);
+
+		// Cleanup: remove the listeners when the game ends or the component unmounts
+		return () => {
+			window.removeEventListener("keydown", onKeyDown);
+			window.removeEventListener("keyup", onKeyUp);
+		};
+	}, [phase, press, release]);
+
 	const meterColor =
 		uiProgress > 0.6 ? "#d97706" : uiProgress > 0.3 ? "#b45309" : "#b91c1c";
 
@@ -396,6 +425,7 @@ export default function FireMinigame({ difficulty = 0, onSuccess, onFailure }: P
 				onMouseUp={phase === "playing" ? release : undefined}
 				onTouchStart={phase === "playing" ? press : undefined}
 				onTouchEnd={phase === "playing" ? release : undefined}
+				aria-label={phase === "playing" ? "Fire containment game. Hold space to push the water bar up, release to drop." : undefined}
 			>
 				{/* Panel */}
 				<div
@@ -533,12 +563,12 @@ export default function FireMinigame({ difficulty = 0, onSuccess, onFailure }: P
 									{
 										label: "HOLD",
 										col: "rgba(217,119,6,0.90)",
-										text: "Click and hold to push the water bar upward.",
+										text: "Click/hold or press Space to push the water bar upward.",
 									},
 									{
 										label: "RELEASE",
 										col: "rgba(96,165,250,0.90)",
-										text: "Let go to drop it. It bounces off the edges.",
+										text: "Let go or release Space to drop it. It bounces off the edges.",
 									},
 									{
 										label: "COVER",

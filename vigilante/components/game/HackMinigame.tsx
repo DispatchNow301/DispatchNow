@@ -1123,10 +1123,20 @@ export default function HackMinigame({ seed, difficulty = 0, onSuccess, onFailur
 											}}
 										>
 											{/* Word tile */}
-											<div
+											<button
+												type="button"
 												onClick={() =>
 													handleWordClick(wi)
 												}
+												disabled={solved}
+												aria-label={
+													solved
+													? `Word ${wi + 1}: solved`
+													: isSelected
+														? `Word ${wi + 1}: selected, type your guess below`
+														: `Word ${wi + 1}: select to attempt`
+												}
+												aria-pressed={isSelected}
 												style={{
 													display: "flex",
 													gap: 6,
@@ -1216,7 +1226,7 @@ export default function HackMinigame({ seed, difficulty = 0, onSuccess, onFailur
 														</div>
 													);
 												})}
-											</div>
+											</button>
 
 											{/* Hint badges */}
 											{activeHints.length > 0 && (
