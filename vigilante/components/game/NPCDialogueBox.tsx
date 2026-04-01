@@ -4,6 +4,9 @@ import type { StaticImageData } from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useRef } from "react";
 import { Volume2 } from "lucide-react";
+import { useReducedMotion } from "framer-motion";
+
+const shouldReduce = useReducedMotion();
 
 export type DialogueSpeaker = {
 	id: string;
@@ -174,7 +177,7 @@ export default function NPCDialogueBox({
 													<motion.div
 														key={i}
 														className="w-1 bg-amber-400/70 rounded-full"
-														animate={{
+														animate={shouldReduce ? {} : {
 															height: [
 																4, 16, 8, 20, 4,
 															],
